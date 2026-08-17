@@ -255,6 +255,119 @@ export type Database = {
           },
         ]
       }
+      attendance_status_records: {
+        Row: {
+          attendance_status_id: string
+          created_at: string
+          created_by: string | null
+          employee_id: string
+          external_id: string | null
+          id: string
+          is_current: boolean
+          reason: string | null
+          source: string
+          source_hash: string
+          source_updated_at: string | null
+          source_version: number
+          sync_run_id: string | null
+          synced_at: string
+          work_date: string
+        }
+        Insert: {
+          attendance_status_id: string
+          created_at?: string
+          created_by?: string | null
+          employee_id: string
+          external_id?: string | null
+          id?: string
+          is_current?: boolean
+          reason?: string | null
+          source: string
+          source_hash: string
+          source_updated_at?: string | null
+          source_version?: number
+          sync_run_id?: string | null
+          synced_at?: string
+          work_date: string
+        }
+        Update: {
+          attendance_status_id?: string
+          created_at?: string
+          created_by?: string | null
+          employee_id?: string
+          external_id?: string | null
+          id?: string
+          is_current?: boolean
+          reason?: string | null
+          source?: string
+          source_hash?: string
+          source_updated_at?: string | null
+          source_version?: number
+          sync_run_id?: string | null
+          synced_at?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_status_records_attendance_status_id_fkey"
+            columns: ["attendance_status_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_statuses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_status_records_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_status_records_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_status_records_sync_run_id_fkey"
+            columns: ["sync_run_id"]
+            isOneToOne: false
+            referencedRelation: "sync_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_statuses: {
+        Row: {
+          active: boolean
+          category: string
+          code: string
+          created_at: string
+          id: string
+          name: string
+          requires_review: boolean
+        }
+        Insert: {
+          active?: boolean
+          category: string
+          code: string
+          created_at?: string
+          id?: string
+          name: string
+          requires_review?: boolean
+        }
+        Update: {
+          active?: boolean
+          category?: string
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
+          requires_review?: boolean
+        }
+        Relationships: []
+      }
       audit_log: {
         Row: {
           action: string
@@ -292,6 +405,84 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      bonus_policies: {
+        Row: {
+          amount: number
+          bonus_type_id: string
+          created_at: string
+          currency: string
+          effective_from: string
+          effective_to: string | null
+          employee_group_id: string
+          id: string
+          threshold_minutes: number | null
+          trigger_type: string
+        }
+        Insert: {
+          amount: number
+          bonus_type_id: string
+          created_at?: string
+          currency?: string
+          effective_from: string
+          effective_to?: string | null
+          employee_group_id: string
+          id?: string
+          threshold_minutes?: number | null
+          trigger_type: string
+        }
+        Update: {
+          amount?: number
+          bonus_type_id?: string
+          created_at?: string
+          currency?: string
+          effective_from?: string
+          effective_to?: string | null
+          employee_group_id?: string
+          id?: string
+          threshold_minutes?: number | null
+          trigger_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bonus_policies_bonus_type_id_fkey"
+            columns: ["bonus_type_id"]
+            isOneToOne: false
+            referencedRelation: "bonus_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bonus_policies_employee_group_id_fkey"
+            columns: ["employee_group_id"]
+            isOneToOne: false
+            referencedRelation: "employee_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bonus_types: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
       }
       daily_reviews: {
         Row: {
@@ -334,6 +525,119 @@ export type Database = {
             columns: ["weekly_review_id"]
             isOneToOne: false
             referencedRelation: "weekly_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employee_daily_bonuses: {
+        Row: {
+          amount: number
+          bonus_policy_id: string
+          created_at: string
+          currency: string
+          employee_id: string
+          granted_at: string
+          id: string
+          overtime_decision_id: string
+          work_date: string
+        }
+        Insert: {
+          amount: number
+          bonus_policy_id: string
+          created_at?: string
+          currency?: string
+          employee_id: string
+          granted_at?: string
+          id?: string
+          overtime_decision_id: string
+          work_date: string
+        }
+        Update: {
+          amount?: number
+          bonus_policy_id?: string
+          created_at?: string
+          currency?: string
+          employee_id?: string
+          granted_at?: string
+          id?: string
+          overtime_decision_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_daily_bonuses_bonus_policy_id_fkey"
+            columns: ["bonus_policy_id"]
+            isOneToOne: false
+            referencedRelation: "bonus_policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_daily_bonuses_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_daily_bonuses_overtime_decision_id_fkey"
+            columns: ["overtime_decision_id"]
+            isOneToOne: true
+            referencedRelation: "overtime_decisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employee_group_assignments: {
+        Row: {
+          created_at: string
+          effective_from: string
+          effective_to: string | null
+          employee_group_id: string
+          employee_id: string
+          id: string
+          source: string
+          sync_run_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          effective_from: string
+          effective_to?: string | null
+          employee_group_id: string
+          employee_id: string
+          id?: string
+          source?: string
+          sync_run_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          effective_from?: string
+          effective_to?: string | null
+          employee_group_id?: string
+          employee_id?: string
+          id?: string
+          source?: string
+          sync_run_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_group_assignments_employee_group_id_fkey"
+            columns: ["employee_group_id"]
+            isOneToOne: false
+            referencedRelation: "employee_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_group_assignments_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_group_assignments_sync_run_id_fkey"
+            columns: ["sync_run_id"]
+            isOneToOne: false
+            referencedRelation: "sync_runs"
             referencedColumns: ["id"]
           },
         ]
@@ -412,39 +716,48 @@ export type Database = {
       excel_exports: {
         Row: {
           created_at: string
+          export_scope: string
           file_hash: string | null
           generated_at: string
           generated_by: string
           id: string
-          snapshot_id: string
+          period_snapshot_id: string | null
+          reporting_period_id: string | null
+          snapshot_id: string | null
           storage_path: string | null
           template_version: string
           validation_status: string
-          weekly_review_id: string
+          weekly_review_id: string | null
         }
         Insert: {
           created_at?: string
+          export_scope?: string
           file_hash?: string | null
           generated_at?: string
           generated_by: string
           id?: string
-          snapshot_id: string
+          period_snapshot_id?: string | null
+          reporting_period_id?: string | null
+          snapshot_id?: string | null
           storage_path?: string | null
           template_version: string
           validation_status: string
-          weekly_review_id: string
+          weekly_review_id?: string | null
         }
         Update: {
           created_at?: string
+          export_scope?: string
           file_hash?: string | null
           generated_at?: string
           generated_by?: string
           id?: string
-          snapshot_id?: string
+          period_snapshot_id?: string | null
+          reporting_period_id?: string | null
+          snapshot_id?: string | null
           storage_path?: string | null
           template_version?: string
           validation_status?: string
-          weekly_review_id?: string
+          weekly_review_id?: string | null
         }
         Relationships: [
           {
@@ -452,6 +765,20 @@ export type Database = {
             columns: ["generated_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "excel_exports_period_snapshot_id_fkey"
+            columns: ["period_snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "period_snapshots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "excel_exports_reporting_period_id_fkey"
+            columns: ["reporting_period_id"]
+            isOneToOne: false
+            referencedRelation: "reporting_periods"
             referencedColumns: ["id"]
           },
           {
@@ -477,6 +804,7 @@ export type Database = {
           decided_by: string
           id: string
           is_current: boolean
+          justification_status: string | null
           justified: boolean
           late_arrival_record_id: string
           payroll_effect: string
@@ -489,6 +817,7 @@ export type Database = {
           decided_by: string
           id?: string
           is_current?: boolean
+          justification_status?: string | null
           justified: boolean
           late_arrival_record_id: string
           payroll_effect: string
@@ -501,6 +830,7 @@ export type Database = {
           decided_by?: string
           id?: string
           is_current?: boolean
+          justification_status?: string | null
           justified?: boolean
           late_arrival_record_id?: string
           payroll_effect?: string
@@ -819,6 +1149,48 @@ export type Database = {
         }
         Relationships: []
       }
+      period_snapshots: {
+        Row: {
+          created_at: string
+          generated_at: string
+          generated_by: string
+          id: string
+          payload: Json
+          reporting_period_id: string
+        }
+        Insert: {
+          created_at?: string
+          generated_at?: string
+          generated_by: string
+          id?: string
+          payload: Json
+          reporting_period_id: string
+        }
+        Update: {
+          created_at?: string
+          generated_at?: string
+          generated_by?: string
+          id?: string
+          payload?: Json
+          reporting_period_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "period_snapshots_generated_by_fkey"
+            columns: ["generated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "period_snapshots_reporting_period_id_fkey"
+            columns: ["reporting_period_id"]
+            isOneToOne: false
+            referencedRelation: "reporting_periods"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           active: boolean
@@ -842,6 +1214,63 @@ export type Database = {
           role?: string
         }
         Relationships: []
+      }
+      reporting_periods: {
+        Row: {
+          closed_at: string | null
+          closed_by: string | null
+          created_at: string
+          id: string
+          period_end: string
+          period_start: string
+          reopen_reason: string | null
+          reopened_at: string | null
+          reopened_by: string | null
+          status: Database["public"]["Enums"]["reporting_period_status"]
+          updated_at: string
+        }
+        Insert: {
+          closed_at?: string | null
+          closed_by?: string | null
+          created_at?: string
+          id?: string
+          period_end: string
+          period_start: string
+          reopen_reason?: string | null
+          reopened_at?: string | null
+          reopened_by?: string | null
+          status?: Database["public"]["Enums"]["reporting_period_status"]
+          updated_at?: string
+        }
+        Update: {
+          closed_at?: string | null
+          closed_by?: string | null
+          created_at?: string
+          id?: string
+          period_end?: string
+          period_start?: string
+          reopen_reason?: string | null
+          reopened_at?: string | null
+          reopened_by?: string | null
+          status?: Database["public"]["Enums"]["reporting_period_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reporting_periods_closed_by_fkey"
+            columns: ["closed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reporting_periods_reopened_by_fkey"
+            columns: ["reopened_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       schedule_assignments: {
         Row: {
@@ -924,6 +1353,87 @@ export type Database = {
           {
             foreignKeyName: "supervisor_assignments_supervisor_profile_id_fkey"
             columns: ["supervisor_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supporting_documents: {
+        Row: {
+          absence_record_id: string | null
+          attendance_status_record_id: string | null
+          created_at: string
+          document_type: string
+          employee_id: string
+          id: string
+          late_arrival_decision_id: string | null
+          mime_type: string
+          original_filename: string
+          storage_path: string
+          uploaded_at: string
+          uploaded_by: string
+        }
+        Insert: {
+          absence_record_id?: string | null
+          attendance_status_record_id?: string | null
+          created_at?: string
+          document_type: string
+          employee_id: string
+          id?: string
+          late_arrival_decision_id?: string | null
+          mime_type: string
+          original_filename: string
+          storage_path: string
+          uploaded_at?: string
+          uploaded_by: string
+        }
+        Update: {
+          absence_record_id?: string | null
+          attendance_status_record_id?: string | null
+          created_at?: string
+          document_type?: string
+          employee_id?: string
+          id?: string
+          late_arrival_decision_id?: string | null
+          mime_type?: string
+          original_filename?: string
+          storage_path?: string
+          uploaded_at?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supporting_documents_absence_record_id_fkey"
+            columns: ["absence_record_id"]
+            isOneToOne: false
+            referencedRelation: "absence_records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supporting_documents_attendance_status_record_id_fkey"
+            columns: ["attendance_status_record_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_status_records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supporting_documents_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supporting_documents_late_arrival_decision_id_fkey"
+            columns: ["late_arrival_decision_id"]
+            isOneToOne: false
+            referencedRelation: "late_arrival_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supporting_documents_uploaded_by_fkey"
+            columns: ["uploaded_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -1028,6 +1538,7 @@ export type Database = {
           reopen_reason: string | null
           reopened_at: string | null
           reopened_by: string | null
+          reporting_period_id: string | null
           status: Database["public"]["Enums"]["weekly_review_status"]
           updated_at: string
         }
@@ -1041,6 +1552,7 @@ export type Database = {
           reopen_reason?: string | null
           reopened_at?: string | null
           reopened_by?: string | null
+          reporting_period_id?: string | null
           status?: Database["public"]["Enums"]["weekly_review_status"]
           updated_at?: string
         }
@@ -1054,6 +1566,7 @@ export type Database = {
           reopen_reason?: string | null
           reopened_at?: string | null
           reopened_by?: string | null
+          reporting_period_id?: string | null
           status?: Database["public"]["Enums"]["weekly_review_status"]
           updated_at?: string
         }
@@ -1070,6 +1583,13 @@ export type Database = {
             columns: ["reopened_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "weekly_reviews_reporting_period_id_fkey"
+            columns: ["reporting_period_id"]
+            isOneToOne: false
+            referencedRelation: "reporting_periods"
             referencedColumns: ["id"]
           },
         ]
@@ -1132,7 +1652,24 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      late_arrival_daily_totals: {
+        Row: {
+          detected_minutes: number | null
+          employee_id: string | null
+          justification_status: string | null
+          payroll_minutes: number | null
+          work_date: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "late_arrival_records_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       [_ in never]: never
@@ -1150,6 +1687,12 @@ export type Database = {
         | "FULLY_APPROVED"
         | "PARTIALLY_APPROVED"
         | "REJECTED"
+      reporting_period_status:
+        | "OPEN"
+        | "IN_REVIEW"
+        | "READY_TO_CLOSE"
+        | "CLOSED"
+        | "REOPENED"
       sync_run_status: "RUNNING" | "SUCCEEDED" | "FAILED" | "PARTIAL"
       weekly_review_status: "OPEN" | "READY_TO_CLOSE" | "CLOSED" | "REOPENED"
     }
@@ -1295,6 +1838,13 @@ export const Constants = {
         "FULLY_APPROVED",
         "PARTIALLY_APPROVED",
         "REJECTED",
+      ],
+      reporting_period_status: [
+        "OPEN",
+        "IN_REVIEW",
+        "READY_TO_CLOSE",
+        "CLOSED",
+        "REOPENED",
       ],
       sync_run_status: ["RUNNING", "SUCCEEDED", "FAILED", "PARTIAL"],
       weekly_review_status: ["OPEN", "READY_TO_CLOSE", "CLOSED", "REOPENED"],
