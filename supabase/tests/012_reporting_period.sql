@@ -44,7 +44,7 @@ select is(
 );
 
 -- 5) excel_exports: WEEKLY_CHECK y FINAL_PERIOD exigen sus propias referencias
-insert into public.profiles (display_name, role) values ('Fixture Exporter', 'admin');
+insert into public.profiles (display_name, role) values ('Fixture Exporter', 'ADMIN_RRHH');
 insert into public.weekly_review_snapshots (weekly_review_id, generated_by, payload)
 values (
   (select id from public.weekly_reviews where period_start = date '2026-08-01' and period_end = date '2026-08-07'),

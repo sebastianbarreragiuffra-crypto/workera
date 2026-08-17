@@ -50,7 +50,7 @@ select throws_ok(
 );
 
 -- 6) Con created_by, la novedad manual se inserta correctamente (sección 11 del encargo)
-insert into public.profiles (display_name, role) values ('Fixture Supervisor Status', 'supervisor');
+insert into public.profiles (display_name, role) values ('Fixture Supervisor Status', 'SUPERVISOR_PRODUCTION');
 select lives_ok(
   format(
     $$ insert into public.attendance_status_records

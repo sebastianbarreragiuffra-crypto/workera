@@ -7,7 +7,7 @@ select plan(4);
 
 insert into public.employees (external_workera_id, first_name, last_name, display_name)
 values ('TEST2B-EMP-RECON-001', 'Fixture', 'Reconcile', 'Fixture Reconcile');
-insert into public.profiles (display_name, role) values ('Fixture Supervisor Reconcile', 'supervisor');
+insert into public.profiles (display_name, role) values ('Fixture Supervisor Reconcile', 'SUPERVISOR_PRODUCTION');
 
 -- 08:00 — Supervisor registra manualmente una licencia porque Workera no la trajo
 select lives_ok(

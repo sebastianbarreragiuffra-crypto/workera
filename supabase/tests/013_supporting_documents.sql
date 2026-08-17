@@ -6,13 +6,14 @@ select plan(4);
 
 insert into public.employees (external_workera_id, first_name, last_name, display_name)
 values ('TEST2B-EMP-DOC-001', 'Fixture', 'Doc', 'Fixture Doc');
-insert into public.profiles (display_name, role) values ('Fixture Uploader', 'supervisor');
+insert into public.profiles (display_name, role) values ('Fixture Uploader', 'SUPERVISOR_PRODUCTION');
 
-insert into public.absence_records (employee_id, absence_type_id, start_date, end_date, source, source_hash)
+insert into public.absence_records (employee_id, absence_type_id, start_date, end_date, source, source_hash, created_by)
 values (
   (select id from public.employees where external_workera_id = 'TEST2B-EMP-DOC-001'),
   (select id from public.absence_types where code = 'MEDICAL_LEAVE'),
-  date '2026-08-10', date '2026-08-15', 'manual', 'hash-doc-abs-1'
+  date '2026-08-10', date '2026-08-15', 'manual', 'hash-doc-abs-1',
+  (select id from public.profiles where display_name = 'Fixture Uploader')
 );
 
 -- 1) Metadata válida ligada a una absence_record se inserta

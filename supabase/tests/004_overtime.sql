@@ -49,7 +49,7 @@ select lives_ok(
   'overtime_records: candidate_minutes = 120 (clock_out real 19:45, tope aplicado) se inserta'
 );
 
-insert into public.profiles (display_name, role) values ('Fixture Decisor', 'supervisor');
+insert into public.profiles (display_name, role) values ('Fixture Decisor', 'SUPERVISOR_PRODUCTION');
 
 -- 3) Aprobación parcial válida: candidate=120, approved=90, rejected=30
 select lives_ok(

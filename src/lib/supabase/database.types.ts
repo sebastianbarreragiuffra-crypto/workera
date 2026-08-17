@@ -51,7 +51,7 @@ export type Database = {
           corrected_absence_type_id?: string | null
           created_at?: string
           decided_at?: string
-          decided_by: string
+          decided_by?: string
           decision_status: string
           id?: string
           is_current?: boolean
@@ -96,6 +96,7 @@ export type Database = {
         Row: {
           absence_type_id: string
           created_at: string
+          created_by: string | null
           employee_id: string
           end_date: string
           external_id: string | null
@@ -112,6 +113,7 @@ export type Database = {
         Insert: {
           absence_type_id: string
           created_at?: string
+          created_by?: string | null
           employee_id: string
           end_date: string
           external_id?: string | null
@@ -128,6 +130,7 @@ export type Database = {
         Update: {
           absence_type_id?: string
           created_at?: string
+          created_by?: string | null
           employee_id?: string
           end_date?: string
           external_id?: string | null
@@ -147,6 +150,13 @@ export type Database = {
             columns: ["absence_type_id"]
             isOneToOne: false
             referencedRelation: "absence_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "absence_records_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -188,6 +198,70 @@ export type Database = {
           name?: string
         }
         Relationships: []
+      }
+      attendance_corrections: {
+        Row: {
+          attendance_record_id: string
+          corrected_at: string
+          corrected_by: string
+          corrected_clock_in: string | null
+          corrected_clock_out: string | null
+          created_at: string
+          employee_id: string
+          id: string
+          is_current: boolean
+          reason: string
+          work_date: string
+        }
+        Insert: {
+          attendance_record_id: string
+          corrected_at?: string
+          corrected_by?: string
+          corrected_clock_in?: string | null
+          corrected_clock_out?: string | null
+          created_at?: string
+          employee_id: string
+          id?: string
+          is_current?: boolean
+          reason: string
+          work_date: string
+        }
+        Update: {
+          attendance_record_id?: string
+          corrected_at?: string
+          corrected_by?: string
+          corrected_clock_in?: string | null
+          corrected_clock_out?: string | null
+          created_at?: string
+          employee_id?: string
+          id?: string
+          is_current?: boolean
+          reason?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_corrections_attendance_record_id_fkey"
+            columns: ["attendance_record_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_corrections_corrected_by_fkey"
+            columns: ["corrected_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_corrections_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       attendance_records: {
         Row: {
@@ -734,7 +808,7 @@ export type Database = {
           export_scope?: string
           file_hash?: string | null
           generated_at?: string
-          generated_by: string
+          generated_by?: string
           id?: string
           period_snapshot_id?: string | null
           reporting_period_id?: string | null
@@ -814,7 +888,7 @@ export type Database = {
         Insert: {
           created_at?: string
           decided_at?: string
-          decided_by: string
+          decided_by?: string
           id?: string
           is_current?: boolean
           justification_status?: string | null
@@ -976,7 +1050,7 @@ export type Database = {
           approved_minutes: number
           created_at?: string
           decided_at?: string
-          decided_by: string
+          decided_by?: string
           decision_status: Database["public"]["Enums"]["overtime_decision_status"]
           id?: string
           is_current?: boolean
@@ -1161,7 +1235,7 @@ export type Database = {
         Insert: {
           created_at?: string
           generated_at?: string
-          generated_by: string
+          generated_by?: string
           id?: string
           payload: Json
           reporting_period_id: string
@@ -1197,21 +1271,21 @@ export type Database = {
           created_at: string
           display_name: string
           id: string
-          role: string
+          role: Database["public"]["Enums"]["app_role"] | null
         }
         Insert: {
           active?: boolean
           created_at?: string
           display_name: string
           id?: string
-          role: string
+          role?: Database["public"]["Enums"]["app_role"] | null
         }
         Update: {
           active?: boolean
           created_at?: string
           display_name?: string
           id?: string
-          role?: string
+          role?: Database["public"]["Enums"]["app_role"] | null
         }
         Relationships: []
       }
@@ -1386,7 +1460,7 @@ export type Database = {
           original_filename: string
           storage_path: string
           uploaded_at?: string
-          uploaded_by: string
+          uploaded_by?: string
         }
         Update: {
           absence_record_id?: string | null
@@ -1497,7 +1571,7 @@ export type Database = {
         Insert: {
           created_at?: string
           generated_at?: string
-          generated_by: string
+          generated_by?: string
           id?: string
           payload: Json
           weekly_review_id: string
@@ -1670,11 +1744,101 @@ export type Database = {
           },
         ]
       }
+      supporting_documents_metadata: {
+        Row: {
+          absence_record_id: string | null
+          attendance_status_record_id: string | null
+          created_at: string | null
+          document_type: string | null
+          employee_id: string | null
+          id: string | null
+          late_arrival_decision_id: string | null
+          mime_type: string | null
+          original_filename: string | null
+          uploaded_at: string | null
+          uploaded_by: string | null
+        }
+        Insert: {
+          absence_record_id?: string | null
+          attendance_status_record_id?: string | null
+          created_at?: string | null
+          document_type?: string | null
+          employee_id?: string | null
+          id?: string | null
+          late_arrival_decision_id?: string | null
+          mime_type?: string | null
+          original_filename?: string | null
+          uploaded_at?: string | null
+          uploaded_by?: string | null
+        }
+        Update: {
+          absence_record_id?: string | null
+          attendance_status_record_id?: string | null
+          created_at?: string | null
+          document_type?: string | null
+          employee_id?: string | null
+          id?: string | null
+          late_arrival_decision_id?: string | null
+          mime_type?: string | null
+          original_filename?: string | null
+          uploaded_at?: string | null
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supporting_documents_absence_record_id_fkey"
+            columns: ["absence_record_id"]
+            isOneToOne: false
+            referencedRelation: "absence_records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supporting_documents_attendance_status_record_id_fkey"
+            columns: ["attendance_status_record_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_status_records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supporting_documents_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supporting_documents_late_arrival_decision_id_fkey"
+            columns: ["late_arrival_decision_id"]
+            isOneToOne: false
+            referencedRelation: "late_arrival_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supporting_documents_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
-      [_ in never]: never
+      can_manage_employee: { Args: { p_employee_id: string }; Returns: boolean }
+      current_user_role: {
+        Args: never
+        Returns: Database["public"]["Enums"]["app_role"]
+      }
+      is_admin_rrhh: { Args: never; Returns: boolean }
+      is_corporate_user: { Args: never; Returns: boolean }
+      is_supervisor_installation: { Args: never; Returns: boolean }
+      is_supervisor_production: { Args: never; Returns: boolean }
     }
     Enums: {
+      app_role:
+        | "ADMIN_RRHH"
+        | "SUPERVISOR_PRODUCTION"
+        | "SUPERVISOR_INSTALLATION"
       daily_review_status:
         | "IMPORTED"
         | "PENDING_REVIEW"
@@ -1825,6 +1989,11 @@ export const Constants = {
   },
   public: {
     Enums: {
+      app_role: [
+        "ADMIN_RRHH",
+        "SUPERVISOR_PRODUCTION",
+        "SUPERVISOR_INSTALLATION",
+      ],
       daily_review_status: [
         "IMPORTED",
         "PENDING_REVIEW",

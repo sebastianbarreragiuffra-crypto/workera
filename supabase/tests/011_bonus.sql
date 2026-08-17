@@ -9,7 +9,7 @@ values (
   'TEST2B-EMP-BONUS-001', 'Fixture', 'Bonus', 'Fixture Bonus',
   (select id from public.employee_groups where code = 'PRODUCTION')
 );
-insert into public.profiles (display_name, role) values ('Fixture Decisor Bonus', 'supervisor');
+insert into public.profiles (display_name, role) values ('Fixture Decisor Bonus', 'SUPERVISOR_PRODUCTION');
 
 -- Caso 1: approved = 120 -> bono representable ($1.000 CLP)
 insert into public.attendance_records

@@ -9,7 +9,7 @@ create extension if not exists pgtap;
 begin;
 select plan(7);
 
-insert into public.profiles (display_name, role) values ('Fixture Supervisor Escenarios', 'supervisor');
+insert into public.profiles (display_name, role) values ('Fixture Supervisor Escenarios', 'SUPERVISOR_PRODUCTION');
 
 insert into public.employees (external_workera_id, first_name, last_name, display_name, employee_group_id)
 values (

@@ -26,7 +26,7 @@ values (
      where eg.code = 'PRODUCTION' and lap.day_of_week = 1)
 );
 
-insert into public.profiles (display_name, role) values ('Fixture Decisor LA2B', 'supervisor');
+insert into public.profiles (display_name, role) values ('Fixture Decisor LA2B', 'SUPERVISOR_PRODUCTION');
 
 -- 1) detected=13, justified=true, payroll=0 (caso del encargo sección 18) se inserta
 select lives_ok(

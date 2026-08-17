@@ -9,7 +9,7 @@ insert into public.employees (external_workera_id, first_name, last_name, displa
 values ('TEST-EMP-ASSIGN-001', 'Fixture', 'Assign', 'Fixture Assign');
 
 insert into public.profiles (display_name, role)
-values ('Fixture Supervisor', 'supervisor');
+values ('Fixture Supervisor', 'SUPERVISOR_PRODUCTION');
 
 insert into public.work_schedules (name) values ('Fixture Schedule');
 
