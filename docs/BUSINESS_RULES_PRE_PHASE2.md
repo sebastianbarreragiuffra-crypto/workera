@@ -1,305 +1,564 @@
-# Reglas de negocio y modelo de dominio — pre-Fase 2
+# Especificación de reglas de negocio — pre-Fase 2
 
-Estado: cierre de dominio funcional, previo al diseño de esquema. **No contiene DDL, migraciones, UI ni integración con Workera.** Se apoya en `docs/PRE_FASE2_WORKERA_VALIDATION.md` y `docs/EXCEL_WORKFLOW_ANALYSIS.md`; no repite lo ya decidido allí salvo para actualizarlo.
+**Versión 2** de este documento. Reemplaza y consolida la versión anterior (commit `0b568fb`) incorporando: modelo organizacional Administración/Producción, horarios formalizados, elegibilidad y fórmula de horas extra, regla de tope de 120 minutos, tratamiento de clock-out tardío, atrasos diarios/acumulados, y requisitos futuros de dashboard/tests. No se elimina contenido de los documentos anteriores — donde este documento reemplaza una sección previa, se indica explícitamente.
 
----
+Se apoya en, y no contradice:
+- `docs/PRE_FASE2_WORKERA_VALIDATION.md`
+- `docs/EXCEL_WORKFLOW_ANALYSIS.md`
 
-## 1. Modelo del dominio: hecho → cálculo → decisión → resultado
+**No contiene DDL, migraciones, UI ni integración con Workera.** Es la especificación funcional que Fase 2 usará para diseñar PostgreSQL.
 
-Regla no negociable para todo el dominio, no solo para horas extra:
-
-```
-HECHO ORIGINAL (Workera / reloj control)
-        ↓  nunca se edita in situ; si cambia, se versiona (sección 10 de este doc)
-INTERPRETACIÓN / CÁLCULO (¿quién calcula: Workera o nosotros? — por tipo, ver sección 9)
-        ↓  es un dato derivado, no una decisión
-DECISIÓN HUMANA (supervisor/admin, con cantidades explícitas, no solo un booleano)
-        ↓  siempre con actor + timestamp + motivo; nunca sobrescribe la decisión anterior sin dejar rastro
-RESULTADO PARA REMUNERACIONES (lo que efectivamente entra al Excel semanal cerrado)
-```
-
-Estas cuatro capas **nunca se colapsan en un único campo**. Esto ya estaba parcialmente decidido en los documentos anteriores; aquí se convierte en regla explícita aplicada a **todas** las categorías del Excel real (horas extra, atrasos, ausencias), no solo a horas extra.
+**Contradicciones encontradas entre documentos:** ninguna. Las reglas nuevas de este documento (Administración/Producción, horarios, fórmula de overtime, atrasos) son una **extensión** de lo ya decidido (hecho≠cálculo≠decisión, `OvertimeRecord`/`OvertimeDecision` separados, `SYNC_CONFLICT`, cierre semanal), no una revisión de esas decisiones.
 
 ---
 
-## 2 y 3. Horas extra: HH 50% / HH 100% y aprobación parcial
+## 0. Principio fundamental — HECHO ≠ CÁLCULO ≠ DECISIÓN
 
-**Una misma jornada puede tener ambos tipos simultáneamente** (ej. 2h al 50% + 1h al 100% el mismo día) — el Excel real ya lo sugiere con dos filas separadas por trabajador. El modelo no puede representar esto como dos columnas fijas (`hh50_minutes`, `hh100_minutes`) en una sola fila de "horas extra del día", porque:
-- Si en el futuro aparece una tercera tasa (ej. feriado irrenunciable, normativa distinta), habría que alterar la estructura de la tabla en vez de agregar un valor a un catálogo.
-- Cada tasa tiene su propio ciclo de detectado→decidido, y mezclarlas en columnas paralelas duplicaría toda la lógica de aprobación parcial dos veces.
-
-**Decisión:** `OvertimeRecord` representa **una franja de horas extra de un tipo específico**, no "las horas extra del día". Un día puede tener cero, uno o varios `OvertimeRecord` (uno por tasa/tipo detectado ese día). El "tipo" (`OVERTIME_50`, `OVERTIME_100`, y lo que se agregue después) es un valor de un catálogo controlado, no una columna. Esto es exactamente lo que evita el "hack" que pedías prevenir.
-
-**Aprobación parcial (obligatoria, no opcional):** cada `OvertimeRecord` tiene un `OvertimeDecision` asociado con **cantidades**, nunca un booleano:
+Reafirmado sin cambios respecto a la v1 de este documento, ahora aplicado también a horas extra de Producción y a atrasos con fórmulas concretas:
 
 ```
-OvertimeRecord.detected_minutes        = 120   (2h) — hecho/cálculo, inmutable una vez fijado
-OvertimeDecision.approved_minutes      = 90    (1h30) — decisión humana
-OvertimeDecision.rejected_minutes      = 30    (derivado: detected − approved, pero se persiste
-                                                 para que una consulta no dependa de recalcular)
-OvertimeDecision.status                = 'partially_approved' | 'fully_approved' |
-                                          'rejected' | 'pending'  (derivado de las cantidades,
-                                          persistido para poder filtrar/indexar sin recalcular)
+DATO ORIGINAL DE WORKERA (ej. clock_out = 19:32)
+        ↓  inmutable; si cambia después de una decisión, ver sección 15 (SYNC_CONFLICT)
+INTERPRETACIÓN / CÁLCULO DEL SISTEMA (ej. overtime_candidate = 120 min)
+        ↓  derivado por una POLICY centralizada (sección 12), nunca hardcodeado inline
+DECISIÓN HUMANA (ej. approved_overtime = 60 min)
+        ↓  con cantidad, actor, timestamp y motivo — nunca un booleano
+RESULTADO FINAL (lo que entra al Excel de una semana CLOSED)
 ```
-
-`approved_minutes` nunca puede exceder `detected_minutes` — esto es una validación `BLOCKING` ya identificada en `EXCEL_WORKFLOW_ANALYSIS.md` sección 6, y aquí queda confirmada como una restricción de integridad del dominio, no solo una alerta de UI.
 
 ---
 
-## 4. Estado del trabajador por fecha
+## 1. Organizational Model — Administración vs Producción
 
-Estados conceptuales (nombres no definitivos, catálogo controlado, no un enum fijo en código de aplicación — ver sección 10):
+**Decisión:** se introduce `EmployeeGroup` como el concepto operativo que **efectivamente conduce las reglas de negocio** (elegibilidad de horas extra, políticas aplicables), y se mantiene `department`/`cost_center` como **metadata descriptiva** proveniente de Workera, sin lógica de negocio atada directamente a ellos.
 
-`PRESENT`, `ABSENT`, `VACATION`, `MEDICAL_LEAVE`, `WORK_ACCIDENT_LEAVE`, `PERMISSION`, `DAY_OFF`, `HOLIDAY`, `UNKNOWN`, `NEEDS_REVIEW`.
+Razonamiento sobre las cuatro alternativas planteadas (`department`, `employee_group`, `organizational_unit`, `cost_center`):
 
-**`MEDICAL_LEAVE` (licencia médica común) y `WORK_ACCIDENT_LEAVE` (licencia mutual) se modelan como tipos distintos, no como una subcategoría del mismo tipo.** Motivo: en Chile tienen tratamiento legal y de pago distinto (licencia común se tramita vía Isapre/Fonasa con subsidio; licencia/accidente mutual lo cubre el organismo administrador de la Ley 16.744, con reglas de reposo y reincorporación distintas). Aunque hoy no sabemos si esto afecta el cálculo de remuneraciones dentro de nuestra app (pregunta **P0**, sección 15), separar el tipo desde el modelo no cuesta nada estructuralmente y evita una migración posterior si la respuesta es "sí, se tratan distinto".
+- **`department`/`cost_center`**: son atributos informativos de Workera (para reporting, agrupación visual), no deberían ser la fuente de la que dependa una regla como "¿tiene derecho a horas extra?" — si Workera cambia el nombre de un departamento o crea uno nuevo, no querémos que eso silenciosamente active o desactive elegibilidad de horas extra.
+- **`organizational_unit` genérico**: es la abstracción más flexible a largo plazo (permite jerarquías: empresa → sucursal → área → cuadrilla), pero es sobre-ingeniería para el requisito actual, que solo necesita distinguir dos grupos con reglas distintas. Se documenta como evolución posible, no se implementa ahora.
+- **`employee_group` — elegido**: un catálogo controlado y pequeño (`ADMINISTRATION`, `PRODUCTION`, extensible sin migración de esquema si se agrega un tercer grupo) que es **el punto de enganche real de las políticas** (`OvertimePolicy`, sección 12). Cada `WorkSchedule`/`OvertimePolicy` se asocia a un `employee_group`, no a un `department` de texto libre.
 
-**Minimización de datos (ya establecida en `PRE_FASE2_WORKERA_VALIDATION.md` sección 9, reafirmada aquí):** el estado de un `AbsenceRecord` guarda **tipo + fechas + referencia externa**, nunca diagnóstico, nunca motivo médico detallado. Si Workera expusiera un campo de diagnóstico, no se sincroniza a nuestra base.
+**Regla de elegibilidad confirmada:**
 
-`NEEDS_REVIEW` no es un estado que Workera entregue — es un estado que **nuestro sistema asigna** cuando hay ambigüedad (ver máquina de estados, sección 11).
+```
+PRODUCTION      → overtime_eligible = true (sujeto a política, sección 5-8)
+ADMINISTRATION  → overtime_eligible = false (dentro de este proceso)
+```
+
+Todo `Employee` debe tener un `employee_group` asignado; un trabajador sin clasificación organizacional es una validación `BLOCKING` (sección 18) — sin esto, el sistema no puede saber qué política de horas extra aplicar, y calcular candidatos de horas extra para alguien sin grupo sería inventar una regla.
 
 ---
 
-## 5. Correcciones manuales — reemplazo estructurado de los comentarios de Excel
+## 2. Fuente del `employee_group` (actualiza `PRE_FASE2_WORKERA_VALIDATION.md` sección 5-6)
 
-Patrón conceptual, aplicado consistentemente donde el Excel real usa comentarios narrativos hoy (asistencia, principalmente marcaciones faltantes/corregidas):
-
-```
-original_value       — el dato tal como llegó de Workera/reloj control, nunca se borra
-corrected_value       — el valor que el supervisor/admin determina correcto
-correction_reason     — texto, obligatorio (reemplaza el comentario libre de hoy)
-corrected_by          — quién
-corrected_at          — cuándo
-```
-
-Ejemplo real equivalente al de un comentario del Excel (`"Berrios no marco salida el 22-10 salida a las 18:30"`):
+Mismo patrón ya decidido para `SupervisorAssignment`, aplicado aquí:
 
 ```
-AttendanceRecord.check_out_original = null (no marcó)
-AttendanceCorrection.corrected_value = 18:30
-AttendanceCorrection.correction_reason = "No marcó salida, confirmado por supervisor"
-AttendanceCorrection.corrected_by = <usuario>
+Si Workera entrega un campo de departamento/grupo confiable y estable:
+    → se usa como semilla para poblar employee_group automáticamente en cada sync
+Si Workera no lo entrega, o no es confiable/estable:
+    → employee_group se administra manualmente en nuestra base (solo admin)
+En ambos casos:
+    → un admin puede corregir manualmente la asignación sin que el siguiente
+      sync la sobrescriba silenciosamente (mismo principio que supervisor↔trabajador)
 ```
 
-El valor original (`null`, en este caso "no marcó") **queda registrado como tal**, no se pierde reemplazándolo directamente en `AttendanceRecord`.
-
-**Decisión de diseño (ver también sección 10):** este patrón se implementa como **tabla específica por tipo de hecho corregible** (`AttendanceCorrection`), no como una tabla polimórfica genérica de "correcciones" — mismo razonamiento que para las decisiones: cada tipo de hecho corregible tiene columnas propias (una corrección de marcación tiene `check_in`/`check_out`; una eventual corrección de tipo de ausencia tendría otras columnas), y una tabla genérica forzaría columnas nulas o un payload JSONB que pierde validación a nivel de base de datos.
+**No se asume que Workera entrega esto de forma confiable** — es la pregunta P1 #6 de la sección 22. Hasta confirmarlo, el diseño de Fase 2 debe soportar ambos orígenes (`source: workera | internal` en la asignación, igual que `SupervisorAssignment`).
 
 ---
 
-## 6. "Se descuenta / no se descuenta" — dónde vive esta decisión
+## 3. Work Schedules — horarios formalizados
 
-Analizadas las tres opciones planteadas:
+Horario actual (dato real proporcionado, no inventado):
 
-**A. Parte de `DailyReview`** — descartada. `DailyReview` es un agregado del estado de revisión del día completo; convertirla en el lugar donde vive la decisión de descuento la sobrecargaría con un campo que en realidad depende de un hecho específico (un atraso, una marcación corregida), no del día como unidad. Además, un día puede tener más de una decisión de descuento (ej. un atraso Y una marcación corregida el mismo día), y `DailyReview` es 1:1 con el día — no puede representar varias sin volver a caer en el problema de columnas fijas de la sección 2.
-
-**B. Entidad separada y genérica (`PayrollAdjustmentDecision`)** — descartada como entidad independiente, por la misma razón que se descartó una tabla `Decision` genérica en la sección 10: sin una referencia fuertemente tipada al hecho que origina el descuento, se vuelve una tabla polimórfica difícil de validar e indexar bien en Postgres.
-
-**C. Decisión asociada directamente al hecho que la origina — recomendado.** El análisis del Excel real (`EXCEL_WORKFLOW_ANALYSIS.md` sección 2) muestra que "se descuenta o no" casi siempre está atado a un **atraso** o a una **marcación corregida**, no a la jornada como concepto abstracto. Por lo tanto:
-
-- `LateArrivalDecision` incluye un campo de efecto en remuneración: `payroll_effect: DEDUCT | DO_NOT_DEDUCT | NEEDS_REVIEW` (ver sección 7).
-- `AttendanceCorrection` puede, cuando corresponda, incluir el mismo tipo de campo si la corrección de marcación tiene implicancia de descuento (ej. una salida anticipada corregida y confirmada como injustificada).
-- No se crea una entidad nueva. El concepto "decisión de descuento" es un **atributo del dominio**, aplicado en el lugar donde ya existe una decisión humana con contexto suficiente para tomarla — evita duplicar el patrón decisión (actor, timestamp, motivo) en una tercera tabla paralela.
-
----
-
-## 7. Atrasos
-
-Mismo principio que horas extra, con sus propias entidades (no reutiliza `OvertimeRecord`/`OvertimeDecision` porque la semántica de cantidades es distinta — un atraso no se "aprueba parcialmente" en minutos de trabajo extra, se **justifica o no** y eso determina cuánto es descontable):
-
-```
-LateArrivalRecord.detected_minutes     = 20   — hecho/cálculo (marcación real vs. horario asignado)
-LateArrivalDecision.justified_minutes  = 20   — cuánto de eso se considera justificado
-LateArrivalDecision.deductible_minutes = 0    — lo que efectivamente afecta remuneración (derivado,
-                                                 persistido igual que en OvertimeDecision)
-LateArrivalDecision.payroll_effect     = DO_NOT_DEDUCT
-LateArrivalDecision.reason             = "Cita médica, boleta adjunta" (texto — reemplaza el
-                                          comentario libre real del Excel)
-```
-
-Este es el mismo caso que tu ejemplo (`Workera: 20 min → Supervisor: justificado → Resultado: 0 min descontables`), confirmado 1:1 contra la evidencia real del Excel (comentarios de citas médicas, tránsito, etc. justificando atrasos).
-
----
-
-## 8. Viáticos — fuera de alcance, sin cerrar la puerta
-
-Clasificación: **`OUT_OF_SCOPE_PENDING_CONFIRMATION`**. No se modela ninguna entidad para viáticos en esta etapa ni en Fase 2.
-
-Para no bloquear una futura incorporación sin rediseñar la arquitectura: el patrón hecho→cálculo→decisión→resultado y la estructura de "una entidad de registro + una entidad de decisión, referenciadas por `employee_id`+`date`" es genérico. Si más adelante se confirma que Viáticos entra al alcance, seguiría el mismo molde (`PerDiemRecord` + eventualmente una decisión si también requiere aprobación) sin tocar `Employee`, `DailyReview` ni el resto del modelo. No se reserva ninguna columna ni tabla vacía para esto ahora — extenderlo después es aditivo, no una migración destructiva.
-
----
-
-## 9. Matriz de fuente de verdad (actualizada)
-
-| Categoría | Fuente de verdad | Nota |
+| Día | Entrada | Salida |
 |---|---|---|
-| Empleado | Workera | Sin cambios respecto al documento anterior |
-| Supervisor↔trabajador | Nuestra base (sembrada desde Workera si está disponible) | Sin cambios — decisión ya tomada |
-| Marcaciones | Workera | Sin cambios |
-| Vacaciones | Workera, si disponible | Sin cambios |
-| Licencias (común y mutual) | Workera, si disponible | **Confirmado por el Excel real que deben distinguirse como tipos separados** (sección 4) |
-| Horas extra detectadas (minutos brutos) | Workera o cálculo interno | **Por confirmar (P0)** — ver sección 15 |
-| HH 50% / HH 100% (clasificación por tasa) | **Por confirmar (P0)** | El Excel real las muestra ya clasificadas, pero no sabemos si Workera entrega la tasa o si se deriva de una regla nuestra (ej. día de semana vs. fin de semana/feriado) |
-| Atrasos detectados | Workera o cálculo interno | **Por confirmar (P0)** — mismo caso que horas extra |
-| Aprobación de horas extra (cantidades) | Supervisor | Sin cambios |
-| Justificación de atrasos | Supervisor/Admin | Nuevo, confirmado por esta etapa |
-| Descuento/no descuento | Supervisor/Admin, atado al hecho que lo origina | Nuevo, ver sección 6 |
-| Correcciones de marcación | Supervisor/Admin | Nuevo, ver sección 5 |
-| Auditoría | Nuestra aplicación | Sin cambios |
-| Excel final | Nuestra aplicación, generado solo desde una semana `CLOSED` | Reforzado en sección 14 |
+| Lunes | 07:30 | 17:00 |
+| Martes | 07:30 | 17:00 |
+| Miércoles | 07:30 | 17:00 |
+| Jueves | 07:30 | 17:00 |
+| Viernes | 07:30 | 14:50 |
+
+**Decisión de modelo:** `WorkSchedule` (una jornada nombrada, ej. "Horario estándar planta") compuesta de reglas por día de la semana (`scheduled_start`/`scheduled_end`, nulos si no corresponde trabajar ese día), y `ScheduleAssignment` que vincula un `Employee` a un `WorkSchedule` con vigencia (`effective_from`/`effective_to`), no un campo fijo en `Employee`. Motivo: el Excel real ya muestra horarios distintos escritos en el texto libre del nombre de cada trabajador (algunos con horario de colación distinto, algunos con fecha de ingreso o práctica) — si el horario fuera un campo fijo en `Employee`, un cambio de turno no dejaría rastro de cuál era el horario vigente en una fecha pasada, rompiendo la trazabilidad de una decisión de horas extra tomada bajo el horario anterior.
+
+**Regla explícita del encargo, ya satisfecha por este diseño:** el horario **nunca se hardcodea en código de aplicación** (nada como `if (hour > 17)` disperso en varios archivos) — vive como datos en `WorkSchedule`, consumidos por `OvertimePolicy`/`LateArrivalPolicy` (sección 12).
 
 ---
 
-## 10. Modelo conceptual de entidades — decisión arquitectónica
+## 4. Attendance — hecho crudo
 
-### `Decision` genérica vs. entidades específicas
+Sin cambios respecto al documento anterior: `AttendanceRecord` guarda `clock_in`/`clock_out` reales tal como los entrega Workera, y `AttendanceCorrection` (sección 11) es el único mecanismo para corregirlos, preservando siempre el valor original.
 
-**Recomendación: entidades específicas por tipo de hecho (`OvertimeDecision`, `AbsenceDecision`, `LateArrivalDecision`), no una tabla `Decision` polimórfica genérica.**
+**Regla reafirmada explícitamente por el encargo (crítica, sección 7 de la conversación):** el valor de `clock_out` real **siempre se conserva tal cual**, sin importar cuán tarde sea, incluso cuando exceda largamente el tope de horas extra candidatas. Ver sección 6 para el ejemplo concreto (19:43 real conservado, 120 min como candidato).
 
-Razonamiento:
-- Cada decisión tiene **cantidades y campos propios con semántica distinta** (`approved_minutes`/`rejected_minutes` por tasa en horas extra; `justified_minutes`/`deductible_minutes` en atrasos; para ausencias, más que una cantidad, lo que se decide es confirmar o reclasificar un tipo). Una tabla genérica obligaría a columnas nulas la mayoría del tiempo, o a un `payload jsonb`, perdiendo las validaciones de integridad a nivel de base de datos (ej. `CHECK (approved_minutes <= detected_minutes)` deja de ser posible con un payload genérico).
-- Postgres no tiene una forma ergonómica de "herencia de tabla" ampliamente recomendada para este caso (`table inheritance` de Postgres existe pero no es la práctica estándar recomendada para este tipo de modelo transaccional).
-- Lo que sí conviene mantener **consistente por convención** (no por tabla compartida) entre las tres: nombres de columna comunes (`decided_by`, `decided_at`, `status`, `reason`), para que el código de aplicación y las políticas RLS se escriban de forma uniforme aunque las tablas sean distintas.
-- Lo verdaderamente transversal (qué pasó, quién, cuándo, en qué entidad) **sí se centraliza — en `AuditLog`**, que es la pieza genérica correcta: un log de eventos no necesita las columnas específicas del dominio, solo referenciar qué cambió.
+---
 
-Mismo razonamiento aplicado a `AttendanceCorrection`: no se generaliza a una tabla `Correction` polimórfica por la misma razón.
+## 5. Overtime Eligibility — elegibilidad de horas extra
 
-### Lista de entidades (revisada)
+```
+employee_group = PRODUCTION      → overtime_eligible = true
+employee_group = ADMINISTRATION  → overtime_eligible = false
+```
 
-| Entidad | Rol |
+**Ejemplo confirmado del encargo:** un trabajador de Administración con jornada 07:30→17:00 que marca salida a las 19:00 **no genera ningún candidato de horas extra**. Su `clock_out = 19:00` se guarda igual en `AttendanceRecord` (el hecho no se descarta ni se altera), pero **no se crea ningún `OvertimeRecord`** para ese día — la elegibilidad se evalúa antes de calcular el candidato, no después. Esto evita el riesgo de "calcular igual y luego descartar", que dejaría un registro fantasma sin sentido de negocio.
+
+La elegibilidad es un atributo resuelto por la política (`OvertimePolicy`, sección 12) asociada al `employee_group` (y, cuando se confirme la regla de viernes, también al día de la semana — sección 8), no un booleano fijo en `Employee`.
+
+---
+
+## 6. Production Overtime Rules — reglas de horas extra de Producción
+
+**Fórmula conceptual confirmada (lunes a jueves; viernes es `P0`, ver sección 8):**
+
+```
+raw_overtime_minutes = clock_out − scheduled_end        (solo si clock_out > scheduled_end)
+
+candidate_overtime_minutes = MAX(0, MIN(raw_overtime_minutes, max_overtime_minutes))
+```
+
+Con `scheduled_end = 17:00` (lunes-jueves) y `max_overtime_minutes = 120` (regla actual, configurable — ver `OvertimePolicy`, sección 12):
+
+| Salida real | Candidato de horas extra |
 |---|---|
-| `Employee` | Datos maestros del trabajador (Workera) |
-| `SupervisorAssignment` | Relación supervisor↔trabajador (nuestra base, sembrada desde Workera si aplica) |
-| `AttendanceRecord` | Hecho crudo de marcación/asistencia del día (Workera) |
-| `AttendanceCorrection` | Corrección estructurada sobre un `AttendanceRecord` (sección 5) |
-| `OvertimeRecord` | Hecho/cálculo de horas extra **por tipo de tasa** (sección 2) |
-| `OvertimeDecision` | Decisión de aprobación (con cantidades) sobre un `OvertimeRecord` |
-| `AbsenceRecord` | Hecho de vacaciones/licencia (común/mutual)/permiso/falta, con tipo explícito (sección 4) |
-| `AbsenceDecision` | Confirmación o reclasificación de un `AbsenceRecord` cuando hay ambigüedad (ej. Workera marcó "falta" pero corresponde "permiso") |
-| `LateArrivalRecord` | Hecho/cálculo de atraso (sección 7) |
-| `LateArrivalDecision` | Justificación y efecto en remuneración de un atraso, incluye `payroll_effect` (secciones 6 y 7) |
-| `DailyReview` | Estado de revisión agregado del trabajador para un día (máquina de estados, sección 11) |
-| `WeeklyReview` | Estado de cierre del período (máquina de estados, sección 13) |
-| `AuditLog` | Registro genérico transversal de toda acción relevante |
-| `SyncRun` | Registro de cada corrida de sincronización con Workera |
-| `ExcelExport` | Registro del artefacto Excel generado (ya definido en `PRE_FASE2_WORKERA_VALIDATION.md` sección 9, sin cambios) |
+| 17:00 | 0 min |
+| 17:30 | 30 min |
+| 18:00 | 60 min |
+| 18:30 | 90 min |
+| 19:00 | 120 min |
+| 19:01 | 120 min (tope aplicado) |
+| 19:45 | 120 min (tope aplicado) |
+| 22:00 | 120 min (tope aplicado) |
 
-No se agrega `PayrollAdjustmentDecision` (ver sección 6). No se agrega ninguna entidad para Viáticos (ver sección 8). Esta lista es una **evaluación**, no una aceptación automática de la lista original del encargo — se mantiene casi idéntica porque, tras el análisis, resultó ser la estructura correcta; el cambio real está en cómo se resuelve el punto de la decisión genérica y el descuento, no en qué tablas existen.
+**Esto es explícitamente un `OVERTIME_CANDIDATE`, calculado por el sistema (capa "cálculo" del principio de la sección 0) — nunca un `OVERTIME_APPROVED`.** La aprobación (con cantidad, no booleano) es una decisión humana posterior, ya formalizada en `OvertimeDecision` (documento anterior, sin cambios).
 
 ---
 
-## 11. Máquina de estados de `DailyReview`
+## 7. Clock-out posterior al límite permitido (>19:00) — regla crítica confirmada
+
+Contexto real proporcionado: los trabajadores de Producción permanecen en las instalaciones después de su jornada más el margen de horas extra para bañarse/cambiarse, por lo que el reloj control puede marcar salidas mucho más tarde que el tiempo efectivamente trabajado.
+
+**Regla:**
 
 ```
-IMPORTED
-   │  (sync run crea/actualiza los hechos crudos del día; nadie lo ha revisado aún)
-   ▼
-PENDING_REVIEW
-   │  (existe al menos un hecho que requiere decisión humana — horas extra, atraso,
-   │   ausencia ambigua — o el supervisor debe confirmar explícitamente "sin novedad",
-   │   correspondiente al botón "Sin horas extra" ya previsto en los requisitos originales)
-   ▼
-REVIEWED
-   │  (todas las decisiones requeridas del día están tomadas y son consistentes)
-   ▼
-READY_FOR_WEEKLY_CLOSE
+AttendanceRecord.clock_out         = 19:43   (se conserva exactamente, siempre)
+OvertimeRecord.candidate_minutes   = 120     (tope aplicado por la fórmula de la sección 6,
+                                               NO 163 minutos)
 ```
 
-**Casos excepcionales (no lineales, se puede entrar a ellos desde cualquier estado posterior a `IMPORTED`):**
-
-- **`NEEDS_REVIEW`** — se asigna cuando una validación `BLOCKING` (`EXCEL_WORKFLOW_ANALYSIS.md` sección 6) falla: horas extra sin decisión, licencia + horas trabajadas el mismo día, aprobado > detectado, etc. Un día en `NEEDS_REVIEW` no puede avanzar a `READY_FOR_WEEKLY_CLOSE` sin que un humano lo resuelva explícitamente.
-- **`SYNC_CONFLICT`** — caso específico de `NEEDS_REVIEW` (ver sección 12), se distingue porque su origen es un **cambio externo de Workera después de una decisión ya tomada**, no un error de datos detectado en importación. Se separa de `NEEDS_REVIEW` genérico porque su resolución es distinta: no se trata de "falta una decisión", sino de "hay que decidir de nuevo con información nueva, preservando la decisión anterior como historial".
-- **`CORRECTED_AFTER_REVIEW`** — un día ya `REVIEWED` (o incluso `READY_FOR_WEEKLY_CLOSE`) donde un humano corrige una decisión ya tomada (no por conflicto de sincronización, sino por un error propio detectado después, ej. "aprobé mal, era 1h no 1h30"). Se distingue de `SYNC_CONFLICT` porque el origen es interno, y de `NEEDS_REVIEW` porque no significa "falta decidir" sino "ya se decidió, y se volvió a decidir, y eso queda auditado". Después de resolverse, vuelve a `REVIEWED`.
-
-**Regla de cierre semanal:** `WeeklyReview` no puede pasar a `READY_TO_CLOSE` mientras exista al menos un `DailyReview` en `NEEDS_REVIEW` o `SYNC_CONFLICT` dentro del período. `CORRECTED_AFTER_REVIEW` no bloquea el cierre una vez que vuelve a `REVIEWED`.
+El tope (`MIN(raw_overtime, max_overtime_minutes)`) ya resuelve esto matemáticamente — no se necesita una regla especial adicional, siempre que `max_overtime_minutes` esté correctamente configurado en la política (120 min hoy). Es importante que el equipo de desarrollo en Fase 2 no "optimice" esto sumando el tiempo real completo como horas extra: el diseño **exige** que el candidato quede topado y el valor real quede intacto en un campo separado, exactamente como pide el encargo.
 
 ---
 
-## 12. Cambios posteriores desde Workera — detección de conflicto
+## 8. Viernes y horas extra — `P0_BUSINESS_CONFIRMATION`
 
-Escenario del encargo (08:00 Workera informa 2h → 09:00 supervisor aprueba 2h → 14:00 Workera corrige a 1h30) resuelto así:
+**No se asume ninguna regla para el viernes.** La jornada de viernes termina a las 14:50, pero no tenemos confirmación de si:
+- Producción puede generar horas extra el viernes,
+- si aplica el mismo tope de 120 min o uno distinto,
+- si la tasa (50%/100%, sección 9) es distinta a la de lunes-jueves (posible, dado que muchos regímenes laborales tratan el viernes/sábado de forma diferenciada).
 
-**Mecanismo de detección:**
-- Cada hecho sincronizado (`OvertimeRecord`, `AttendanceRecord`, `AbsenceRecord`, `LateArrivalRecord`) guarda `external_id`, `source_hash` (hash de los campos relevantes para una decisión — ej. minutos detectados, no de campos irrelevantes como metadata de formato) y `source_updated_at` si Workera lo entrega (a confirmar, checklist de `PRE_FASE2_WORKERA_VALIDATION.md`).
-- En cada `SyncRun`, se compara el hash/`updated_at` recién obtenido contra el guardado.
-
-**Si cambió y NO existe decisión previa referenciándolo:** se actualiza el hecho de forma normal (upsert), sin conflicto — nadie tomó una decisión sobre el valor viejo todavía.
-
-**Si cambió y SÍ existe una decisión previa (`OvertimeDecision`, `LateArrivalDecision`, etc.) referenciándolo:**
-1. El hecho original **no se sobrescribe** — o bien queda una nueva versión del hecho vinculada al mismo `external_id` (versionado), o se guarda el nuevo valor en un campo separado (`superseded_value`) manteniendo el original intacto — decisión de implementación para Fase 2, pero el principio ("nunca sobrescribir en el lugar") queda cerrado aquí.
-2. Se guarda el `snapshot` del payload crudo recibido (jsonb), tanto el que originó la decisión como el nuevo, para poder reconstruir exactamente qué vio el supervisor cuando decidió y qué llegó después.
-3. El `DailyReview` correspondiente pasa a `SYNC_CONFLICT`.
-4. La decisión original **no se borra ni se recalcula automáticamente** — queda visible como "la decisión que se tomó con el dato anterior", y se exige una nueva decisión humana que explícitamente la reemplace o la confirme, quedando ambas en el `AuditLog`.
+**Diseño exigido y ya satisfecho:** `OvertimePolicy` (sección 12) incluye `day_of_week` como parte de su clave — es decir, la política se define **por día de la semana**, no como una única regla global. Esto permite que, cuando se confirme la regla de viernes, simplemente se agregue/edite una fila de política para `day_of_week = FRIDAY` sin cambiar la estructura de tablas ni el código de cálculo. Marcado como **P0** en la sección 22 — bloquea poder calcular correctamente (aunque no bloquea diseñar la tabla `OvertimePolicy` en sí).
 
 ---
 
-## 13. Cierre semanal
+## 9. HH 50% / HH 100%
 
-Estados de `WeeklyReview`:
+Sin cambios estructurales respecto al documento anterior (`OvertimeRecord` con `rate_type` como valor de catálogo, no columna fija — un día puede tener ambos tipos simultáneamente, cada uno con su propio candidato/decisión). Se confirma con el ejemplo del encargo:
 
 ```
-OPEN            — revisión en curso, cualquier DailyReview puede estar en cualquier estado
-READY_TO_CLOSE  — todos los DailyReview del período están en READY_FOR_WEEKLY_CLOSE,
-                   pero el cierre no ocurre automáticamente: es una acción explícita
-                   (gate de confirmación humana, evita cierres accidentales)
-CLOSED          — inmutable; cualquier intento de modificar una decisión ya incluida
-                   exige pasar primero por REOPENED, nunca una edición directa
-REOPENED        — desbloqueo explícito por un admin, en sí mismo auditado (quién, cuándo,
-                   por qué); tras corregir, debe volver a pasar por READY_TO_CLOSE → CLOSED,
-                   nunca saltar directo de vuelta a CLOSED sin ese paso
+Juan Pérez — 17/08/2026
+OvertimeRecord(rate_type=OVERTIME_50,  candidate_minutes=120) → OvertimeDecision(approved_minutes=60)
+OvertimeRecord(rate_type=OVERTIME_100, candidate_minutes=60)  → OvertimeDecision(approved_minutes=60)
 ```
 
-Esto responde directamente a "diferenciar datos diarios revisados de semana cerrada": `DailyReview.READY_FOR_WEEKLY_CLOSE` es una condición necesaria pero no suficiente — el cierre semanal es un acto separado y explícito sobre `WeeklyReview`.
+**No se conoce todavía la regla que determina cuándo corresponde 50% y cuándo 100%** (¿día de semana vs. fin de semana/feriado? ¿exceso sobre un segundo umbral dentro del mismo día?). Esto es **P0** (sección 22) y es, junto con la regla de viernes, la pregunta más urgente a resolver con RRHH porque condiciona directamente cómo se calcula `rate_type` al crear un `OvertimeRecord`.
 
 ---
 
-## 14. Excel como snapshot de una semana cerrada
+## 10. Aprobación parcial
 
-**Confirmado: `WeeklyReview CLOSED → snapshot → ExcelExport` es la arquitectura correcta**, y no una opción entre varias. Razón: dado que la sección 12 establece que Workera puede seguir enviando cambios después de que un supervisor ya decidió, generar el Excel desde datos "vivos" (no cerrados) crearía la posibilidad de que dos generaciones del mismo período produzcan números distintos sin que quede explicado por qué — inaceptable para un artefacto que alimenta remuneraciones.
+Sin cambios respecto al documento anterior — reafirmado con el ejemplo exacto del encargo:
 
-El `snapshot` (ya previsto conceptualmente en `PRE_FASE2_WORKERA_VALIDATION.md` sección 9) debe ser suficiente para que, si la semana se reabre (`REOPENED`) y se vuelve a cerrar más adelante, el `ExcelExport` anterior siga siendo válido como registro histórico de "qué información exacta produjo este Excel" — no se regenera retroactivamente un export ya emitido; un reopen que cambia datos y vuelve a cerrar genera un **nuevo** `ExcelExport`, dejando el anterior intacto como historial.
+```
+OvertimeRecord.candidate_minutes  = 120
+OvertimeDecision.approved_minutes = 90
+OvertimeDecision.rejected_minutes = 30   (persistido, no solo derivado en consulta)
+```
+
+`approved_minutes` nunca puede exceder `candidate_minutes` — constraint de integridad, no solo validación de UI (ya establecido, reafirmado aquí como no negociable).
 
 ---
 
-## 15. Preguntas de negocio pendientes
+## 11. Late Arrivals — atrasos diarios y acumulados
 
-### P0 — bloquean el diseño (deben resolverse antes de fijar el detalle de Fase 2, no antes de este documento)
+**Fórmula conceptual:**
 
-| # | Pregunta | Por qué bloquea |
+```
+late_minutes_detected = MAX(0, (clock_in − scheduled_start) − late_tolerance_minutes)
+```
+
+Con `scheduled_start = 07:30` y, hasta nueva confirmación, **`late_tolerance_minutes = 0`** (ver sección 13 — no se asume tolerancia):
+
+| Entrada real | Atraso detectado |
+|---|---|
+| 07:05 | 0 min (llegó antes — nunca genera un valor negativo ni horas extra, sección 14) |
+| 07:15 | 0 min* |
+| 07:29 | 0 min |
+| 07:30 | 0 min |
+| 07:31 | 1 min |
+| 07:42 | 12 min |
+| 07:45 | 15 min |
+| 08:00 | 30 min |
+
+\* `07:15` da 0 min porque es **antes** de `07:30`, no por tolerancia — con `tolerance=0` el resultado sería el mismo, pero conceptualmente son dos motivos distintos (llegada anticipada vs. tolerancia real) y no deben confundirse cuando se implemente.
+
+**El atraso se registra diariamente (`LateArrivalRecord` por fecha), nunca solo como un total acumulado.** Los totales (semanal, de período de pago, mensual) se **derivan por consulta** (`SUM` sobre el rango de fechas correspondiente), nunca se guardan como un campo editable independiente — así el total siempre es recalculable y consistente con el detalle diario, replicando en el modelo lo que en el Excel real ya es una fórmula (`SUM(D:AH)`), pero ahora también disponible a nivel semanal/mensual sin depender de qué columnas estaban incluidas en una planilla específica.
+
+---
+
+## 12. Políticas centralizadas — `AttendancePolicy` / `OvertimePolicy` / `LateArrivalPolicy`
+
+**Decisión de diseño explícitamente exigida por el encargo: ninguna regla vive hardcodeada en código de aplicación.**
+
+```
+OvertimePolicy
+  employee_group          (PRODUCTION, ADMINISTRATION, ...)
+  day_of_week              (MONDAY..SUNDAY — permite reglas distintas por día, sección 8)
+  overtime_eligible        (boolean, resuelve la sección 5)
+  overtime_start           (normalmente = scheduled_end del WorkSchedule vigente, pero
+                             configurable por si difiere)
+  max_overtime_minutes     (120 hoy, configurable)
+  rate_type_rule           (pendiente de definición exacta — P0, sección 9; el campo existe
+                             desde ya para no tener que rediseñar la tabla cuando se confirme)
+
+LateArrivalPolicy
+  employee_group
+  late_tolerance_minutes   (0 hoy, configurable — sección 13)
+
+AttendancePolicy
+  (agrupador conceptual si en el futuro se necesitan reglas de asistencia que no encajen
+   en overtime ni en atrasos — no se define contenido propio todavía, evita tener que
+   inventar una tabla nueva para la primera regla de este tipo que aparezca)
+```
+
+Estas políticas son **datos configurables por un admin**, no líneas de código — satisface directamente el requisito de "evitar hardcoding" y "mantenibilidad" del encargo. El cálculo de `OvertimeRecord`/`LateArrivalRecord` en el backend **lee** estas políticas, nunca las reimplementa condicionalmente por caso.
+
+---
+
+## 13. Tolerancia de atrasos — sin asumir, documentado como configurable
+
+**Hasta confirmación de negocio: `late_tolerance_minutes = 0`.** No se asume ningún valor de tolerancia (5/10/15 min) sin que RRHH lo confirme explícitamente — asumir un valor sin respaldo sería exactamente el tipo de "regla inventada" que el encargo pide evitar. El campo existe en `LateArrivalPolicy` (sección 12) precisamente para que, cuando se confirme un valor distinto de 0, sea un cambio de dato, no una migración de esquema ni un cambio de código.
+
+---
+
+## 14. Llegada antes del horario — sin generar horas extra automáticas
+
+```
+clock_in = 07:05  (antes de scheduled_start = 07:30)
+→ late_minutes_detected = 0
+→ NO se crea ningún OvertimeRecord por esto
+```
+
+Llegar temprano nunca es, por sí solo, un hecho que dispare un cálculo de horas extra — las horas extra solo se calculan a partir de `clock_out` tardío (sección 6), no de `clock_in` temprano. Esta distinción se aplica en la lógica de cálculo (consumidora de `OvertimePolicy`), no requiere una tabla ni columna adicional.
+
+---
+
+## 15. Vacation / Absences / Medical Leave (actualiza `PRE_FASE2_WORKERA_VALIDATION.md` y la v1 de este documento)
+
+**Vacaciones:** si Workera informa `VACATION`, la aplicación lo muestra directamente — el supervisor **confirma** o **marca inconsistencia** (ej. "Workera dice vacaciones pero hay marcación de asistencia ese día"), nunca tiene que volver a escribir manualmente un dato que Workera ya entrega. Esto se resuelve con `AbsenceDecision` (ya definida en la v1): su rol principal para vacaciones/licencias no es "decidir cuánto", como en horas extra, sino **confirmar o disputar** el dato importado.
+
+**Licencias — `MEDICAL_LEAVE` vs `WORK_ACCIDENT_LEAVE` (mutual):** se mantienen como tipos separados (decisión ya tomada en la v1, sección 4, sin cambios), porque legalmente tienen tratamiento distinto en Chile. Campos mínimos, aplicando minimización de datos de forma explícita:
+
+```
+AbsenceRecord.type         (MEDICAL_LEAVE | WORK_ACCIDENT_LEAVE | VACATION | PERMISSION | ...)
+AbsenceRecord.start_date
+AbsenceRecord.end_date
+AbsenceRecord.source       (workera | internal)
+```
+
+**Nunca se almacena diagnóstico, enfermedad ni detalle médico** — reafirmado explícitamente, sin excepción, incluso si Workera lo expusiera.
+
+**Ausencias y permisos:** `ABSENT`, `PERMISSION`, `DAY_OFF`, `HOLIDAY`, `UNKNOWN`, `NEEDS_REVIEW` se mantienen como **nombres conceptuales, no un enum de código cerrado todavía** — el encargo pide explícitamente no fijarlos hasta confirmar qué estados usa realmente Workera y la empresa (pregunta abierta, no bloqueante — sección 22).
+
+---
+
+## 16. Corrections — correcciones manuales
+
+Sin cambios respecto a la v1: patrón `original_value` / `corrected_value` / `correction_reason` / `corrected_by` / `corrected_at` vía `AttendanceCorrection`, reemplazando el mecanismo de comentarios libres del Excel real. Ejemplo del encargo (`clock_out` no marcado, corregido a 18:30 con motivo) es funcionalmente idéntico al ya documentado en la v1 sección 5 — sin necesidad de cambios.
+
+---
+
+## 17. Payroll Decisions — "se descuenta / no se descuenta"
+
+Sin cambios respecto a la v1 (sección 6 de la versión anterior): la decisión de descuento **no** es una entidad nueva ni vive en `DailyReview`; es un atributo (`payroll_effect: DEDUCT | DO_NOT_DEDUCT | NEEDS_REVIEW`) de la decisión específica que la origina (`LateArrivalDecision` principalmente, o `AttendanceCorrection` cuando aplica). Se reafirma esta recomendación tras revisar nuevamente las tres alternativas (`DailyReview` / entidad genérica `PayrollAdjustmentDecision` / decisión específica) — el razonamiento no cambia con las reglas nuevas de esta versión.
+
+---
+
+## 18. Modelo conceptual de entidades (evaluación, no aceptación automática)
+
+Se evalúa nuevamente la lista propuesta, ahora incluyendo `OrganizationalUnit`/`EmployeeGroup` y `WorkSchedule`/`ScheduleAssignment`:
+
+| Entidad | ¿Se mantiene? | Nota |
 |---|---|---|
-| 1 | ¿Qué determina si una hora extra es `HH 50%` o `HH 100%`? (¿día de semana vs. fin de semana/feriado, exceso sobre jornada, u otra regla?) | Determina si la tasa es un dato que entrega Workera o una regla de cálculo que debemos implementar nosotros — cambia dónde vive la lógica |
-| 2 | ¿Workera calcula horas extra y atrasos, o solo entrega marcaciones crudas? | Determina si `OvertimeRecord`/`LateArrivalRecord` son datos importados tal cual o calculados por nuestro backend a partir de jornada + marcación |
-| 3 | ¿Quién aprueba horas extra formalmente hoy — el supervisor directo de cada trabajador, o es RRHH quien centraliza la decisión (como sugiere que casi todos los comentarios del Excel real son de una sola persona)? | Determina el modelo de permisos/roles real, no solo el conceptual (admin/supervisor) |
-| 4 | ¿Quién decide "se descuenta / no se descuenta" — el mismo actor que aprueba horas extra, u otro rol distinto? | Afecta permisos y RLS de `LateArrivalDecision`/`AttendanceCorrection` |
-| 5 | Licencia médica común vs. mutual: ¿tienen reglas de pago o proceso distintas que la aplicación deba reflejar más allá de solo el tipo? | Si la respuesta agrega campos o flujos distintos, cambia el diseño de `AbsenceRecord`/`AbsenceDecision` |
-| 6 | ¿Cuál es el ciclo real de pago/revisión — semanal como pide el objetivo del proyecto, o el período de ~6 semanas que muestra el Excel real? | Determina la granularidad de `WeeklyReview` (nombre y período pueden no coincidir con "semana" literal) |
+| `Employee` | Sí | Sin cambios |
+| `EmployeeGroup` | **Nueva**, reemplaza el `OrganizationalUnit` genérico propuesto en el encargo | Ver sección 1 — se prefiere el catálogo pequeño y específico sobre una jerarquía genérica no requerida hoy |
+| `SupervisorAssignment` | Sí | Sin cambios |
+| `WorkSchedule` | **Nueva** | Ver sección 3 |
+| `ScheduleAssignment` | **Nueva** | Ver sección 3 — vigencia temporal, no campo fijo en `Employee` |
+| `OvertimePolicy` | **Nueva**, reemplaza cualquier lógica condicional en código | Ver sección 12 |
+| `LateArrivalPolicy` | **Nueva** | Ver sección 12 |
+| `AttendanceRecord` | Sí | Sin cambios |
+| `AttendanceCorrection` | Sí | Sin cambios |
+| `OvertimeRecord` | Sí | Ahora con `candidate_minutes` calculado explícitamente vía `OvertimePolicy`, no solo "detectado de Workera" — el cálculo puede originarse en nuestro backend, no necesariamente en Workera (ver sección 21 fuente de verdad) |
+| `OvertimeDecision` | Sí | Sin cambios |
+| `AbsenceRecord` | Sí | Sin cambios |
+| `AbsenceDecision` | Sí | Su rol principal clarificado en sección 15: confirmar/disputar, no "aprobar cantidad" |
+| `LateArrivalRecord` | Sí | Con fórmula explícita (sección 11) |
+| `LateArrivalDecision` | Sí | Incluye `payroll_effect` (sección 17) |
+| `DailyReview` | Sí | Sin cambios |
+| `WeeklyReview` | Sí | Sin cambios |
+| `AuditLog` | Sí | Sin cambios |
+| `SyncRun` | Sí | Sin cambios |
+| `ExcelExport` | Sí | Sin cambios |
 
-### P1 — importantes antes de implementación, no bloquean el diseño conceptual
+**`Decision` genérica vs. entidades específicas — se reafirma la decisión de la v1 sin cambios**: entidades específicas (`OvertimeDecision`, `LateArrivalDecision`, `AbsenceDecision`), por las mismas razones de type safety y constraints ya expuestas (una tabla polimórfica no permite `CHECK (approved_minutes <= candidate_minutes)` a nivel de base de datos). Las reglas nuevas de esta versión (horarios, políticas, atrasos con fórmula) no cambian este razonamiento — si acaso lo refuerzan, porque cada tipo de decisión ahora tiene también su propia fórmula de origen (`OvertimePolicy` vs. `LateArrivalPolicy`), que sería aún más difícil de representar en una tabla genérica.
 
-| # | Pregunta | Por qué no bloquea el diseño |
+No se agrega ninguna entidad para Viáticos (sección 20, sin cambios respecto a la v1).
+
+---
+
+## 19. Máquina de estados diaria y semanal
+
+Sin cambios respecto a la v1 (`IMPORTED → PENDING_REVIEW → REVIEWED → READY_FOR_WEEKLY_CLOSE`, con `NEEDS_REVIEW`/`SYNC_CONFLICT`/`CORRECTED_AFTER_REVIEW` como casos no lineales; `WeeklyReview`: `OPEN → READY_TO_CLOSE → CLOSED → REOPENED`). Se agrega una precisión pedida explícitamente por el encargo:
+
+**Un `WeeklyReview` no puede pasar a `CLOSED` si existe algún `DailyReview` del período en un estado con validaciones `BLOCKING` sin resolver** (sección 20) — no solo `NEEDS_REVIEW`/`SYNC_CONFLICT` genéricos, sino específicamente cualquier violación de una regla `BLOCKING`. Esto ya estaba implícito en la v1; aquí queda explícito porque el encargo lo pide como regla propia ("Un período no puede pasar a CLOSED si existen errores BLOCKING").
+
+---
+
+## 20. Validaciones — BLOCKING / WARNING / INFORMATIONAL
+
+Se actualiza la tabla de `EXCEL_WORKFLOW_ANALYSIS.md` sección 6 agregando las reglas nuevas de esta etapa:
+
+| Validación | Clasificación | Nota |
 |---|---|---|
-| 7 | ¿La aprobación parcial de horas extra es una práctica real frecuente, o una capacidad "por si acaso"? | El modelo ya la soporta estructuralmente (sección 3); esto solo afecta prioridad de UI en fases posteriores |
-| 8 | ¿Existe una tabla de tolerancia oficial de atrasos, o es siempre caso a caso? | El modelo ya soporta ambos casos (`justified_minutes` puede ser una regla automática o una decisión manual); esto define reglas de negocio a implementar en Fase 7+, no la estructura |
-| 9 | ¿Una semana cerrada puede reabrirse, y bajo qué condiciones? | El modelo ya prevé `REOPENED` (sección 13); esto define política de permisos, no estructura |
-| 10 | ¿Quién puede corregir una aprobación ya incluida en una semana cerrada — solo admin, o también el supervisor original? | Afecta RLS de Fase 3, no el modelo de datos de Fase 2 |
-| 11 | ¿Viáticos entra al alcance de esta aplicación en algún momento futuro? | Ya se dejó la puerta abierta sin comprometer el modelo actual (sección 8) |
+| Horas extra sin decisión | `BLOCKING` | Sin cambios |
+| Licencia + horas trabajadas el mismo día | `BLOCKING` | Sin cambios |
+| Vacaciones + horas trabajadas | `BLOCKING` | Sin cambios |
+| Vacaciones + horas extra | `BLOCKING` | Sin cambios |
+| Horas aprobadas > horas candidatas | `BLOCKING` | Ya era `BLOCKING`; ahora además es una constraint de integridad (sección 10) |
+| Trabajador duplicado | `BLOCKING` | Sin cambios |
+| Registro sin trabajador asociado | `BLOCKING` | Sin cambios |
+| Salida anterior a entrada | `BLOCKING` | Sin cambios |
+| `SYNC_CONFLICT` sin resolver | `BLOCKING` | **Nuevo, explícito** — antes se mencionaba como bloqueo de cierre semanal, ahora se formaliza como validación propia |
+| Trabajador sin clasificación organizacional (`employee_group`) | `BLOCKING` | **Nuevo** — sin esto no se puede calcular horas extra correctamente (sección 1) |
+| Entrada/salida faltante (marcación incompleta) | `WARNING` | Sin cambios |
+| Día sin estado | `WARNING` | Sin cambios |
+| Diferencia importante entre horas trabajadas y aprobadas | `WARNING` | Sin cambios |
+| Colores de Excel sin significado documentado | `INFORMATIONAL` | Sin cambios |
 
-### P2 — puede resolverse después, sin impacto estructural conocido
+---
+
+## 21. Source of truth (actualizada)
+
+| Categoría | Fuente de verdad | Estado |
+|---|---|---|
+| Empleado | Workera | Confirmado |
+| Marcaciones | Workera | Confirmado |
+| `employee_group` (Administración/Producción) | Workera si es confiable; si no, nuestra base | **Por confirmar (P1)** — sección 2 |
+| Jornada (`WorkSchedule`) | Configuración interna, sembrada manualmente con los horarios reales conocidos | El horario ya es un dato real conocido (sección 3); no depende de Workera para existir, aunque Workera podría confirmarlo a futuro |
+| Vacaciones | Workera, si disponible | Confirmado, sin cambios |
+| Licencias | Workera, si disponible | Confirmado, sin cambios |
+| Horas extra candidatas (`OvertimeRecord.candidate_minutes`) | **Cálculo interno**, a partir de `AttendanceRecord` + `OvertimePolicy` | Aclarado en esta versión: no es un dato que Workera entregue ya calculado, salvo que se confirme lo contrario (mismo P0 de `PRE_FASE2_WORKERA_VALIDATION.md`) |
+| HH 50% / HH 100% (clasificación de tasa) | **Por confirmar (P0)** | Sección 9 |
+| Atrasos detectados | **Cálculo interno**, a partir de `AttendanceRecord` + `LateArrivalPolicy` | Aclarado en esta versión — mismo criterio que horas extra |
+| Aprobación de horas extra | Supervisor | Confirmado |
+| Atrasos justificados | Supervisor/Admin | Confirmado |
+| Correcciones | Supervisor/Admin | Confirmado |
+| Descuento/no descuento | Según autoridad definida — **por confirmar (P0)** quién exactamente | Sección 22 |
+| Auditoría | Nuestra base | Confirmado |
+| Cierre semanal | Nuestra base | Confirmado |
+| Excel final | Nuestra aplicación, solo desde `WeeklyReview CLOSED` | Confirmado |
+
+---
+
+## 22. Preguntas de negocio — P0/P1/P2 (consolidado y reclasificado)
+
+Se consolidan las preguntas de la v1 con las nuevas de esta etapa, eliminando duplicados. Reclasificación explícita donde corresponde, con justificación.
+
+### P0 — bloquean el cálculo correcto (no necesariamente la estructura de tablas, ver sección 23)
+
+| # | Pregunta | Origen |
+|---|---|---|
+| 1 | ¿Qué determina exactamente si una hora extra es `HH 50%` o `HH 100%`? | Nueva (sección 9) |
+| 2 | ¿Qué regla de horas extra aplica los viernes (jornada 07:30-14:50)? | Nueva (sección 8) |
+| 3 | ¿Quién tiene autoridad final para aprobar horas extra — supervisor directo o RRHH centralizado? | v1, reafirmada |
+| 4 | ¿Quién decide "se descuenta / no se descuenta"? | v1, reafirmada |
+| 5 | ¿Es correcto asumir que la aprobación parcial de horas extra debe soportarse siempre, o es una excepción rara? | Nueva, aunque el diseño ya la soporta estructuralmente (sección 10) — se mantiene P0 porque afecta si el flujo por defecto de UI (fase futura) debe asumir "todo o nada" con parcial como excepción, o al revés |
+| 6 | ¿Cómo se diferencia licencia médica de mutual en el proceso real (más allá del tipo ya modelado)? | v1, reafirmada |
+| 7 | ¿Workera calcula horas extra/atrasos, o solo entrega marcaciones crudas? | `PRE_FASE2_WORKERA_VALIDATION.md`, reafirmada — condiciona directamente la sección 21 de este documento |
+| 8 | ¿Cuál es el ciclo real de pago/revisión — semanal, o el período de ~6 semanas visto en el Excel real? | v1, reafirmada — sigue sin resolverse |
+
+### P1 — importantes antes de implementación, no bloquean el diseño estructural
+
+| # | Pregunta | Origen |
+|---|---|---|
+| 9 | ¿Existe tolerancia real para atrasos (5/10/15 min), o es 0 como se asume por defecto? | Nueva (sección 13) |
+| 10 | ¿Puede un supervisor corregir una marcación, o solo confirmarla/reportarla para que admin corrija? | v1, reclasificada de "quién corrige" a pregunta específica de permisos |
+| 11 | ¿Quién puede reabrir una semana cerrada? | v1, reafirmada |
+| 12 | ¿Qué debe ocurrir operativamente si Workera cambia datos después del cierre semanal (más allá de que quede auditado — sección 19)? | v1, reafirmada |
+| 13 | ¿Cómo se asignan realmente los trabajadores a supervisores hoy (para validar la decisión de la sección 6 de `PRE_FASE2_WORKERA_VALIDATION.md`)? | v1, reafirmada |
+| 14 | ¿Workera entrega Administración/Producción (o equivalente) de forma confiable? | Nueva (sección 2) |
+
+**Reclasificación:** "¿Quién puede corregir una aprobación ya cerrada?" (P1 en la lista del encargo) se **fusiona** con la pregunta 11 (reabrir semana cerrada) — son la misma pregunta de negocio, ya que corregir algo dentro de una semana `CLOSED` requiere pasar por `REOPENED` (sección 19); no se listan como preguntas separadas para no duplicar.
+
+### P2 — sin impacto estructural conocido
 
 | # | Pregunta |
 |---|---|
-| 12 | Significado de los 7 colores de relleno usados en el Excel actual sin leyenda documentada |
-| 13 | Por qué algunos trabajadores del Excel real tienen dos filas `HH 50%` + `TOTAL 50%` (posible inconsistencia de plantilla, no necesariamente una regla de negocio) |
-| 14 | Vocabulario final exacto de los nombres de estado (los usados en este documento son conceptuales, confirmado explícitamente por el encargo que pueden cambiar) |
+| 15 | ¿Viáticos entrará en el alcance de la aplicación? |
+| 16 | ¿Los 7 colores del Excel actual deben conservar significado en la nueva aplicación? |
+| 17 | ¿Se necesitan históricos mensuales/anuales dentro del dashboard? |
+| 18 | Vocabulario final exacto de los nombres de estado de ausencia (`ABSENT`/`PERMISSION`/etc.) |
+| 19 | ¿Por qué algunos trabajadores del Excel real tienen filas `HH 50%` duplicadas + `TOTAL 50%`? |
 
 ---
 
-## 16. Impacto sobre Fase 2
+## 23. Future UI Requirements (documentación de requisitos, no implementación)
 
-Este documento no reemplaza `PRE_FASE2_WORKERA_VALIDATION.md` ni `EXCEL_WORKFLOW_ANALYSIS.md`, los completa:
+**No se implementa ninguna UI en esta etapa.** Se documentan los requisitos funcionales para fases futuras (Fase 6 en adelante):
 
-- Confirma y detalla la separación `OvertimeRecord`/`OvertimeDecision` ya anticipada, y agrega el mismo patrón para atrasos (`LateArrivalRecord`/`LateArrivalDecision`).
-- Resuelve la pregunta abierta de dónde vive "se descuenta o no" (sección 6): no es una entidad nueva, es un atributo de las decisiones ya existentes.
-- Resuelve la pregunta arquitectónica de tabla genérica vs. específica para decisiones y correcciones (sección 10): específicas, con `AuditLog` como la pieza transversal.
-- Formaliza la máquina de estados de `DailyReview` y `WeeklyReview` (secciones 11 y 13), que antes existía solo como intención ("revisar", "cerrar semana") sin estados explícitos.
-- Cierra la estrategia de conflicto de sincronización (sección 12) con un mecanismo concreto (hash/`updated_at` + versionado + `SYNC_CONFLICT`), reemplazando la descripción más general de `PRE_FASE2_WORKERA_VALIDATION.md` sección 8.
+**Dashboard diario — debe separar Producción de Administración**, reflejando que tienen reglas distintas (una tiene horas extra, la otra no):
+
+```
+REVISIÓN DIARIA — 17/08/2026
+
+PRODUCCIÓN                       ADMINISTRACIÓN
+42 trabajadores                  15 trabajadores
+8 horas extra pendientes         2 atrasos
+3 atrasos                        1 licencia
+1 ausencia
+```
+
+**Filtros mínimos requeridos:** Todos, Producción, Administración, Pendientes, Horas extra, Atrasos, Licencias, Vacaciones, Ausencias, Conflictos (`SYNC_CONFLICT`).
+
+**Vista de trabajador — Producción** (con acciones de horas extra, coherente con `OvertimeDecision`):
+
+```
+JUAN PÉREZ — PRODUCCIÓN
+Jornada: 07:30 - 17:00
+Entrada: 07:34   Atraso: 4 min
+Salida: 19:36    Hora extra candidata: 2h00
+
+[ APROBAR ] [ RECHAZAR ] [ MODIFICAR ]
+Observación: ________________
+```
+
+**Vista de trabajador — Administración** (sin acciones de horas extra, coherente con `overtime_eligible = false`; sí con justificación de atraso y `payroll_effect`):
+
+```
+MARÍA PÉREZ — ADMINISTRACIÓN
+Entrada: 07:42   Atraso: 12 min
+Salida: 18:25    Horas extra elegibles: 0
+
+[ JUSTIFICAR ATRASO ] [ APLICAR ]
+```
+
+Estos mockups conceptuales son insumo directo para el diseño de pantallas de Fase 6, y confirman que el modelo de datos (sección 18) debe exponer `overtime_eligible` de forma consultable por UI para decidir qué botones mostrar — no es solo una regla de cálculo interno, también es un requisito de presentación.
+
+---
+
+## 24. Casos de test obligatorios (documentados para implementarse en Fase 12, no ahora)
+
+**Producción, lunes-jueves (fórmula de la sección 6):**
+
+```
+17:00 →   0 min      18:30 →  90 min      19:45 → 120 min
+17:30 →  30 min      19:00 → 120 min      22:00 → 120 min
+18:00 →  60 min      19:01 → 120 min
+```
+
+**Administración (elegibilidad, sección 5) — nunca genera horas extra sin importar la hora de salida:**
+
+```
+17:00 → 0     18:00 → 0     19:30 → 0     22:00 → 0
+```
+
+**Atrasos, con `tolerance = 0` (sección 11):**
+
+```
+07:15 →  0    07:29 →  0    07:30 →  0
+07:31 →  1    07:45 → 15    08:00 → 30
+```
+
+**Aprobación parcial:**
+
+```
+candidate = 120 → approved = 90 → rejected = 30 (persistido, sección 10)
+```
+
+**Tope de horas extra (clock-out muy tardío, sección 7):**
+
+```
+clock_out real = 20:30 (conservado tal cual en AttendanceRecord)
+candidate_overtime_minutes = 120 (tope aplicado, no 210)
+```
+
+**Conflicto de sincronización (sección 19, sin cambios respecto a v1, reafirmado con el ejemplo exacto del encargo):**
+
+```
+08:00 → Workera informa candidate = 120
+09:00 → Supervisor aprueba approved = 120
+14:00 → Workera cambia el dato subyacente → nuevo candidate = 90
+Resultado esperado: SYNC_CONFLICT, la aprobación de 120 NO se sobrescribe ni se recalcula sola
+```
+
+---
+
+## 25. Excel Export — validación de la arquitectura y de `.xls`/`.xlsx`
+
+**Arquitectura de generación (sin cambios respecto a la v1, reafirmada):**
+
+```
+Workera → Datos sincronizados → Cálculos (OvertimePolicy/LateArrivalPolicy)
+        → Decisiones de supervisor → Validaciones (sección 20)
+        → WeeklyReview CLOSED → Snapshot → ExcelExport
+```
+
+Confirmado que sigue siendo correcta: las reglas nuevas de esta versión (políticas de cálculo) se insertan en el paso "Cálculos", sin alterar el resto del flujo ya validado en la v1.
+
+**Campos mínimos de auditoría del export** (sin cambios): `weekly_export_id`, `period_start`, `period_end`, `generated_at`, `generated_by`, `template_version`, `validation_status`, `file_hash`, más `snapshot_id` (ya evaluado como necesario en la v1) para poder responder "¿qué información exacta produjo este Excel?".
+
+**`.xls` vs `.xlsx` — se valida que la recomendación anterior sigue siendo correcta, sin cambios:**
+
+```
+Conservar .xls original (sin tocar)
+        ↓
+Copia maestra .xlsx creada manualmente en Excel (Guardar como), no por script
+        ↓
+Esa copia .xlsx es la plantilla versionada (template_version)
+        ↓
+ExcelJS genera los archivos futuros a partir de esa plantilla
+```
+
+No se realiza ninguna conversión en esta tarea.
+
+---
+
+## 26. Viáticos — reafirmado sin cambios
+
+`OUT_OF_SCOPE_PENDING_CONFIRMATION`, sin entidad propia. El patrón hecho→cálculo→decisión→resultado sigue siendo suficientemente genérico para incorporar un futuro `PerDiemRecord` sin rediseñar `Employee`, `DailyReview` ni el resto del modelo, tal como se concluyó en la v1.
+
+---
+
+## 27. Impacto sobre Fase 2 y recomendación final
+
+**Impacto:** esta versión agrega a la especificación de Fase 2 tres piezas estructurales que no estaban explícitas en la v1: `EmployeeGroup` (y su rol como llave de las políticas), `WorkSchedule`/`ScheduleAssignment` con vigencia temporal, y `OvertimePolicy`/`LateArrivalPolicy` como tablas de configuración explícitas en vez de lógica de aplicación. Ninguna de estas piezas contradice el modelo de `OvertimeRecord`/`OvertimeDecision`/`LateArrivalRecord`/`LateArrivalDecision` ya cerrado en la v1 — lo alimentan con las fórmulas y el origen de sus valores calculados.
+
+**Recomendación explícita:**
+
+```
+READY_FOR_PHASE_2
+```
+
+**Justificación:** las preguntas P0 pendientes (reglas exactas de HH 50%/100%, regla de viernes, autoridad de aprobación/descuento, ciclo real del Excel) no bloquean **la estructura** de las tablas, porque el diseño de esta especificación las trata explícitamente como **datos de política configurables** (`OvertimePolicy.rate_type_rule`, `OvertimePolicy` con `day_of_week`, roles ya contemplados en `profiles`/RLS de Fase 3), no como supuestos hardcodeados en el esquema. Fase 2 puede construir las tablas y dejar sembrados los valores conocidos con certeza hoy (horario real lunes-jueves, tope de 120 min, tolerancia 0), dejando explícitamente vacíos o marcados como pendientes los valores que dependen de las respuestas P0 (regla de viernes, regla de tasa 50/100), sin que eso obligue a una migración posterior — son filas de política nuevas o editadas, no cambios de columna.
+
+Esto no es una autorización para avanzar — **queda expresamente detenido a la espera de tu aprobación**, tal como se pidió.
