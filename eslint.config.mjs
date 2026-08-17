@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Ephemeral runtime artifacts written by `supabase start`/`supabase test db`
+    // (vendored, minified, gitignored) — not our code.
+    "supabase/.temp/**",
+    "supabase/.branches/**",
   ]),
 ]);
 
