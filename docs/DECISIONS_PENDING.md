@@ -7,16 +7,24 @@ Estado: creado en Gate C pre-UI. Este documento consolida decisiones de negocio/
 - `[DEPENDENCIA EXTERNA]` — requiere información o acción de un tercero (Workera, Supabase) fuera del control del equipo.
 - `[TÉCNICA]` — requiere una decisión de diseño/implementación que el equipo técnico puede resolver una vez tenga contexto suficiente, sin depender de un tercero.
 
-## Reglas de negocio (heredadas de `docs/BUSINESS_RULES_PRE_PHASE2.md` / `docs/DATA_MODEL_PHASE2B.md`, no resueltas aquí)
+## Reglas de negocio — RESUELTAS en Gate D (20260818160000 + 20260818170000)
 
-- `[USUARIO/PRODUCTO]` **Horas extra de viernes para Producción**: sin política sembrada, marcado P0 desde antes de Fase 2.
-- `[USUARIO/PRODUCTO]` **Determinación HH50 vs. HH100**: sin confirmar qué determina la tasa aplicable.
-- `[USUARIO/PRODUCTO]` **Código de estado `R`**: significado exacto del código de asistencia `R` (de los 11 códigos: P, F, F-P, F-J, P-L, P-M, V, L, L-M, R, `?`) — confirmar contra el vocabulario real de la empresa/Workera.
-- `[USUARIO/PRODUCTO]` **Horas extra de Instalación**: reglas de cálculo/tope no confirmadas, a diferencia de Producción que sí tiene `overtime_policies` sembrada.
-- `[USUARIO/PRODUCTO]` **Bono de Instalación**: hoy el bono de $1.000 CLP/120min está sembrado solo para `PRODUCTION` — sin confirmar si Instalación tiene un esquema de bono equivalente o distinto.
-- `[USUARIO/PRODUCTO]` **Fines de semana de Instalación**: el modelo ya soporta registros de fin de semana para Instalación (visto en `MockWorkeraClient`, escenario `ATT-009`), pero la regla de negocio exacta (¿cuenta como horario normal, como hora extra, como algo especial?) no está confirmada.
-- `[USUARIO/PRODUCTO]` **Ciclo exacto de cierre mensual** (`ReportingPeriod`): duración/fecha de corte no confirmada.
-- `[TÉCNICA]` **Bloqueo de cierre con revisiones semanales pendientes**: hoy es solo documentado (`docs/DATA_MODEL_PHASE2B.md` sección 24), no un trigger de base de datos — decisión técnica pendiente: ¿implementarlo como constraint duro o dejarlo como validación de aplicación? (Ver `docs/THREAT_MODEL.md` T-21.)
+Confirmadas por el usuario e implementadas a nivel de base de datos, verificadas con 93 pruebas pgTAP nuevas (44 + 49, 212/212 totales) + evidencia real de concurrencia (7 escenarios con dos sesiones PostgreSQL en total entre ambas pasadas). Detalle completo en `docs/BUSINESS_RULES_GATE_D.md`. **Recordatorio obligatorio: son políticas internas, pendientes de validación por RR. HH./legal antes de producción — no una declaración de cumplimiento legal.**
+
+- ~~Horas extra de viernes para Producción~~ → 120 min, igual que lunes-jueves.
+- ~~Determinación HH50 vs. HH100~~ → lunes-sábado sin feriado = HH50; domingo o feriado (cualquier día) = HH100.
+- ~~Código de estado `R`~~ → desactivado (`active=false`), preservado por compatibilidad histórica, bloqueado para asignaciones nuevas (INSERT y UPDATE/upsert, verificado en el segundo hardening).
+- ~~Horas extra de Instalación~~ → sin tope fijo automático, autoridad exacta del supervisor asignado (`SUPERVISOR_INSTALLATION`, rol ya existente), minutos exactos, nunca reducida al selector binario.
+- ~~Bono de Instalación~~ → mismo esquema que Producción (120 min aprobados = $1.000 CLP).
+- ~~Fines de semana de Instalación~~ → según demanda, sin tope fijo (cubierto por la regla general de Instalación arriba).
+- ~~Selector 1h/2h de Producción~~ → exclusivo Producción lunes-viernes HH50, matriz exacta de minutos (< 60 sin propuesta, 60-114 → 60, 115-117 → 60 con revisión obligatoria, 118-120 → 120, > 120 → tope 120), autorizado exclusivamente por Jefe de Producción (`SUPERVISOR_PRODUCTION`, sobre su grupo) y RR. HH. (`ADMIN_RRHH`), vía la RLS ya existente de `overtime_decisions`.
+- ~~Marcaciones faltantes~~ → red flag automática (`MISSING_CLOCK_IN`/`_CLOCK_OUT`/`_BOTH`), bloquea aprobación de horas extra hasta corregirse, resoluble solo por RRHH/jefe correspondiente.
+- ~~Correcciones de marcación~~ → se reutiliza `attendance_corrections` (Fase 3), reforzada con rol del autor, tipo de corrección, validaciones de zona horaria de Chile, bloqueo en período cerrado, y bloqueo por conflicto con una decisión de horas extra activa. El dato crudo de Workera nunca se sobrescribe.
+
+## Reglas de negocio — todavía pendientes
+
+- `[USUARIO/PRODUCTO]` **Ciclo exacto de cierre mensual** (`ReportingPeriod`): duración/fecha de corte no confirmada. Gate D solo agregó que la recomputación del bono respeta `status='CLOSED'` (falla en vez de mutar) — el ciclo en sí sigue sin definir.
+- `[TÉCNICA]` **Bloqueo de cierre con revisiones semanales pendientes**: hoy es solo documentado (`docs/DATA_MODEL_PHASE2B.md` sección 24), no un trigger de base de datos — decisión técnica pendiente: ¿implementarlo como constraint duro o dejarlo como validación de aplicación? (Ver `docs/THREAT_MODEL.md` T-21.) No resuelto por Gate D.
 
 ## Seguridad y operación
 

@@ -10,8 +10,9 @@ Web app para que supervisores (Producción/Instalación) y RRHH revisen diariame
 
 | Componente | Estado |
 |---|---|
-| Modelo de datos (34 tablas, 24 migraciones) | `IMPLEMENTED` |
-| RLS deny-by-default en las 34 tablas | `IMPLEMENTED` |
+| Modelo de datos (36 tablas, 26 migraciones) | `IMPLEMENTED` |
+| Reglas de horas extra (HH50/HH100, límites, bono automático, feriados, código R desactivado, selector binario 1h/2h de Producción, marcaciones faltantes, correcciones auditadas) | `IMPLEMENTED` (Gate D + segundo hardening) — políticas internas, pendientes de validación RR. HH./legal antes de producción, ver `docs/BUSINESS_RULES_GATE_D.md` |
+| RLS deny-by-default en las 36 tablas | `IMPLEMENTED` |
 | Roles (`ADMIN_RRHH`, `SUPERVISOR_PRODUCTION`, `SUPERVISOR_INSTALLATION`) | `IMPLEMENTED` |
 | Autenticación (Supabase Auth, email+password) | `IMPLEMENTED` |
 | Guard de sesión (Proxy + `getClaims()`) | `IMPLEMENTED` |
@@ -35,7 +36,7 @@ flowchart TD
     Proxy["src/proxy.ts<br/>(Next.js 16 Proxy)"]
     Guard["updateSession()<br/>src/lib/supabase/middleware.ts<br/>getClaims() — una vez por request"]
     Auth["Supabase Auth<br/>(email + password)"]
-    RLS["Postgres + RLS<br/>34 tablas, deny-by-default"]
+    RLS["Postgres + RLS<br/>36 tablas, deny-by-default"]
     LoginAction["login()/logout()<br/>src/app/login/actions.ts<br/>Server Actions"]
 
     Browser -->|"toda request excepto assets estáticos"| Proxy
@@ -104,7 +105,7 @@ Helpers `SECURITY DEFINER`, `stable`, `search_path = ''`, `EXECUTE` revocado de 
 
 ## 8. Modelo de datos (`IMPLEMENTED`)
 
-**24 migraciones**, **34 tablas**, todas con RLS habilitado (verificado: `grep` sobre `supabase/migrations/*.sql` confirma 34 `enable row level security` para 34 `create table`, deny-by-default sin excepción). Grupos funcionales:
+**26 migraciones**, **36 tablas**, todas con RLS habilitado (verificado: `grep` sobre `supabase/migrations/*.sql` confirma 36 `enable row level security` para 36 `create table`, deny-by-default sin excepción). Grupos funcionales:
 
 - Organización: `profiles`, `employee_groups`, `employees`, `employee_group_assignments`, `supervisor_assignments`.
 - Horarios/políticas: `work_schedules`, `work_schedule_rules`, `schedule_assignments`, `overtime_policies`, `late_arrival_policies`, `bonus_policies`, `bonus_types`.
@@ -114,6 +115,10 @@ Helpers `SECURITY DEFINER`, `stable`, `search_path = ''`, `EXECUTE` revocado de 
 - Bono: `employee_daily_bonuses`.
 - Revisión/cierre: `daily_reviews`, `weekly_reviews`, `weekly_review_snapshots`, `reporting_periods`, `period_snapshots`.
 - Documentos/exportación/auditoría: `supporting_documents`, `excel_exports`, `audit_log`.
+- Calendario administrativo (Gate D): `holidays`.
+- Marcaciones faltantes (Gate D, segundo hardening): `attendance_missing_punch_flags`.
+
+`attendance_effective_punches` es una vista (`security_invoker = true`, no una tabla) que expone el dato crudo de `attendance_records` junto al efectivo (crudo + última `attendance_corrections` vigente, si existe) — no cuenta en el total de tablas de arriba.
 
 Integridad: FK en todas las relaciones, `UNIQUE(source, external_id)` para idempotencia de sync, `EXCLUDE USING gist` anti-solapamiento en tablas de calendario/política, trigger `enforce_immutable_columns()` en hechos/decisiones/auditoría (columna `is_current` como única excepción mutable donde aplica).
 
@@ -130,7 +135,7 @@ Cobertura: 59/59 tests (`npm run test:workera`), incluye `security.test.ts` que 
 `.github/workflows/ci.yml`: `contents: read` global, `concurrency` con cancelación de runs previos, sin `pull_request_target`, todas las Actions fijadas a SHA verificado contra los repositorios oficiales (no `latest`/`main`/`master`).
 
 - **`app-quality`** (Ubuntu, timeout 15 min): checkout → Node 24.19.0 (cache npm) → `npm ci` → lint → `next typegen` → `tsc --noEmit` → `test:workera` (59/59) → `test:auth` (26/26) → build.
-- **`database`** (Ubuntu, timeout 30 min): checkout → confirma Docker → Supabase CLI 2.115.0 pinneado → `supabase start` → `supabase db reset` (24 migraciones desde cero) → `supabase test db` (pgTAP, 119/119) → `supabase stop --no-backup` (`if: always()`, corre incluso si algo falla antes).
+- **`database`** (Ubuntu, timeout 30 min): checkout → confirma Docker → Supabase CLI 2.115.0 pinneado → `supabase start` → `supabase db reset` (todas las migraciones desde cero, 26 a la fecha del segundo hardening de Gate D) → `supabase test db` (pgTAP, 212/212 a la fecha del segundo hardening de Gate D) → `supabase stop --no-backup` (`if: always()`, corre incluso si algo falla antes).
 
 Ambos jobs verificados `success` en ejecuciones reales sobre GitHub (no solo localmente) — ver checkpoints de Gate A y Gate B.
 
@@ -168,3 +173,4 @@ Consolidadas en `docs/DECISIONS_PENDING.md` (creado en este mismo gate) para no 
 - `docs/BACKUP_RECOVERY_PLAN.md` — estrategia de backups/recuperación (propuesta, no implementada).
 - `docs/SECURITY_PHASE3.md` — detalle histórico de la matriz de permisos de Fase 3 (sigue vigente para ese contenido).
 - `docs/DECISIONS_PENDING.md` — decisiones de negocio/seguridad sin confirmar.
+- `docs/BUSINESS_RULES_GATE_D.md` — reglas de horas extra, bono, feriados y código R (Gate D), políticas internas pendientes de validación RR. HH./legal.

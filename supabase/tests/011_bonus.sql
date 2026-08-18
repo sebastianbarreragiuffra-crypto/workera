@@ -39,19 +39,17 @@ values (
   (select id from public.profiles where display_name = 'Fixture Decisor Bonus')
 );
 
-select lives_ok(
-  format(
-    $$ insert into public.employee_daily_bonuses
-         (employee_id, work_date, overtime_decision_id, bonus_policy_id, amount, currency)
-       values (%L, date '2026-08-10', %L, %L, 1000, 'CLP') $$,
-    (select id from public.employees where external_workera_id = 'TEST2B-EMP-BONUS-001'),
-    (select od.id from public.overtime_decisions od join public.overtime_records ovr on ovr.id = od.overtime_record_id
-       where ovr.employee_id = (select id from public.employees where external_workera_id = 'TEST2B-EMP-BONUS-001')
-         and ovr.work_date = date '2026-08-10'),
-    (select bp.id from public.bonus_policies bp join public.employee_groups eg on eg.id = bp.employee_group_id
-       where eg.code = 'PRODUCTION')
-  ),
-  'employee_daily_bonuses: PRODUCTION + 120 min aprobados = $1.000 CLP se inserta'
+-- Gate D: el bono ya no se inserta manualmente — el trigger
+-- overtime_decisions_recompute_bonus (20260818160000) lo generó
+-- automáticamente al insertarse la OvertimeDecision de 120 min aprobados
+-- arriba. Se verifica el resultado automático en vez de insertarlo a mano
+-- (mismo caso de negocio probado, ahora contra el mecanismo real).
+select is(
+  (select amount from public.employee_daily_bonuses
+     where employee_id = (select id from public.employees where external_workera_id = 'TEST2B-EMP-BONUS-001')
+       and work_date = date '2026-08-10'),
+  1000::bigint,
+  'employee_daily_bonuses: PRODUCTION + 120 min aprobados genera automáticamente $1.000 CLP (Gate D)'
 );
 
 -- Caso 2: approved = 90 -> NO BONUS (el trigger de validación debe rechazar el intento)
@@ -73,12 +71,19 @@ values (
   (select op.id from public.overtime_policies op join public.employee_groups eg on eg.id = op.employee_group_id
      where eg.code = 'PRODUCTION' and op.day_of_week = 2)
 );
+-- Gate D (segundo hardening): PRODUCTION + lunes-viernes + HH50 con
+-- candidato >= 60 min queda sujeto al selector binario {0,60,120} — 90 min
+-- aprobados ya no es un valor válido de decisión. Se usa 60 aprobado / 30
+-- rechazado (PARTIALLY_APPROVED, suma = candidato 90) en su lugar, que
+-- coincide exactamente con la propuesta automática de la ventana 60-114 (sin
+-- motivo obligatorio) y preserva el mismo objetivo de la prueba: un
+-- approved_minutes por debajo del umbral de 120 no debe generar bono.
 insert into public.overtime_decisions
   (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by)
 values (
   (select id from public.overtime_records where employee_id =
      (select id from public.employees where external_workera_id = 'TEST2B-EMP-BONUS-001') and work_date = date '2026-08-11'),
-  90, 0, 'FULLY_APPROVED',
+  60, 30, 'PARTIALLY_APPROVED',
   (select id from public.profiles where display_name = 'Fixture Decisor Bonus')
 );
 
@@ -96,7 +101,7 @@ select throws_ok(
   ),
   'P0001',
   null,
-  'employee_daily_bonuses: approved=90 (< 120) es rechazado por el trigger de validación -> NO BONUS'
+  'employee_daily_bonuses: approved=60 (< 120) es rechazado por el trigger de validación -> NO BONUS'
 );
 
 -- Caso 3: monto que no coincide con la política vigente debe rechazarse
@@ -171,13 +176,15 @@ select throws_ok(
   'bonus_policies: amount negativo es rechazado'
 );
 
--- Caso 6: INSTALLATION no tiene bonus_policy sembrada (PENDING_BUSINESS_CONFIRMATION)
+-- Caso 6: Gate D confirmó la regla para INSTALLATION (antes
+-- PENDING_BUSINESS_CONFIRMATION, ver 20260818160000) — ahora tiene
+-- exactamente una política sembrada, mismo umbral/monto que PRODUCTION.
 select is(
   (select count(*)::int from public.bonus_policies bp
      join public.employee_groups eg on eg.id = bp.employee_group_id
      where eg.code = 'INSTALLATION'),
-  0,
-  'bonus_policies: INSTALLATION no tiene ninguna política sembrada (regla pendiente, no inventada)'
+  1,
+  'bonus_policies: INSTALLATION tiene la política de bono confirmada por Gate D (120 min = $1.000 CLP)'
 );
 
 select * from finish();
