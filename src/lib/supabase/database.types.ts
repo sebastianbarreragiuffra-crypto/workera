@@ -204,7 +204,7 @@ export type Database = {
           attendance_record_id: string
           corrected_at: string
           corrected_by: string
-          corrected_by_role: Database["public"]["Enums"]["app_role"]
+          corrected_by_role: Database["public"]["Enums"]["app_role"] | null
           corrected_clock_in: string | null
           corrected_clock_out: string | null
           correction_type: string | null
@@ -219,7 +219,7 @@ export type Database = {
           attendance_record_id: string
           corrected_at?: string
           corrected_by?: string
-          corrected_by_role?: Database["public"]["Enums"]["app_role"]
+          corrected_by_role?: Database["public"]["Enums"]["app_role"] | null
           corrected_clock_in?: string | null
           corrected_clock_out?: string | null
           correction_type?: string | null
@@ -234,7 +234,7 @@ export type Database = {
           attendance_record_id?: string
           corrected_at?: string
           corrected_by?: string
-          corrected_by_role?: Database["public"]["Enums"]["app_role"]
+          corrected_by_role?: Database["public"]["Enums"]["app_role"] | null
           corrected_clock_in?: string | null
           corrected_clock_out?: string | null
           correction_type?: string | null
@@ -2011,6 +2011,8 @@ export type Database = {
       }
       is_admin_rrhh: { Args: never; Returns: boolean }
       is_corporate_user: { Args: never; Returns: boolean }
+      is_privileged_admin: { Args: never; Returns: boolean }
+      is_super_admin: { Args: never; Returns: boolean }
       is_supervisor_installation: { Args: never; Returns: boolean }
       is_supervisor_production: { Args: never; Returns: boolean }
       max_approvable_overtime_minutes: {
@@ -2039,6 +2041,7 @@ export type Database = {
         | "ADMIN_RRHH"
         | "SUPERVISOR_PRODUCTION"
         | "SUPERVISOR_INSTALLATION"
+        | "SUPER_ADMIN"
       daily_review_status:
         | "IMPORTED"
         | "PENDING_REVIEW"
@@ -2202,6 +2205,7 @@ export const Constants = {
         "ADMIN_RRHH",
         "SUPERVISOR_PRODUCTION",
         "SUPERVISOR_INSTALLATION",
+        "SUPER_ADMIN",
       ],
       daily_review_status: [
         "IMPORTED",

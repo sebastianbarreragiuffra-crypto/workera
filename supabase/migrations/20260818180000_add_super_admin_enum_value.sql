@@ -1,0 +1,19 @@
+-- Fase 5D — 1/2: agrega el valor 'SUPER_ADMIN' al enum app_role.
+--
+-- Migración separada, deliberadamente mínima: Postgres no permite usar un
+-- valor de enum recién agregado dentro de la MISMA transacción en la que se
+-- agregó (ALTER TYPE ... ADD VALUE). Al ser cada archivo de migración su
+-- propia transacción, esta migración solo agrega el valor; la migración
+-- siguiente (20260818180100) ya puede referenciarlo con seguridad.
+--
+-- Modelo final de 4 tipos de rol (no 4 cuentas hardcodeadas — el enum define
+-- TIPOS de acceso; cuántas cuentas existan de cada tipo es un dato, no un
+-- cambio de esquema):
+--   SUPER_ADMIN              — administrador total de la aplicación (nuevo).
+--   ADMIN_RRHH                — ya existente.
+--   SUPERVISOR_PRODUCTION      — ya existente.
+--   SUPERVISOR_INSTALLATION    — ya existente.
+--
+-- No se agregan ADMIN/OWNER/ROOT ni ningún otro valor — exactamente los 4
+-- confirmados por el encargo.
+alter type public.app_role add value 'SUPER_ADMIN';
