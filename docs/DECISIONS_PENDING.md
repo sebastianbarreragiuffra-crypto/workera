@@ -1,0 +1,39 @@
+# Decisiones Pendientes — consolidado
+
+Estado: creado en Gate C pre-UI. Este documento consolida decisiones de negocio/seguridad/infraestructura que requieren confirmación humana futura, ya mencionadas de forma dispersa en otros documentos. **Ninguna se decide en este gate** — este gate es exclusivamente documental.
+
+**Leyenda de categoría** (agregada en el hardening de este gate, para no mezclar quién debe resolver cada punto):
+- `[USUARIO/PRODUCTO]` — requiere una decisión de negocio de Sebastián/Arcotex; nadie más puede resolverla.
+- `[DEPENDENCIA EXTERNA]` — requiere información o acción de un tercero (Workera, Supabase) fuera del control del equipo.
+- `[TÉCNICA]` — requiere una decisión de diseño/implementación que el equipo técnico puede resolver una vez tenga contexto suficiente, sin depender de un tercero.
+
+## Reglas de negocio (heredadas de `docs/BUSINESS_RULES_PRE_PHASE2.md` / `docs/DATA_MODEL_PHASE2B.md`, no resueltas aquí)
+
+- `[USUARIO/PRODUCTO]` **Horas extra de viernes para Producción**: sin política sembrada, marcado P0 desde antes de Fase 2.
+- `[USUARIO/PRODUCTO]` **Determinación HH50 vs. HH100**: sin confirmar qué determina la tasa aplicable.
+- `[USUARIO/PRODUCTO]` **Código de estado `R`**: significado exacto del código de asistencia `R` (de los 11 códigos: P, F, F-P, F-J, P-L, P-M, V, L, L-M, R, `?`) — confirmar contra el vocabulario real de la empresa/Workera.
+- `[USUARIO/PRODUCTO]` **Horas extra de Instalación**: reglas de cálculo/tope no confirmadas, a diferencia de Producción que sí tiene `overtime_policies` sembrada.
+- `[USUARIO/PRODUCTO]` **Bono de Instalación**: hoy el bono de $1.000 CLP/120min está sembrado solo para `PRODUCTION` — sin confirmar si Instalación tiene un esquema de bono equivalente o distinto.
+- `[USUARIO/PRODUCTO]` **Fines de semana de Instalación**: el modelo ya soporta registros de fin de semana para Instalación (visto en `MockWorkeraClient`, escenario `ATT-009`), pero la regla de negocio exacta (¿cuenta como horario normal, como hora extra, como algo especial?) no está confirmada.
+- `[USUARIO/PRODUCTO]` **Ciclo exacto de cierre mensual** (`ReportingPeriod`): duración/fecha de corte no confirmada.
+- `[TÉCNICA]` **Bloqueo de cierre con revisiones semanales pendientes**: hoy es solo documentado (`docs/DATA_MODEL_PHASE2B.md` sección 24), no un trigger de base de datos — decisión técnica pendiente: ¿implementarlo como constraint duro o dejarlo como validación de aplicación? (Ver `docs/THREAT_MODEL.md` T-21.)
+
+## Seguridad y operación
+
+- `[USUARIO/PRODUCTO]` + `[TÉCNICA]` **Límites de rate limiting** (todos los valores `TBD` en `docs/ABUSE_RATE_LIMITING_PLAN.md`): login, recuperación de contraseña, futuras APIs, aprobaciones, exportación Excel, upload de documentos, acciones administrativas — los números finales son decisión de producto, el mecanismo es decisión técnica.
+- `[USUARIO/PRODUCTO]` **MFA**: no implementado, no decidido si será obligatorio para `ADMIN_RRHH` u otros roles.
+- `[TÉCNICA]` **Comportamiento del rate limiter ante su propia caída**: fail-open vs. fail-closed por tipo de operación — propuesta en `docs/ABUSE_RATE_LIMITING_PLAN.md`, no confirmada.
+- `[USUARIO/PRODUCTO]` **Escaneo antivirus/antimalware de documentos subidos** (cuando exista Storage): no evaluado, no decidido (`docs/THREAT_MODEL.md` T-14) — implica costo/proveedor adicional, decisión de producto.
+- `[TÉCNICA]` **Límites de tamaño de archivo** por tipo de documento: `TBD` en `docs/API_SECURITY_STANDARD.md`/`docs/THREAT_MODEL.md` T-15.
+
+## Backups e infraestructura
+
+- `[USUARIO/PRODUCTO]` **Plan Supabase a contratar** (hosted, staging/producción): no existe todavía — determina qué capacidades reales de backup/PITR/rate limiting hosted están disponibles (verificado en este gate: el plan Free no incluye backups automáticos). Toda la sección 4 de `docs/BACKUP_RECOVERY_PLAN.md` depende de esto — es una decisión de presupuesto, no solo técnica.
+- `[USUARIO/PRODUCTO]` **RPO/RTO de producción**: propuestos (1h/4h) en `docs/BACKUP_RECOVERY_PLAN.md`, no aprobados — un RPO de 1h exige contratar PITR explícitamente (no disponible en Free).
+- `[USUARIO/PRODUCTO]` **Retención de backups**: propuesta 30 días, no confirmada; posible alineación con obligaciones legales chilenas sobre datos de remuneración — fuera del alcance técnico de este gate.
+- `[TÉCNICA]` **Separación de responsabilidades operacional** (quién administra backups vs. quién es `ADMIN_RRHH` de la app): propuesta, no formalizada (no hay equipo de operaciones definido todavía).
+- `[DEPENDENCIA EXTERNA]` **Documentación oficial de Workera**: bloqueo externo activo desde Fase 5 (3 fases consecutivas bloqueadas: 5, 5B, 5C) — requiere documentación oficial (OpenAPI/Swagger/PDF/Postman) o confirmación escrita de quien administra la relación técnica con Workera, especificando mecanismo de autenticación exacto, Base URL completa, y al menos un endpoint de lectura confirmado. Fuera del control del equipo técnico.
+
+## Notas de proceso
+
+Cada vez que uno de estos puntos se resuelva, la resolución debe documentarse en el archivo correspondiente (`BUSINESS_RULES_*`, `THREAT_MODEL.md`, `ABUSE_RATE_LIMITING_PLAN.md`, `BACKUP_RECOVERY_PLAN.md`) y eliminarse de esta lista — este documento debe reflejar únicamente lo que sigue sin decidir en el momento en que se lee.
