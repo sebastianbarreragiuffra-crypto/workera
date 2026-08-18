@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:workera": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/workera/**/*.test.ts\""
+    "test:workera": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/workera/**/*.test.ts\"",
+    "test:auth": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/supabase/middleware.test.ts\""
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

@@ -44,6 +44,9 @@ jobs:
       - name: Workera adapter tests (mock only, no network)
         run: npm run test:workera
 
+      - name: Auth guard tests
+        run: npm run test:auth
+
       - name: Build
         run: npm run build
 
