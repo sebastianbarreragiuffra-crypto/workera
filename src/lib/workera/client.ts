@@ -4,6 +4,7 @@ import type { NormalizedEmployee, NormalizedAttendance, NormalizedAbsence } from
 import { getWorkeraConfig } from "./config";
 import { WorkeraConfigurationError } from "./errors";
 import { MockWorkeraClient } from "./mock-client";
+import { HttpWorkeraClient } from "./http-client";
 
 export interface GetAttendanceParams {
   range: LocalDateRange;
@@ -50,10 +51,19 @@ export function createWorkeraClient(): WorkeraClient {
     return new MockWorkeraClient();
   }
 
-  // provider === "http": todavía no implementado — no existe documentación
-  // ni credenciales reales de Workera verificadas en este repositorio
-  // (WAITING_FOR_WORKERA_DOCUMENTATION). Se implementa en Fase 5.
-  throw new WorkeraConfigurationError(
-    "HttpWorkeraClient no está implementado todavía — pendiente de documentación/credenciales reales de Workera (Fase 5)."
-  );
+  // provider === "http": implementación real (Fase 5C), contra la API
+  // pública documentada en help.workera.com. getWorkeraConfig() ya validó
+  // que baseUrl/apiUser/apiKey estén presentes para este provider.
+  if (!config.baseUrl || !config.apiUser || !config.apiKey) {
+    throw new WorkeraConfigurationError(
+      "WORKERA_PROVIDER=http requiere WORKERA_BASE_URL, WORKERA_API_USER y WORKERA_API_KEY configurados."
+    );
+  }
+
+  return new HttpWorkeraClient({
+    baseUrl: config.baseUrl,
+    apiUser: config.apiUser,
+    apiKey: config.apiKey,
+    requestTimeoutMs: config.requestTimeoutMs,
+  });
 }

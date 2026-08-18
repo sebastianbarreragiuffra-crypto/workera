@@ -10,6 +10,8 @@ import "server-only";
 
 export { createWorkeraClient } from "./client";
 export type { WorkeraClient, GetAttendanceParams, GetAbsencesParams } from "./client";
+export { HttpWorkeraClient } from "./http-client";
+export type { HttpWorkeraClientConfig, GetAttendanceEventsParams } from "./http-client";
 
 export type {
   NormalizedEmployee,
@@ -20,6 +22,13 @@ export type {
   NormalizedInstant,
   EmployeeGroupMappingResult,
 } from "./types/normalized";
+export type {
+  NormalizedWorkeraAttendanceEvent,
+  NormalizedWorkeraAttendancePage,
+  WorkeraAttendanceTypeCode,
+  WorkeraAttendanceTypeLabel,
+  WorkeraAttendanceStatus,
+} from "./types/attendance-event";
 export type { LocalDate, LocalDateRange, WorkeraListOptions, WorkeraListResult, WorkeraPageToken } from "./types/common";
 export type { EmployeeGroupCode } from "./types/employee-group";
 export type { InternalAttendanceStatusCode, NormalizedAttendanceStatusCode } from "./types/attendance-status";

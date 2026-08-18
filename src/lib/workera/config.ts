@@ -7,22 +7,24 @@ import { WorkeraConfigurationError } from "./errors";
  * importar este archivo (sección 20 del encargo). Ninguna variable de acá
  * lleva jamás el prefijo NEXT_PUBLIC_.
  *
- * Nombres de variables: no conocemos todavía el mecanismo de autenticación
- * real de Workera (checklist pendiente, docs/WORKERA_API_REQUIREMENTS.md),
- * así que se usan nombres genéricos documentados en vez de fingir que
- * `WORKERA_API_KEY` es el nombre definitivo. Se ajustarán en Fase 5 cuando
- * se confirme el mecanismo real — ese cambio no debería requerir tocar
- * ningún archivo fuera de este módulo.
+ * Mecanismo de autenticación CONFIRMADO en Fase 5C por el manual oficial de
+ * Workera entregado por el usuario: "Utiliza los valores de API_USER y
+ * API_KEY como encabezados en las consultas REST de cada funcionalidad
+ * API." Dos credenciales, dos headers HTTP — `API_USER` (el correo
+ * electrónico asociado a la cuenta) y `API_KEY` (código alfanumérico de 32
+ * caracteres). Ya no es un placeholder genérico.
  */
 
 export type WorkeraProvider = "mock" | "http";
 
 export interface WorkeraConfig {
   provider: WorkeraProvider;
-  /** Base URL del futuro HttpWorkeraClient. Vacía mientras provider = mock. */
+  /** Base URL del HttpWorkeraClient, ej. "https://workera.com/apiClient/v1". Vacía mientras provider = mock. */
   baseUrl: string | null;
-  /** Placeholder genérico — nombre/forma real de la credencial: WAITING_FOR_WORKERA_DOCUMENTATION. */
-  credential: string | null;
+  /** Header HTTP "API_USER" — el correo asociado a la cuenta de Workera. */
+  apiUser: string | null;
+  /** Header HTTP "API_KEY" — código alfanumérico de 32 caracteres. Nunca loguear ni exponer. */
+  apiKey: string | null;
   requestTimeoutMs: number;
 }
 
@@ -42,7 +44,8 @@ function isProductionEnvironment(): boolean {
 export function getWorkeraConfig(): WorkeraConfig {
   const rawProvider = process.env.WORKERA_PROVIDER;
   const baseUrl = process.env.WORKERA_BASE_URL || null;
-  const credential = process.env.WORKERA_CREDENTIAL || null;
+  const apiUser = process.env.WORKERA_API_USER || null;
+  const apiKey = process.env.WORKERA_API_KEY || null;
   const timeoutRaw = process.env.WORKERA_REQUEST_TIMEOUT_MS;
   const requestTimeoutMs = timeoutRaw ? Number(timeoutRaw) : DEFAULT_TIMEOUT_MS;
 
@@ -52,6 +55,19 @@ export function getWorkeraConfig(): WorkeraConfig {
     );
   }
 
+  function assertHttpCredentials(): void {
+    if (!baseUrl) {
+      throw new WorkeraConfigurationError(
+        "WORKERA_PROVIDER=http requiere WORKERA_BASE_URL configurado."
+      );
+    }
+    if (!apiUser || !apiKey) {
+      throw new WorkeraConfigurationError(
+        "WORKERA_PROVIDER=http requiere WORKERA_API_USER y WORKERA_API_KEY configurados."
+      );
+    }
+  }
+
   if (isProductionEnvironment()) {
     if (rawProvider !== "http") {
       throw new WorkeraConfigurationError(
@@ -59,25 +75,19 @@ export function getWorkeraConfig(): WorkeraConfig {
           "No se usa el mock silenciosamente fuera de desarrollo/test (fail-closed)."
       );
     }
-    if (!baseUrl) {
-      throw new WorkeraConfigurationError(
-        "WORKERA_PROVIDER=http requiere WORKERA_BASE_URL configurado."
-      );
-    }
-    return { provider: "http", baseUrl, credential, requestTimeoutMs };
+    assertHttpCredentials();
+    return { provider: "http", baseUrl, apiUser, apiKey, requestTimeoutMs };
   }
 
   // Fuera de producción: mock por defecto si no se especifica nada, para no
   // exigir configuración a cada desarrollador que clona el repo. "http"
-  // sigue siendo válido en desarrollo si alguien quiere probar contra un
-  // sandbox real una vez exista.
+  // sigue siendo válido en desarrollo si alguien quiere probar contra la
+  // API real (Fase 5C).
   const provider: WorkeraProvider = rawProvider === "http" ? "http" : "mock";
 
-  if (provider === "http" && !baseUrl) {
-    throw new WorkeraConfigurationError(
-      "WORKERA_PROVIDER=http requiere WORKERA_BASE_URL configurado."
-    );
+  if (provider === "http") {
+    assertHttpCredentials();
   }
 
-  return { provider, baseUrl, credential, requestTimeoutMs };
+  return { provider, baseUrl, apiUser, apiKey, requestTimeoutMs };
 }
