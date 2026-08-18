@@ -204,8 +204,10 @@ export type Database = {
           attendance_record_id: string
           corrected_at: string
           corrected_by: string
+          corrected_by_role: Database["public"]["Enums"]["app_role"]
           corrected_clock_in: string | null
           corrected_clock_out: string | null
+          correction_type: string | null
           created_at: string
           employee_id: string
           id: string
@@ -217,8 +219,10 @@ export type Database = {
           attendance_record_id: string
           corrected_at?: string
           corrected_by?: string
+          corrected_by_role?: Database["public"]["Enums"]["app_role"]
           corrected_clock_in?: string | null
           corrected_clock_out?: string | null
+          correction_type?: string | null
           created_at?: string
           employee_id: string
           id?: string
@@ -230,8 +234,10 @@ export type Database = {
           attendance_record_id?: string
           corrected_at?: string
           corrected_by?: string
+          corrected_by_role?: Database["public"]["Enums"]["app_role"]
           corrected_clock_in?: string | null
           corrected_clock_out?: string | null
+          correction_type?: string | null
           created_at?: string
           employee_id?: string
           id?: string
@@ -240,6 +246,13 @@ export type Database = {
           work_date?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "attendance_corrections_attendance_record_id_fkey"
+            columns: ["attendance_record_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_effective_punches"
+            referencedColumns: ["attendance_record_id"]
+          },
           {
             foreignKeyName: "attendance_corrections_attendance_record_id_fkey"
             columns: ["attendance_record_id"]
@@ -259,6 +272,90 @@ export type Database = {
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_missing_punch_flags: {
+        Row: {
+          attendance_record_id: string
+          contacted_at: string | null
+          contacted_by: string | null
+          created_at: string
+          employee_id: string
+          id: string
+          missing_type: Database["public"]["Enums"]["missing_punch_type"]
+          notes: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: Database["public"]["Enums"]["missing_punch_status"]
+          updated_at: string
+          work_date: string
+        }
+        Insert: {
+          attendance_record_id: string
+          contacted_at?: string | null
+          contacted_by?: string | null
+          created_at?: string
+          employee_id: string
+          id?: string
+          missing_type: Database["public"]["Enums"]["missing_punch_type"]
+          notes?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: Database["public"]["Enums"]["missing_punch_status"]
+          updated_at?: string
+          work_date: string
+        }
+        Update: {
+          attendance_record_id?: string
+          contacted_at?: string | null
+          contacted_by?: string | null
+          created_at?: string
+          employee_id?: string
+          id?: string
+          missing_type?: Database["public"]["Enums"]["missing_punch_type"]
+          notes?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: Database["public"]["Enums"]["missing_punch_status"]
+          updated_at?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_missing_punch_flags_attendance_record_id_fkey"
+            columns: ["attendance_record_id"]
+            isOneToOne: true
+            referencedRelation: "attendance_effective_punches"
+            referencedColumns: ["attendance_record_id"]
+          },
+          {
+            foreignKeyName: "attendance_missing_punch_flags_attendance_record_id_fkey"
+            columns: ["attendance_record_id"]
+            isOneToOne: true
+            referencedRelation: "attendance_records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_missing_punch_flags_contacted_by_fkey"
+            columns: ["contacted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_missing_punch_flags_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_missing_punch_flags_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -871,6 +968,44 @@ export type Database = {
           },
         ]
       }
+      holidays: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          holiday_date: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          holiday_date: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          holiday_date?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "holidays_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       late_arrival_decisions: {
         Row: {
           created_at: string
@@ -1014,6 +1149,13 @@ export type Database = {
             foreignKeyName: "late_arrival_records_attendance_record_id_fkey"
             columns: ["attendance_record_id"]
             isOneToOne: false
+            referencedRelation: "attendance_effective_punches"
+            referencedColumns: ["attendance_record_id"]
+          },
+          {
+            foreignKeyName: "late_arrival_records_attendance_record_id_fkey"
+            columns: ["attendance_record_id"]
+            isOneToOne: false
             referencedRelation: "attendance_records"
             referencedColumns: ["id"]
           },
@@ -1045,6 +1187,8 @@ export type Database = {
           overtime_record_id: string
           reason: string | null
           rejected_minutes: number
+          requires_manual_review: boolean
+          system_proposed_minutes: number | null
         }
         Insert: {
           approved_minutes: number
@@ -1057,6 +1201,8 @@ export type Database = {
           overtime_record_id: string
           reason?: string | null
           rejected_minutes: number
+          requires_manual_review?: boolean
+          system_proposed_minutes?: number | null
         }
         Update: {
           approved_minutes?: number
@@ -1069,6 +1215,8 @@ export type Database = {
           overtime_record_id?: string
           reason?: string | null
           rejected_minutes?: number
+          requires_manual_review?: boolean
+          system_proposed_minutes?: number | null
         }
         Relationships: [
           {
@@ -1169,6 +1317,13 @@ export type Database = {
           work_date?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "overtime_records_attendance_record_id_fkey"
+            columns: ["attendance_record_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_effective_punches"
+            referencedColumns: ["attendance_record_id"]
+          },
           {
             foreignKeyName: "overtime_records_attendance_record_id_fkey"
             columns: ["attendance_record_id"]
@@ -1726,6 +1881,27 @@ export type Database = {
       }
     }
     Views: {
+      attendance_effective_punches: {
+        Row: {
+          attendance_record_id: string | null
+          current_correction_id: string | null
+          effective_clock_in: string | null
+          effective_clock_out: string | null
+          employee_id: string | null
+          raw_clock_in: string | null
+          raw_clock_out: string | null
+          work_date: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_records_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       late_arrival_daily_totals: {
         Row: {
           detected_minutes: number | null
@@ -1825,6 +2001,10 @@ export type Database = {
     }
     Functions: {
       can_manage_employee: { Args: { p_employee_id: string }; Returns: boolean }
+      classify_overtime_type_id: {
+        Args: { p_work_date: string }
+        Returns: string
+      }
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
@@ -1833,6 +2013,26 @@ export type Database = {
       is_corporate_user: { Args: never; Returns: boolean }
       is_supervisor_installation: { Args: never; Returns: boolean }
       is_supervisor_production: { Args: never; Returns: boolean }
+      max_approvable_overtime_minutes: {
+        Args: {
+          p_employee_group_code: string
+          p_overtime_type_id: string
+          p_work_date: string
+        }
+        Returns: number
+      }
+      production_two_hour_proposal_minutes: {
+        Args: { p_candidate_minutes: number }
+        Returns: number
+      }
+      production_two_hour_requires_manual_review: {
+        Args: { p_candidate_minutes: number }
+        Returns: boolean
+      }
+      recompute_employee_daily_bonus: {
+        Args: { p_employee_id: string; p_work_date: string }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role:
@@ -1847,6 +2047,15 @@ export type Database = {
         | "SYNC_CONFLICT"
         | "CORRECTED_AFTER_REVIEW"
         | "READY_FOR_WEEKLY_CLOSE"
+      missing_punch_status:
+        | "PENDING_CONTACT"
+        | "CONTACTED"
+        | "RESOLVED"
+        | "UNRESOLVED"
+      missing_punch_type:
+        | "MISSING_CLOCK_IN"
+        | "MISSING_CLOCK_OUT"
+        | "MISSING_BOTH"
       overtime_decision_status:
         | "FULLY_APPROVED"
         | "PARTIALLY_APPROVED"
@@ -2002,6 +2211,17 @@ export const Constants = {
         "SYNC_CONFLICT",
         "CORRECTED_AFTER_REVIEW",
         "READY_FOR_WEEKLY_CLOSE",
+      ],
+      missing_punch_status: [
+        "PENDING_CONTACT",
+        "CONTACTED",
+        "RESOLVED",
+        "UNRESOLVED",
+      ],
+      missing_punch_type: [
+        "MISSING_CLOCK_IN",
+        "MISSING_CLOCK_OUT",
+        "MISSING_BOTH",
       ],
       overtime_decision_status: [
         "FULLY_APPROVED",
