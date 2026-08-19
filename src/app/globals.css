@@ -1,8 +1,39 @@
 @import "tailwindcss";
 
+/*
+ * Paleta ARCOTEX (Fase 8B.1) -- azul corporativo del logo + navy de sidebar/
+ * topbar, colores semánticos estándar para estados (pendiente/ok/crítico).
+ * Aplicación empresarial interna con marca fija -- deliberadamente SIN modo
+ * oscuro automático por `prefers-color-scheme` (el shell ya usa navy/azul
+ * oscuro como parte del diseño, no como "modo oscuro").
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f3f5f8;
+  --foreground: #0f172a;
+
+  --color-arcotex-blue: #3e6fb0;
+  --color-arcotex-blue-dark: #2f5790;
+  --color-arcotex-navy: #142a4c;
+  --color-arcotex-navy-dark: #0b1930;
+
+  --color-card: #ffffff;
+  --color-border: #e2e8f0;
+
+  --color-warning: #b45309;
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: #fde68a;
+
+  --color-critical: #b91c1c;
+  --color-critical-bg: #fef2f2;
+  --color-critical-border: #fecaca;
+
+  --color-success: #15803d;
+  --color-success-bg: #f0fdf4;
+  --color-success-border: #bbf7d0;
+
+  --color-info: #1d4ed8;
+  --color-info-bg: #eff6ff;
+  --color-info-border: #bfdbfe;
 }
 
 @theme inline {
@@ -10,13 +41,25 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-arcotex-blue: var(--color-arcotex-blue);
+  --color-arcotex-blue-dark: var(--color-arcotex-blue-dark);
+  --color-arcotex-navy: var(--color-arcotex-navy);
+  --color-arcotex-navy-dark: var(--color-arcotex-navy-dark);
+  --color-card: var(--color-card);
+  --color-border: var(--color-border);
+  --color-warning: var(--color-warning);
+  --color-warning-bg: var(--color-warning-bg);
+  --color-warning-border: var(--color-warning-border);
+  --color-critical: var(--color-critical);
+  --color-critical-bg: var(--color-critical-bg);
+  --color-critical-border: var(--color-critical-border);
+  --color-success: var(--color-success);
+  --color-success-bg: var(--color-success-bg);
+  --color-success-border: var(--color-success-border);
+  --color-info: var(--color-info);
+  --color-info-bg: var(--color-info-bg);
+  --color-info-border: var(--color-info-border);
 }
 
 body {

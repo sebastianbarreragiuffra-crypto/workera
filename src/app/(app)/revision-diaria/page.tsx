@@ -22,7 +22,9 @@ const FILTERS = [
   { key: "atrasos", label: "Atrasos" },
   { key: "salida-anticipada", label: "Salida anticipada" },
   { key: "horas-extra", label: "Horas extra" },
+  { key: "clock-out", label: "Clock out pendiente" },
   { key: "ausencias", label: "Ausencias" },
+  { key: "documentos", label: "Documentos" },
 ] as const;
 
 function matchesFilter(card: DailyReviewCardViewModel, filter: string): boolean {
@@ -37,8 +39,12 @@ function matchesFilter(card: DailyReviewCardViewModel, filter: string): boolean 
       return card.categories.includes("EARLY_DEPARTURE");
     case "horas-extra":
       return card.categories.includes("OVERTIME_CANDIDATE");
+    case "clock-out":
+      return card.categories.includes("MISSING_PUNCH");
     case "ausencias":
-      return card.categories.includes("ABSENCE") || card.categories.includes("LICENSE_DOCUMENT_REQUIRED");
+      return card.categories.includes("ABSENCE");
+    case "documentos":
+      return card.categories.includes("LICENSE_DOCUMENT_REQUIRED") || card.categories.includes("MEDICAL_DOCUMENT_REQUIRED");
     default:
       return true;
   }
