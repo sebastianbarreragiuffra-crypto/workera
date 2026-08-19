@@ -74,6 +74,29 @@ export interface RawWorkeraAttendanceDataResponse {
 }
 
 /**
+ * Sub-objeto `employee` normalizado, tal como viene embebido en cada evento
+ * de `/attendanceData` — NO es la forma completa de `GET /employee`
+ * (`EmployeeFullData`, sin fecha de nacimiento/dirección/teléfono/email
+ * aquí). Se conserva solo lo necesario para: (a) resolver identidad interna
+ * (`code`), (b) descubrir valores de sucursal/departamento (Fase 6A, PASO
+ * 11), (c) poblar los campos mínimos ya existentes de `employees` (Fase 2).
+ * `identification` (RUT/pasaporte) se conserva en el DTO normalizado por
+ * completitud del contrato, pero el pipeline de ingesta de Fase 6A NO lo
+ * persiste en Supabase (minimización de datos, PASO 9/30 del encargo).
+ */
+export interface NormalizedWorkeraAttendanceEmployee {
+  code: string;
+  identification: string | null;
+  name: string | null;
+  lastName: string | null;
+  branchOffice: string | null;
+  department: string | null;
+  employeeStatus: string | null;
+  companyIdentification: string | null;
+  companyName: string | null;
+}
+
+/**
  * Normalizado a nivel de EVENTO — deliberadamente NO colapsa a
  * clock_in/clock_out (regla 16, Fase 5C). `attendanceTimestampRaw` conserva
  * el valor exacto entregado por Workera sin conversión de timezone: el
@@ -82,6 +105,8 @@ export interface RawWorkeraAttendanceDataResponse {
  */
 export interface NormalizedWorkeraAttendanceEvent {
   employeeExternalId: string;
+  /** Detalle completo del empleado embebido en este evento — ver NormalizedWorkeraAttendanceEmployee. */
+  employee: NormalizedWorkeraAttendanceEmployee;
   attendanceTimestampRaw: string;
   attendanceTypeCode: number;
   attendanceTypeLabel: WorkeraAttendanceTypeLabel;

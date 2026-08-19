@@ -1678,6 +1678,7 @@ export type Database = {
           records_conflicted: number
           records_created: number
           records_read: number
+          records_unchanged: number
           records_updated: number
           started_at: string
           status: Database["public"]["Enums"]["sync_run_status"]
@@ -1692,6 +1693,7 @@ export type Database = {
           records_conflicted?: number
           records_created?: number
           records_read?: number
+          records_unchanged?: number
           records_updated?: number
           started_at?: string
           status?: Database["public"]["Enums"]["sync_run_status"]
@@ -1706,6 +1708,7 @@ export type Database = {
           records_conflicted?: number
           records_created?: number
           records_read?: number
+          records_unchanged?: number
           records_updated?: number
           started_at?: string
           status?: Database["public"]["Enums"]["sync_run_status"]
@@ -1878,6 +1881,90 @@ export type Database = {
           name?: string
         }
         Relationships: []
+      }
+      workera_attendance_events: {
+        Row: {
+          attendance_status: string
+          attendance_timestamp_interpreted: string | null
+          attendance_timestamp_raw: string
+          attendance_type_code: number
+          attendance_type_label: string
+          checksum: string | null
+          created_at: string
+          device_name: string | null
+          employee_id: string
+          external_attendance_status: string
+          external_employee_code: string
+          external_fingerprint: string | null
+          id: string
+          is_current: boolean
+          origin: string | null
+          origin_code: string | null
+          source_version: number
+          sync_run_id: string
+          synced_at: string
+          work_date: string
+        }
+        Insert: {
+          attendance_status: string
+          attendance_timestamp_interpreted?: string | null
+          attendance_timestamp_raw: string
+          attendance_type_code: number
+          attendance_type_label: string
+          checksum?: string | null
+          created_at?: string
+          device_name?: string | null
+          employee_id: string
+          external_attendance_status: string
+          external_employee_code: string
+          external_fingerprint?: string | null
+          id?: string
+          is_current?: boolean
+          origin?: string | null
+          origin_code?: string | null
+          source_version?: number
+          sync_run_id: string
+          synced_at?: string
+          work_date: string
+        }
+        Update: {
+          attendance_status?: string
+          attendance_timestamp_interpreted?: string | null
+          attendance_timestamp_raw?: string
+          attendance_type_code?: number
+          attendance_type_label?: string
+          checksum?: string | null
+          created_at?: string
+          device_name?: string | null
+          employee_id?: string
+          external_attendance_status?: string
+          external_employee_code?: string
+          external_fingerprint?: string | null
+          id?: string
+          is_current?: boolean
+          origin?: string | null
+          origin_code?: string | null
+          source_version?: number
+          sync_run_id?: string
+          synced_at?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workera_attendance_events_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workera_attendance_events_sync_run_id_fkey"
+            columns: ["sync_run_id"]
+            isOneToOne: false
+            referencedRelation: "sync_runs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

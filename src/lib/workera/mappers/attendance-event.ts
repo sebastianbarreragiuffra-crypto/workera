@@ -25,6 +25,17 @@ export function mapWorkeraAttendanceEvent(
 
   return {
     employeeExternalId: raw.employee.code,
+    employee: {
+      code: raw.employee.code,
+      identification: raw.employee.identification ?? null,
+      name: raw.employee.name ?? null,
+      lastName: raw.employee.lastName ?? null,
+      branchOffice: raw.employee.branchOffice ?? null,
+      department: raw.employee.department ?? null,
+      employeeStatus: raw.employee.employeeStatus ?? null,
+      companyIdentification: raw.employee.companyIdentification ?? null,
+      companyName: raw.employee.companyName ?? null,
+    },
     attendanceTimestampRaw: raw.attendanceDate,
     attendanceTypeCode: raw.attendanceType,
     attendanceTypeLabel: typeLabel,

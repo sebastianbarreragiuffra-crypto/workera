@@ -200,4 +200,55 @@ export class HttpWorkeraClient implements WorkeraClient {
       events: validated.data.map(mapWorkeraAttendanceEvent),
     };
   }
+
+  /**
+   * Recorre TODAS las páginas de `/attendanceData` para el rango dado
+   * (Fase 6A, PASO 20 del encargo: "no detenerse en page 1"). Protecciones
+   * explícitas contra loop infinito: se detiene si `page` deja de avanzar
+   * monótonamente, o al alcanzar `maxPages` (default 50 — a 20
+   * resultados/página, cubre 1000 eventos; un rango que necesite más que eso
+   * en una sola corrida excede el alcance de "sync manual de un día" de esta
+   * fase y debe fallar explícitamente, no seguir reintentando sin límite).
+   * Cada página individual sigue sujeta al mismo timeout que
+   * `getAttendanceEvents`.
+   */
+  async getAllAttendanceEvents(
+    params: Omit<GetAttendanceEventsParams, "page">,
+    options?: { maxPages?: number }
+  ): Promise<{ events: NormalizedWorkeraAttendancePage["events"]; pagesFetched: number; totalResult: number }> {
+    const maxPages = options?.maxPages ?? 50;
+    const allEvents: NormalizedWorkeraAttendancePage["events"] = [];
+    let currentPage = 1;
+    let totalPages = 1;
+    let totalResult = 0;
+    let pagesFetched = 0;
+
+    while (currentPage <= totalPages) {
+      if (pagesFetched >= maxPages) {
+        throw new WorkeraValidationError(
+          `getAllAttendanceEvents: se alcanzó el límite de seguridad de ${maxPages} páginas sin completar totalPages=${totalPages}. Rango demasiado amplio para esta operación — reducir el rango de fechas.`,
+          []
+        );
+      }
+
+      const result = await this.getAttendanceEvents({ ...params, page: currentPage });
+      allEvents.push(...result.events);
+      totalPages = result.totalPages;
+      totalResult = result.totalResult;
+      pagesFetched += 1;
+
+      if (result.page !== currentPage) {
+        // El servidor no devolvió la página que pedimos — protección contra
+        // loop infinito si `page` no avanza de forma confiable.
+        throw new WorkeraValidationError(
+          `getAllAttendanceEvents: se solicitó page=${currentPage} pero Workera devolvió page=${result.page}.`,
+          []
+        );
+      }
+
+      currentPage += 1;
+    }
+
+    return { events: allEvents, pagesFetched, totalResult };
+  }
 }

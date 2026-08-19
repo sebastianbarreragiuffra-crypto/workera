@@ -354,3 +354,92 @@ test("fallo de red (no AbortError) -> WorkeraNetworkError", async () => {
     }
   );
 });
+
+// -----------------------------------------------------------------------------
+// getAllAttendanceEvents (Fase 6A, PASO 20: "no detenerse en page 1") --
+// recorrido completo de paginación, no solo la lectura de una sola página.
+
+function pageResponse(page: number, totalPages: number, code: string): Response {
+  return jsonResponse(200, {
+    page,
+    totalPages,
+    pageResult: 1,
+    totalResult: totalPages,
+    data: [
+      {
+        employee: { code },
+        attendanceDate: `2026-08-18T0${page}:00:00`,
+        attendanceType: 0,
+        attendanceStatus: "ACTIVO",
+      },
+    ],
+  });
+}
+
+test("getAllAttendanceEvents: recorre TODAS las páginas, no se detiene en page 1 (dataset real conocido: 2 páginas)", async () => {
+  const requestedPages: number[] = [];
+  await withMockFetch(
+    async (input) => {
+      const url = new URL(typeof input === "string" ? input : (input as Request).url);
+      const page = Number(url.searchParams.get("page"));
+      requestedPages.push(page);
+      return pageResponse(page, 2, `EMP-${page}`);
+    },
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      const result = await client.getAllAttendanceEvents({ start: "2026-08-18", end: "2026-08-18" });
+      assert.equal(result.pagesFetched, 2);
+      assert.equal(result.events.length, 2);
+      assert.deepEqual(requestedPages, [1, 2]);
+    }
+  );
+});
+
+test("getAllAttendanceEvents: falla explícito a mitad de paginación (page 2 con error de servidor) propaga el error, no devuelve datos parciales silenciosos", async () => {
+  await withMockFetch(
+    async (input) => {
+      const url = new URL(typeof input === "string" ? input : (input as Request).url);
+      const page = Number(url.searchParams.get("page"));
+      if (page === 1) return pageResponse(1, 2, "EMP-1");
+      return jsonResponse(500, { message: "internal error" });
+    },
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await assert.rejects(
+        () => client.getAllAttendanceEvents({ start: "2026-08-18", end: "2026-08-18" }),
+        WorkeraServerError
+      );
+    }
+  );
+});
+
+test("getAllAttendanceEvents: protección de límite de páginas -- excede maxPages -> WorkeraValidationError, no loop infinito", async () => {
+  await withMockFetch(
+    async (input) => {
+      const url = new URL(typeof input === "string" ? input : (input as Request).url);
+      const page = Number(url.searchParams.get("page"));
+      // totalPages siempre "muy alto" -- simula un servidor que nunca termina.
+      return pageResponse(page, 1000, `EMP-${page}`);
+    },
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await assert.rejects(
+        () => client.getAllAttendanceEvents({ start: "2026-08-18", end: "2026-08-18" }, { maxPages: 3 }),
+        WorkeraValidationError
+      );
+    }
+  );
+});
+
+test("getAllAttendanceEvents: el servidor devuelve un page distinto al solicitado -> WorkeraValidationError, protección contra desincronización", async () => {
+  await withMockFetch(
+    async () => pageResponse(99, 2, "EMP-99"), // siempre responde page=99, sin importar lo solicitado
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await assert.rejects(
+        () => client.getAllAttendanceEvents({ start: "2026-08-18", end: "2026-08-18" }),
+        WorkeraValidationError
+      );
+    }
+  );
+});

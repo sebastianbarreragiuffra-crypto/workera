@@ -58,9 +58,18 @@ test("admin-client.ts y user-management.ts declaran server-only", () => {
   }
 });
 
-test("createAdminClient nunca se importa desde un archivo fuera de src/lib/supabase o src/lib/admin", () => {
+test("createAdminClient nunca se importa desde un archivo fuera de src/lib/supabase, src/lib/admin o src/lib/sync", () => {
+  // src/lib/sync se agregó en Fase 6A: el servicio de ingesta controlada
+  // Workera -> Supabase (workera-attendance-sync.ts) es un segundo
+  // consumidor legítimo, server-only, de service_role -- misma categoría
+  // que src/lib/admin, no una relajación del criterio (sigue siendo una
+  // allowlist cerrada de directorios server-only conocidos, no "cualquier
+  // archivo").
   const files = listFilesRecursively(SRC_ROOT).filter(
-    (f) => !f.includes(`${path.sep}lib${path.sep}supabase${path.sep}`) && !f.includes(`${path.sep}lib${path.sep}admin${path.sep}`)
+    (f) =>
+      !f.includes(`${path.sep}lib${path.sep}supabase${path.sep}`) &&
+      !f.includes(`${path.sep}lib${path.sep}admin${path.sep}`) &&
+      !f.includes(`${path.sep}lib${path.sep}sync${path.sep}`)
   );
   const offenders: string[] = [];
 
@@ -74,7 +83,7 @@ test("createAdminClient nunca se importa desde un archivo fuera de src/lib/supab
   assert.deepEqual(
     offenders,
     [],
-    `createAdminClient (service_role) referenciado fuera de src/lib/supabase|admin en: ${offenders.join(", ")}`
+    `createAdminClient (service_role) referenciado fuera de src/lib/supabase|admin|sync en: ${offenders.join(", ")}`
   );
 });
 
