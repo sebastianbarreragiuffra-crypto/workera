@@ -1,11 +1,15 @@
 import "server-only";
+import { z } from "zod";
 import type { WorkeraClient, GetAttendanceParams, GetAbsencesParams } from "./client";
 import type { WorkeraListOptions, WorkeraListResult } from "./types/common";
 import type { NormalizedEmployee, NormalizedAttendance, NormalizedAbsence } from "./types/normalized";
 import type { NormalizedWorkeraAttendancePage } from "./types/attendance-event";
+import type { NormalizedWorkeraEmployeeRosterPage } from "./types/employee-roster";
 import { rawWorkeraAttendanceDataResponseSchema } from "./schemas/attendance-event";
+import { rawWorkeraEmployeeRosterResponseSchema } from "./schemas/employee-roster";
 import { validateWorkeraPayload } from "./schemas/validate";
 import { mapWorkeraAttendanceEvent } from "./mappers/attendance-event";
+import { mapWorkeraEmployeeRosterEntry } from "./mappers/employee-roster";
 import {
   WorkeraConfigurationError,
   WorkeraAuthenticationError,
@@ -86,24 +90,14 @@ export class HttpWorkeraClient implements WorkeraClient {
   }
 
   /**
-   * Único método real de esta fase: GET /attendanceData. Solo lectura,
-   * timeout explícito, validación Zod estricta (unknown -> Zod -> DTO
-   * validado -> mapper -> DTO normalizado), sin retries agresivos, sin
-   * loguear PII ni credenciales.
+   * GET genérico con manejo de timeout/errores/logging compartido -- extraído
+   * para que `getAttendanceEvents` y `getEmployeeRoster` (Pre-Fase-8) no
+   * dupliquen la misma lógica de mapeo de errores HTTP. Nunca loguea
+   * credenciales ni el payload -- solo metadata estructural (ver logging.ts).
    */
-  async getAttendanceEvents(params: GetAttendanceEventsParams): Promise<NormalizedWorkeraAttendancePage> {
+  private async fetchAndValidate<T>(operation: string, url: URL, schema: z.ZodType<T>): Promise<T> {
     const correlationId = createCorrelationId();
-    const operation = "getAttendanceEvents";
     const startedAt = Date.now();
-
-    const url = new URL(`${this.config.baseUrl.replace(/\/+$/, "")}/attendanceData`);
-    url.searchParams.set("start", params.start);
-    url.searchParams.set("end", params.end);
-    url.searchParams.set("page", String(params.page ?? 1));
-    if (params.branchOffice) url.searchParams.set("branchOffice", params.branchOffice);
-    if (params.department) url.searchParams.set("department", params.department);
-    if (params.employees?.length) url.searchParams.set("employees", params.employees.join(","));
-    if (params.attTypes?.length) url.searchParams.set("attTypes", params.attTypes.join(","));
 
     const controller = new AbortController();
     const timeoutHandle = setTimeout(() => controller.abort(), this.config.requestTimeoutMs);
@@ -182,7 +176,7 @@ export class HttpWorkeraClient implements WorkeraClient {
       throw new WorkeraValidationError(`Respuesta de Workera no es JSON válido para ${operation}.`, [], { correlationId });
     }
 
-    const validated = validateWorkeraPayload(rawWorkeraAttendanceDataResponseSchema, json, { operation });
+    const validated = validateWorkeraPayload(schema, json, { operation });
 
     logWorkeraEvent({
       correlationId,
@@ -192,6 +186,27 @@ export class HttpWorkeraClient implements WorkeraClient {
       outcome: "success",
     });
 
+    return validated;
+  }
+
+  /**
+   * Único método real de esta fase: GET /attendanceData. Solo lectura,
+   * timeout explícito, validación Zod estricta (unknown -> Zod -> DTO
+   * validado -> mapper -> DTO normalizado), sin retries agresivos, sin
+   * loguear PII ni credenciales.
+   */
+  async getAttendanceEvents(params: GetAttendanceEventsParams): Promise<NormalizedWorkeraAttendancePage> {
+    const url = new URL(`${this.config.baseUrl.replace(/\/+$/, "")}/attendanceData`);
+    url.searchParams.set("start", params.start);
+    url.searchParams.set("end", params.end);
+    url.searchParams.set("page", String(params.page ?? 1));
+    if (params.branchOffice) url.searchParams.set("branchOffice", params.branchOffice);
+    if (params.department) url.searchParams.set("department", params.department);
+    if (params.employees?.length) url.searchParams.set("employees", params.employees.join(","));
+    if (params.attTypes?.length) url.searchParams.set("attTypes", params.attTypes.join(","));
+
+    const validated = await this.fetchAndValidate("getAttendanceEvents", url, rawWorkeraAttendanceDataResponseSchema);
+
     return {
       page: validated.page,
       totalPages: validated.totalPages,
@@ -199,6 +214,77 @@ export class HttpWorkeraClient implements WorkeraClient {
       totalResult: validated.totalResult,
       events: validated.data.map(mapWorkeraAttendanceEvent),
     };
+  }
+
+  /**
+   * GET /employee (Pre-Fase-8, confirmado real read-only). Hallazgo real de
+   * esta fase: `branchOffice`/`department` NO son requeridos -- sin
+   * parámetros, devuelve el roster COMPLETO paginado (probado: 97
+   * resultados, 10 páginas). Cuando se envían, deben ser los CÓDIGOS
+   * (`branchOfficeCode`/`departmentCode`, ej. "MATRIZ"), nunca los nombres
+   * visibles -- probado, un nombre visible devuelve 0 resultados.
+   */
+  async getEmployeeRoster(params: { branchOffice?: string; department?: string; page?: number } = {}): Promise<NormalizedWorkeraEmployeeRosterPage> {
+    const url = new URL(`${this.config.baseUrl.replace(/\/+$/, "")}/employee`);
+    url.searchParams.set("page", String(params.page ?? 1));
+    if (params.branchOffice) url.searchParams.set("branchOffice", params.branchOffice);
+    if (params.department) url.searchParams.set("department", params.department);
+
+    const validated = await this.fetchAndValidate("getEmployeeRoster", url, rawWorkeraEmployeeRosterResponseSchema);
+
+    return {
+      page: validated.page,
+      totalPages: validated.totalPages,
+      pageResult: validated.pageResult,
+      totalResult: validated.totalResult,
+      employees: validated.data.map(mapWorkeraEmployeeRosterEntry),
+    };
+  }
+
+  /**
+   * Recorre TODAS las páginas de GET /employee -- mismo patrón de
+   * protección contra loop infinito que `getAllAttendanceEvents` (Fase 6A):
+   * se detiene si `page` deja de avanzar monótonamente, o al alcanzar
+   * `maxPages` (default 50 -- a 10 resultados/página, cubre 500 empleados;
+   * más que eso en una sola corrida excede el alcance de una reconciliación
+   * manual y debe fallar explícito, no reintentar sin límite).
+   */
+  async getAllEmployeeRoster(
+    params: { branchOffice?: string; department?: string } = {},
+    options?: { maxPages?: number }
+  ): Promise<{ employees: NormalizedWorkeraEmployeeRosterPage["employees"]; pagesFetched: number; totalResult: number }> {
+    const maxPages = options?.maxPages ?? 50;
+    const allEmployees: NormalizedWorkeraEmployeeRosterPage["employees"] = [];
+    let currentPage = 1;
+    let totalPages = 1;
+    let totalResult = 0;
+    let pagesFetched = 0;
+
+    while (currentPage <= totalPages) {
+      if (pagesFetched >= maxPages) {
+        throw new WorkeraValidationError(
+          `getAllEmployeeRoster: se alcanzó el límite de seguridad de ${maxPages} páginas sin completar totalPages=${totalPages}.`,
+          []
+        );
+      }
+
+      const result = await this.getEmployeeRoster({ ...params, page: currentPage });
+      allEmployees.push(...result.employees);
+      totalPages = result.totalPages;
+      totalResult = result.totalResult;
+      pagesFetched += 1;
+
+      if (result.page !== currentPage) {
+        throw new WorkeraValidationError(
+          `getAllEmployeeRoster: se solicitó page=${currentPage} pero Workera devolvió page=${result.page}.`,
+          []
+        );
+      }
+
+      currentPage += 1;
+    }
+
+    return { employees: allEmployees, pagesFetched, totalResult };
   }
 
   /**

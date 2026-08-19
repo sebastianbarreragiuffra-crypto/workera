@@ -2,6 +2,7 @@ import "server-only";
 import * as XLSX from "xlsx";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
+import { normalizeName } from "./name-matching";
 
 /**
  * Import controlado de cumpleaños (Fase 7, PASO 25-28, PASO 64). SOLO usa el
@@ -16,15 +17,11 @@ import type { Database } from "../supabase/database.types";
  * red no confiable ni importado por ninguna ruta HTTP/UI -- documentado en
  * docs/BUSINESS_RULES_PHASE7.md.
  *
- * Matching EXACTO (normalizado: trim + espacios colapsados + mayúsculas),
- * NUNCA parcial/fuzzy (PASO 27): una fila cuyo nombre no calza exactamente
- * con un único `employees` real queda UNRESOLVED_BIRTHDAY_EMPLOYEE y no se
- * importa.
+ * Matching EXACTO (normalizado vía name-matching.ts: trim + espacios
+ * colapsados + mayúsculas + acentos), NUNCA parcial/fuzzy (PASO 27): una
+ * fila cuyo nombre no calza exactamente con un único `employees` real queda
+ * UNRESOLVED_BIRTHDAY_EMPLOYEE y no se importa.
  */
-
-function normalizeName(value: string): string {
-  return value.trim().replace(/\s+/g, " ").toUpperCase();
-}
 
 export interface ParsedBirthdayRow {
   /** Fila 1-indexada del Excel original, para reportar sin necesitar imprimir nombres. */

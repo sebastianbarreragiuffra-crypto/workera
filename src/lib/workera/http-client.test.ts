@@ -443,3 +443,171 @@ test("getAllAttendanceEvents: el servidor devuelve un page distinto al solicitad
     }
   );
 });
+
+// -----------------------------------------------------------------------------
+// getEmployeeRoster / getAllEmployeeRoster (Pre-Fase-8, GET /employee real
+// confirmado: branchOffice/department NO son requeridos; cuando se envían
+// deben ser códigos, no nombres visibles).
+
+const VALID_ROSTER_PAYLOAD = {
+  page: 1,
+  totalPages: 1,
+  pageResult: 2,
+  totalResult: 2,
+  requestInfo: { companyName: "DEMO", companyIdentification: "76.000.000-0", companyNickname: "demo", userEmail: "demo@example.test" },
+  data: [
+    {
+      code: "90000017",
+      deviceCode: 90000017,
+      identification: "11.111.111-1",
+      name: "JUAN",
+      secondName: "CARLOS",
+      lastName: "PEREZ",
+      secondLastName: "GONZALEZ",
+      branchOfficeCode: "MATRIZ",
+      branchOfficeName: "Matriz",
+      departmentCode: "PRODUCCION",
+      departmentName: "DEPARTAMENTO DE PRODUCCION",
+      employeeStatus: "ACTIVO",
+      birthDate: "1990-03-15",
+      personalMail: "juan.perez@example.test",
+    },
+    {
+      code: "90000018",
+      name: "ANA",
+      lastName: "SOTO",
+      branchOfficeCode: "MATRIZ",
+      departmentCode: "ADMINISTRACION",
+      employeeStatus: "ACTIVO",
+    },
+  ],
+};
+
+test("getEmployeeRoster: 200 válido -> normaliza code/firstName/lastName, nunca traslada identification/birthDate/personalMail", async () => {
+  await withMockFetch(
+    async () => jsonResponse(200, VALID_ROSTER_PAYLOAD),
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      const result = await client.getEmployeeRoster();
+      assert.equal(result.employees.length, 2);
+      assert.deepEqual(result.employees[0], {
+        code: "90000017",
+        firstName: "JUAN CARLOS",
+        lastName: "PEREZ GONZALEZ",
+        employeeStatus: "ACTIVO",
+        branchOfficeCode: "MATRIZ",
+        departmentCode: "PRODUCCION",
+      });
+      // Ninguna clave de PII sensible sobrevive al mapper.
+      const keys = Object.keys(result.employees[0]);
+      assert.ok(!keys.includes("identification"));
+      assert.ok(!keys.includes("birthDate"));
+      assert.ok(!keys.includes("personalMail"));
+    }
+  );
+});
+
+test("getEmployeeRoster: sin branchOffice/department -> no se envían esos query params (roster completo)", async () => {
+  let capturedUrl: string | undefined;
+  await withMockFetch(
+    async (input) => {
+      capturedUrl = typeof input === "string" ? input : (input as Request).url;
+      return jsonResponse(200, VALID_ROSTER_PAYLOAD);
+    },
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await client.getEmployeeRoster();
+    }
+  );
+  const url = new URL(capturedUrl!);
+  assert.equal(url.searchParams.has("branchOffice"), false);
+  assert.equal(url.searchParams.has("department"), false);
+  assert.equal(url.searchParams.get("page"), "1");
+});
+
+test("getEmployeeRoster: branchOffice/department se envían tal cual cuando se pasan (códigos, no nombres)", async () => {
+  let capturedUrl: string | undefined;
+  await withMockFetch(
+    async (input) => {
+      capturedUrl = typeof input === "string" ? input : (input as Request).url;
+      return jsonResponse(200, VALID_ROSTER_PAYLOAD);
+    },
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await client.getEmployeeRoster({ branchOffice: "MATRIZ", department: "PRODUCCION" });
+    }
+  );
+  const url = new URL(capturedUrl!);
+  assert.equal(url.searchParams.get("branchOffice"), "MATRIZ");
+  assert.equal(url.searchParams.get("department"), "PRODUCCION");
+});
+
+test("getEmployeeRoster: payload que no cumple el schema -> WorkeraValidationError", async () => {
+  await withMockFetch(
+    async () => jsonResponse(200, { page: 1, totalPages: 1, pageResult: 1, totalResult: 1, data: [{ noCodeField: true }] }),
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await assert.rejects(() => client.getEmployeeRoster(), WorkeraValidationError);
+    }
+  );
+});
+
+test("getAllEmployeeRoster: recorre todas las páginas, no se detiene en page 1", async () => {
+  const requestedPages: number[] = [];
+  await withMockFetch(
+    async (input) => {
+      const url = new URL(typeof input === "string" ? input : (input as Request).url);
+      const page = Number(url.searchParams.get("page"));
+      requestedPages.push(page);
+      return jsonResponse(200, { ...VALID_ROSTER_PAYLOAD, page, totalPages: 3, data: [VALID_ROSTER_PAYLOAD.data[0]] });
+    },
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      const result = await client.getAllEmployeeRoster();
+      assert.equal(result.pagesFetched, 3);
+      assert.equal(result.employees.length, 3);
+      assert.deepEqual(requestedPages, [1, 2, 3]);
+    }
+  );
+});
+
+test("getAllEmployeeRoster: protección de límite de páginas -> WorkeraValidationError, no loop infinito", async () => {
+  await withMockFetch(
+    async (input) => {
+      const url = new URL(typeof input === "string" ? input : (input as Request).url);
+      const page = Number(url.searchParams.get("page"));
+      return jsonResponse(200, { ...VALID_ROSTER_PAYLOAD, page, totalPages: 1000, data: [VALID_ROSTER_PAYLOAD.data[0]] });
+    },
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await assert.rejects(() => client.getAllEmployeeRoster({}, { maxPages: 3 }), WorkeraValidationError);
+    }
+  );
+});
+
+test("getEmployeeRoster: PII redaction -- el log estructurado nunca contiene RUT/fecha de nacimiento/correo/API credentials", async () => {
+  const originalLog = console.log;
+  const logCalls: string[] = [];
+  console.log = (...args: unknown[]) => {
+    logCalls.push(args.map(String).join(" "));
+  };
+
+  try {
+    await withMockFetch(
+      async () => jsonResponse(200, VALID_ROSTER_PAYLOAD),
+      async () => {
+        const client = new HttpWorkeraClient(TEST_CONFIG);
+        await client.getEmployeeRoster();
+      }
+    );
+  } finally {
+    console.log = originalLog;
+  }
+
+  const allLogs = logCalls.join("\n");
+  assert.ok(!allLogs.includes(TEST_CONFIG.apiKey));
+  assert.ok(!allLogs.includes(TEST_CONFIG.apiUser));
+  assert.ok(!allLogs.includes("11.111.111-1"), "el log no debe contener RUT");
+  assert.ok(!allLogs.includes("1990-03-15"), "el log no debe contener fecha de nacimiento");
+  assert.ok(!allLogs.includes("juan.perez@example.test"), "el log no debe contener correo personal");
+});
