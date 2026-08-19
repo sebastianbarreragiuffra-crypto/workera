@@ -42,6 +42,8 @@ export type Database = {
           decided_at: string
           decided_by: string
           decision_status: string
+          document_deadline: string | null
+          document_required: boolean
           id: string
           is_current: boolean
           reason: string | null
@@ -53,6 +55,8 @@ export type Database = {
           decided_at?: string
           decided_by?: string
           decision_status: string
+          document_deadline?: string | null
+          document_required?: boolean
           id?: string
           is_current?: boolean
           reason?: string | null
@@ -64,6 +68,8 @@ export type Database = {
           decided_at?: string
           decided_by?: string
           decision_status?: string
+          document_deadline?: string | null
+          document_required?: boolean
           id?: string
           is_current?: boolean
           reason?: string | null
@@ -700,6 +706,175 @@ export type Database = {
           },
         ]
       }
+      early_departure_decisions: {
+        Row: {
+          created_at: string
+          decided_at: string
+          decided_by: string
+          document_deadline: string | null
+          document_required: boolean
+          early_departure_record_id: string
+          id: string
+          is_current: boolean
+          payroll_effect: string
+          payroll_minutes: number
+          reason: string | null
+          reason_category: string
+        }
+        Insert: {
+          created_at?: string
+          decided_at?: string
+          decided_by?: string
+          document_deadline?: string | null
+          document_required?: boolean
+          early_departure_record_id: string
+          id?: string
+          is_current?: boolean
+          payroll_effect: string
+          payroll_minutes: number
+          reason?: string | null
+          reason_category: string
+        }
+        Update: {
+          created_at?: string
+          decided_at?: string
+          decided_by?: string
+          document_deadline?: string | null
+          document_required?: boolean
+          early_departure_record_id?: string
+          id?: string
+          is_current?: boolean
+          payroll_effect?: string
+          payroll_minutes?: number
+          reason?: string | null
+          reason_category?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "early_departure_decisions_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "early_departure_decisions_early_departure_record_id_fkey"
+            columns: ["early_departure_record_id"]
+            isOneToOne: false
+            referencedRelation: "early_departure_records"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      early_departure_records: {
+        Row: {
+          actual_end: string
+          attendance_record_id: string
+          calculated_at: string
+          calculation_version: number
+          created_at: string
+          detected_minutes: number
+          employee_id: string
+          id: string
+          is_current: boolean
+          scheduled_end: string
+          work_date: string
+        }
+        Insert: {
+          actual_end: string
+          attendance_record_id: string
+          calculated_at?: string
+          calculation_version?: number
+          created_at?: string
+          detected_minutes: number
+          employee_id: string
+          id?: string
+          is_current?: boolean
+          scheduled_end: string
+          work_date: string
+        }
+        Update: {
+          actual_end?: string
+          attendance_record_id?: string
+          calculated_at?: string
+          calculation_version?: number
+          created_at?: string
+          detected_minutes?: number
+          employee_id?: string
+          id?: string
+          is_current?: boolean
+          scheduled_end?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "early_departure_records_attendance_record_id_fkey"
+            columns: ["attendance_record_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_effective_punches"
+            referencedColumns: ["attendance_record_id"]
+          },
+          {
+            foreignKeyName: "early_departure_records_attendance_record_id_fkey"
+            columns: ["attendance_record_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "early_departure_records_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employee_birthdays: {
+        Row: {
+          birth_day: number
+          birth_month: number
+          created_at: string
+          created_by: string | null
+          employee_id: string
+          id: string
+          imported_at: string
+        }
+        Insert: {
+          birth_day: number
+          birth_month: number
+          created_at?: string
+          created_by?: string | null
+          employee_id: string
+          id?: string
+          imported_at?: string
+        }
+        Update: {
+          birth_day?: number
+          birth_month?: number
+          created_at?: string
+          created_by?: string | null
+          employee_id?: string
+          id?: string
+          imported_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_birthdays_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_birthdays_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       employee_daily_bonuses: {
         Row: {
           amount: number
@@ -836,6 +1011,57 @@ export type Database = {
           name?: string
         }
         Relationships: []
+      }
+      employee_time_control_policies: {
+        Row: {
+          created_at: string
+          created_by: string
+          effective_from: string
+          effective_to: string | null
+          employee_id: string
+          id: string
+          legal_basis: string | null
+          policy_code: string
+          reason: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          effective_from: string
+          effective_to?: string | null
+          employee_id: string
+          id?: string
+          legal_basis?: string | null
+          policy_code: string
+          reason?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          effective_from?: string
+          effective_to?: string | null
+          employee_id?: string
+          id?: string
+          legal_basis?: string | null
+          policy_code?: string
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_time_control_policies_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_time_control_policies_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       employees: {
         Row: {
@@ -1594,6 +1820,7 @@ export type Database = {
           attendance_status_record_id: string | null
           created_at: string
           document_type: string
+          early_departure_record_id: string | null
           employee_id: string
           id: string
           late_arrival_decision_id: string | null
@@ -1608,6 +1835,7 @@ export type Database = {
           attendance_status_record_id?: string | null
           created_at?: string
           document_type: string
+          early_departure_record_id?: string | null
           employee_id: string
           id?: string
           late_arrival_decision_id?: string | null
@@ -1622,6 +1850,7 @@ export type Database = {
           attendance_status_record_id?: string | null
           created_at?: string
           document_type?: string
+          early_departure_record_id?: string | null
           employee_id?: string
           id?: string
           late_arrival_decision_id?: string | null
@@ -1644,6 +1873,13 @@ export type Database = {
             columns: ["attendance_status_record_id"]
             isOneToOne: false
             referencedRelation: "attendance_status_records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supporting_documents_early_departure_record_id_fkey"
+            columns: ["early_departure_record_id"]
+            isOneToOne: false
+            referencedRelation: "early_departure_records"
             referencedColumns: ["id"]
           },
           {

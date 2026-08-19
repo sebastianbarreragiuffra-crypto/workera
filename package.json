@@ -11,7 +11,8 @@
     "test:auth": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/supabase/middleware.test.ts\"",
     "test:admin": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/admin/**/*.test.ts\"",
     "test:sync": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/sync/**/*.test.ts\"",
-    "test:api": "tsx --conditions=react-server --test --experimental-test-coverage \"src/app/api/**/*.test.ts\""
+    "test:api": "tsx --conditions=react-server --test --experimental-test-coverage \"src/app/api/**/*.test.ts\"",
+    "test:business-rules": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/business-rules/**/*.test.ts\""
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
@@ -20,6 +21,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1",
+    "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
