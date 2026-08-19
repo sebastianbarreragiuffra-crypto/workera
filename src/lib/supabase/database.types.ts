@@ -1671,7 +1671,9 @@ export type Database = {
       }
       sync_runs: {
         Row: {
+          attempt: number
           created_at: string
+          error_category: string | null
           error_summary: Json | null
           finished_at: string | null
           id: string
@@ -1680,13 +1682,17 @@ export type Database = {
           records_read: number
           records_unchanged: number
           records_updated: number
+          retry_of: string | null
           started_at: string
           status: Database["public"]["Enums"]["sync_run_status"]
           target_period_end: string | null
           target_period_start: string | null
+          triggered_by: string
         }
         Insert: {
+          attempt?: number
           created_at?: string
+          error_category?: string | null
           error_summary?: Json | null
           finished_at?: string | null
           id?: string
@@ -1695,13 +1701,17 @@ export type Database = {
           records_read?: number
           records_unchanged?: number
           records_updated?: number
+          retry_of?: string | null
           started_at?: string
           status?: Database["public"]["Enums"]["sync_run_status"]
           target_period_end?: string | null
           target_period_start?: string | null
+          triggered_by?: string
         }
         Update: {
+          attempt?: number
           created_at?: string
+          error_category?: string | null
           error_summary?: Json | null
           finished_at?: string | null
           id?: string
@@ -1710,12 +1720,22 @@ export type Database = {
           records_read?: number
           records_unchanged?: number
           records_updated?: number
+          retry_of?: string | null
           started_at?: string
           status?: Database["public"]["Enums"]["sync_run_status"]
           target_period_end?: string | null
           target_period_start?: string | null
+          triggered_by?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "sync_runs_retry_of_fkey"
+            columns: ["retry_of"]
+            isOneToOne: false
+            referencedRelation: "sync_runs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       weekly_review_snapshots: {
         Row: {
@@ -2117,6 +2137,10 @@ export type Database = {
       production_two_hour_requires_manual_review: {
         Args: { p_candidate_minutes: number }
         Returns: boolean
+      }
+      reclaim_stale_workera_sync_runs: {
+        Args: { p_stale_after_seconds?: number }
+        Returns: number
       }
       recompute_employee_daily_bonus: {
         Args: { p_employee_id: string; p_work_date: string }

@@ -5,6 +5,7 @@ import { createAdminClient } from "../supabase/admin-client";
 import { getWorkeraConfig } from "../workera/config";
 import type { NormalizedWorkeraAttendanceEvent } from "../workera/types/attendance-event";
 import type { Database } from "../supabase/database.types";
+import { classifySyncError, type SyncErrorCategory } from "./errors";
 
 /**
  * Ingesta controlada Workera -> Supabase (Fase 6A). Orquesta:
@@ -30,6 +31,12 @@ export interface SyncWorkeraAttendanceParams {
   endDate: string;
   /** true = no persiste nada; calcula y reporta qué haría. Default false. */
   dryRun?: boolean;
+  /** Quién dispara esta corrida (Fase 6B). Default "MANUAL" -- preserva el comportamiento de Fase 6A. */
+  triggeredBy?: "CRON" | "MANUAL";
+  /** Número de intento dentro de una secuencia de reintentos (Fase 6B). Default 1. */
+  attempt?: number;
+  /** sync_runs.id del intento anterior de la misma secuencia, si aplica (Fase 6B). */
+  retryOf?: string | null;
 }
 
 export type SyncWorkeraAttendanceStatus =
@@ -37,12 +44,22 @@ export type SyncWorkeraAttendanceStatus =
   | "FAILED"
   | "DRY_RUN"
   | "BLOCKED_UNRESOLVED_EMPLOYEES"
-  | "BLOCKED_RANGE_TOO_LARGE";
+  | "BLOCKED_RANGE_TOO_LARGE"
+  /**
+   * Ya existe un sync_run RUNNING para este mismo rango de fechas (Fase 6B,
+   * PASO 10/50) -- rechazado por el índice único parcial
+   * `sync_runs_no_concurrent_running_key`, nunca por un boolean en memoria.
+   * No es un fallo del proceso que lo recibe: es la señal correcta de "otro
+   * proceso ya está sincronizando este día, no dupliques el trabajo".
+   */
+  | "ALREADY_RUNNING";
 
 export interface SyncWorkeraAttendanceResult {
   syncRunId: string | null;
   status: SyncWorkeraAttendanceStatus;
   errorMessage?: string;
+  /** Poblado solo cuando status="FAILED" (Fase 6B, PASO 27) -- ver src/lib/sync/errors.ts. */
+  errorCategory?: SyncErrorCategory;
   pagesFetched: number;
   eventsFetched: number;
   employeesDistinct: number;
@@ -124,6 +141,7 @@ export async function syncWorkeraAttendance(
       syncRunId: null,
       status: "BLOCKED_RANGE_TOO_LARGE",
       errorMessage: `Rango solicitado (${spanDays} días) excede el máximo permitido en Fase 6A (${MAX_DAYS_PER_SYNC} día). Backfill masivo histórico queda fuera de alcance de esta fase.`,
+      errorCategory: "CONFIGURATION",
       ...emptyCounts(),
     };
   }
@@ -159,6 +177,7 @@ export async function syncWorkeraAttendance(
       syncRunId: null,
       status: "FAILED",
       errorMessage: err instanceof Error ? err.message : "Fallo desconocido consultando Workera.",
+      errorCategory: classifySyncError(err),
       ...emptyCounts(),
     };
   }
@@ -181,6 +200,7 @@ export async function syncWorkeraAttendance(
       syncRunId: null,
       status: "BLOCKED_UNRESOLVED_EMPLOYEES",
       errorMessage: `${employeesWithBlankCode.length} evento(s) sin employee.code -- no se puede resolver identidad, no se persiste nada.`,
+      errorCategory: "EMPLOYEE_RESOLUTION",
       ...emptyCounts(),
       pagesFetched,
       eventsFetched: events.length,
@@ -199,6 +219,7 @@ export async function syncWorkeraAttendance(
       syncRunId: null,
       status: "FAILED",
       errorMessage: `Fallo consultando employees existentes: ${employeesLookupError.message}`,
+      errorCategory: "DATABASE",
       ...emptyCounts(),
       pagesFetched,
       eventsFetched: events.length,
@@ -240,6 +261,7 @@ export async function syncWorkeraAttendance(
         syncRunId: null,
         status: "FAILED",
         errorMessage: `Fallo creando empleados nuevos (bootstrap): ${bootstrapError.message}`,
+        errorCategory: "DATABASE",
         ...emptyCounts(),
         pagesFetched,
         eventsFetched: events.length,
@@ -269,6 +291,7 @@ export async function syncWorkeraAttendance(
       syncRunId: null,
       status: "FAILED",
       errorMessage: `Fallo consultando eventos vigentes existentes: ${existingLookupError.message}`,
+      errorCategory: "DATABASE",
       ...emptyCounts(),
       pagesFetched,
       eventsFetched: events.length,
@@ -341,15 +364,44 @@ export async function syncWorkeraAttendance(
       status: "RUNNING",
       target_period_start: params.startDate,
       target_period_end: params.endDate,
+      triggered_by: params.triggeredBy ?? "MANUAL",
+      attempt: params.attempt ?? 1,
+      retry_of: params.retryOf ?? null,
     })
     .select("id")
     .single();
 
   if (syncRunError || !syncRun) {
+    // 23505 = choca con el índice único parcial
+    // sync_runs_no_concurrent_running_key (Fase 6B) -- ya hay un sync_run
+    // RUNNING para este mismo rango. No es un fallo de este proceso: es la
+    // señal correcta de "otro proceso ya está sincronizando este día".
+    if (syncRunError?.code === "23505") {
+      return {
+        syncRunId: null,
+        status: "ALREADY_RUNNING",
+        errorMessage: "Ya existe una sincronización en curso para este rango de fechas.",
+        errorCategory: "CONCURRENCY",
+        pagesFetched,
+        eventsFetched: events.length,
+        employeesDistinct: distinctCodes.length,
+        employeesResolvedExisting,
+        employeesBootstrapped,
+        employeesUnresolved: 0,
+        unresolvedEmployeeCodes: [],
+        wouldInsert: 0,
+        wouldVersion: 0,
+        wouldUnchanged: 0,
+        inserted: 0,
+        versioned: 0,
+        unchanged: 0,
+      };
+    }
     return {
       syncRunId: null,
       status: "FAILED",
       errorMessage: `Fallo creando sync_run: ${syncRunError?.message ?? "sin fila devuelta"}`,
+      errorCategory: "DATABASE",
       pagesFetched,
       eventsFetched: events.length,
       employeesDistinct: distinctCodes.length,
@@ -453,6 +505,7 @@ export async function syncWorkeraAttendance(
         finished_at: new Date().toISOString(),
         records_read: events.length,
         error_summary: { message },
+        error_category: "DATABASE",
       })
       .eq("id", syncRun.id);
 
@@ -460,6 +513,7 @@ export async function syncWorkeraAttendance(
       syncRunId: syncRun.id,
       status: "FAILED",
       errorMessage: message,
+      errorCategory: "DATABASE",
       pagesFetched,
       eventsFetched: events.length,
       employeesDistinct: distinctCodes.length,

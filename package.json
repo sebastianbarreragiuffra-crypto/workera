@@ -10,7 +10,8 @@
     "test:workera": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/workera/**/*.test.ts\"",
     "test:auth": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/supabase/middleware.test.ts\"",
     "test:admin": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/admin/**/*.test.ts\"",
-    "test:sync": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/sync/**/*.test.ts\""
+    "test:sync": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/sync/**/*.test.ts\"",
+    "test:api": "tsx --conditions=react-server --test --experimental-test-coverage \"src/app/api/**/*.test.ts\""
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

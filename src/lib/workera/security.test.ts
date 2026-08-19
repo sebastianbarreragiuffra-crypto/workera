@@ -68,6 +68,8 @@ test(".env.example no contiene valores de credencial reales, solo placeholders v
     const [key, value] = line.split("=");
     if (key === "WORKERA_PROVIDER") continue; // "mock" es un valor de ejemplo válido, no un secreto
     if (key === "WORKERA_REQUEST_TIMEOUT_MS") continue; // valor numérico de ejemplo, no un secreto
+    if (key === "WORKERA_SYNC_ENABLED") continue; // interruptor booleano (Fase 6B), no un secreto
+    if (key === "WORKERA_SYNC_RECONCILIATION_DAYS") continue; // entero de configuración (Fase 6B), no un secreto
     assert.equal(value ?? "", "", `${key} en .env.example debería estar vacío, no un valor real`);
   }
 });

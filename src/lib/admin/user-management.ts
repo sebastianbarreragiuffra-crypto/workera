@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient as createSessionClient } from "../supabase/server";
 import { createAdminClient } from "../supabase/admin-client";
+import { requireCurrentRole, AuthorizationError } from "../supabase/authorize";
 import type { Database } from "../supabase/database.types";
 
 /**
@@ -18,11 +19,16 @@ import type { Database } from "../supabase/database.types";
  * normal, para que pase por la misma RLS de `profiles` que ya bloquea
  * escalamiento de privilegios (incluida la protección de SUPER_ADMIN) — una
  * sola fuente de verdad de autorización, nunca duplicada aquí.
+ *
+ * `requireCurrentRole` vive en src/lib/supabase/authorize.ts (extraído en
+ * Fase 6B) para que src/lib/sync/scheduler.ts (rerun manual) reutilice el
+ * mismo criterio en vez de duplicarlo.
  */
 
 export type AppRole = Database["public"]["Enums"]["app_role"];
 
-export class UserManagementAuthorizationError extends Error {}
+/** Alias retrocompatible -- el error real ahora vive en supabase/authorize.ts. */
+export const UserManagementAuthorizationError = AuthorizationError;
 
 export interface AppUserSummary {
   id: string;
@@ -30,30 +36,6 @@ export interface AppUserSummary {
   role: AppRole | null;
   active: boolean;
   createdAt: string;
-}
-
-async function requireCurrentRole(...allowedRoles: AppRole[]): Promise<{ actorId: string; actorRole: AppRole }> {
-  const session = await createSessionClient();
-  const { data: authData, error: authError } = await session.auth.getClaims();
-  const actorId = authData?.claims?.sub as string | undefined;
-
-  if (authError || !actorId) {
-    throw new UserManagementAuthorizationError("No hay sesión autenticada.");
-  }
-
-  const { data: profile, error: profileError } = await session
-    .from("profiles")
-    .select("role")
-    .eq("id", actorId)
-    .single();
-
-  if (profileError || !profile?.role || !allowedRoles.includes(profile.role)) {
-    throw new UserManagementAuthorizationError(
-      `Esta operación requiere uno de estos roles: ${allowedRoles.join(", ")}.`
-    );
-  }
-
-  return { actorId, actorRole: profile.role };
 }
 
 /** Lista los usuarios de la aplicación. Requiere SUPER_ADMIN o ADMIN_RRHH — la misma RLS de `profiles_select` ya lo garantiza; esta función solo formatea el resultado. */
