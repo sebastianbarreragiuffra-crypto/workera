@@ -29,7 +29,8 @@ export interface UploadSupportingDocumentInput {
   originalFilename: string;
   mimeType: string;
   fileBytes: Uint8Array;
-  relation: SupportingDocumentRelation;
+  /** Ausente = documento general del trabajador, sin atarlo a un caso puntual (esquema lo permite, ver migración 20260817144623). */
+  relation?: SupportingDocumentRelation;
 }
 
 export interface UploadSupportingDocumentResult {
@@ -54,28 +55,58 @@ export async function uploadSupportingDocument(
     throw new Error(`uploadSupportingDocument: fallo subiendo archivo a Storage: ${uploadError.message}`);
   }
 
-  const relationColumns =
-    input.relation.kind === "ABSENCE"
+  const relationColumns = !input.relation
+    ? {}
+    : input.relation.kind === "ABSENCE"
       ? { absence_record_id: input.relation.absenceRecordId }
       : input.relation.kind === "LATE_ARRIVAL_DECISION"
         ? { late_arrival_decision_id: input.relation.lateArrivalDecisionId }
         : { early_departure_record_id: input.relation.earlyDepartureRecordId };
 
-  const { data, error } = await supabase
-    .from("supporting_documents")
-    .insert({
-      employee_id: input.employeeId,
-      document_type: input.documentType,
-      storage_path: storagePath,
-      mime_type: input.mimeType,
-      original_filename: input.originalFilename,
-      ...relationColumns,
-    })
-    .select("id")
-    .single();
-  if (error || !data) {
-    throw new Error(`uploadSupportingDocument: fallo insertando metadata: ${error?.message ?? "sin fila devuelta"}`);
+  // id generado en el cliente e insertado explícitamente -- NUNCA
+  // `.select().single()` después del insert: la policy de SELECT de esta
+  // tabla es exclusiva de `is_privileged_admin()` (ver migración
+  // 20260817152542), y Postgres exige que una fila devuelta por
+  // `INSERT ... RETURNING` pase esa misma policy de SELECT o la sentencia
+  // completa falla con "new row violates row-level security policy" aunque
+  // el WITH CHECK del INSERT sí se cumplió -- un supervisor SIEMPRE
+  // recibiría ese error al subir un documento si se pidiera RETURNING.
+  const documentId = crypto.randomUUID();
+  const { error } = await supabase.from("supporting_documents").insert({
+    id: documentId,
+    employee_id: input.employeeId,
+    document_type: input.documentType,
+    storage_path: storagePath,
+    mime_type: input.mimeType,
+    original_filename: input.originalFilename,
+    ...relationColumns,
+  });
+  if (error) {
+    throw new Error(`uploadSupportingDocument: fallo insertando metadata: ${error.message}`);
   }
 
-  return { documentId: data.id, storagePath };
+  return { documentId, storagePath };
+}
+
+const SIGNED_URL_TTL_SECONDS = 60;
+
+/**
+ * URL firmada de corta duración para ver/descargar un documento -- nunca una
+ * URL pública permanente (PASO 20/Fase 8C sección L). `storage.objects` solo
+ * permite SELECT a `is_privileged_admin()` (ver migración
+ * 20260821100000_phase8_documents_storage_bucket.sql), así que esto falla
+ * con el cliente de sesión normal para cualquier otro rol -- RLS sigue
+ * siendo la autoridad real, no un chequeo de conveniencia en la UI.
+ */
+export async function getSignedDocumentUrl(supabase: SupabaseClient<Database>, documentId: string): Promise<string> {
+  const { data: doc, error: docError } = await supabase.from("supporting_documents").select("storage_path").eq("id", documentId).single();
+  if (docError || !doc) {
+    throw new Error(`getSignedDocumentUrl: documento no encontrado o sin acceso (${documentId}).`);
+  }
+
+  const { data, error } = await supabase.storage.from("supporting-documents").createSignedUrl(doc.storage_path, SIGNED_URL_TTL_SECONDS);
+  if (error || !data) {
+    throw new Error(`getSignedDocumentUrl: fallo generando URL firmada: ${error?.message ?? "sin datos"}`);
+  }
+  return data.signedUrl;
 }

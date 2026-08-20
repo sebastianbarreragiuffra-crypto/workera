@@ -259,7 +259,7 @@ function EarlyDepartureDecisionSummary({ detail, date, area }: { detail: DailyRe
         <DecisionBadge label={isOverdue ? "Vencido" : "Comprobante pendiente"} tone={isOverdue ? "negative" : "neutral"} />
         {decision.documentDeadline && <p className="text-xs text-slate-500">Plazo: {new Date(decision.documentDeadline).toLocaleDateString("es-CL")}</p>}
         <p className="text-xs text-slate-500">Debes adjuntar el comprobante médico para cerrar este caso.</p>
-        <form action={uploadDocumentAction} encType="multipart/form-data" className="space-y-1.5">
+        <form action={uploadDocumentAction} className="space-y-1.5">
           <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
           <input type="hidden" name="documentType" value="MEDICAL_CERTIFICATE" />
           <input type="hidden" name="relationKind" value="EARLY_DEPARTURE" />
@@ -299,7 +299,7 @@ function AbsenceDecisionSummary({ detail, date, area }: { detail: DailyReviewDet
         <DecisionBadge label={isOverdue ? "Vencido" : "Documento pendiente"} tone={isOverdue ? "negative" : "neutral"} />
         {decision.documentDeadline && <p className="text-xs text-slate-500">Plazo: {new Date(decision.documentDeadline).toLocaleDateString("es-CL")}</p>}
         <p className="text-xs text-slate-500">Debes adjuntar el documento de respaldo para cerrar este caso.</p>
-        <form action={uploadDocumentAction} encType="multipart/form-data" className="space-y-1.5">
+        <form action={uploadDocumentAction} className="space-y-1.5">
           <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
           <input type="hidden" name="documentType" value="OTHER" />
           <input type="hidden" name="relationKind" value="ABSENCE" />

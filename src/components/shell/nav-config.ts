@@ -36,6 +36,7 @@ const SUPERVISOR_MAIN: NavItem[] = [
   { label: "Horas Extras", href: "/revision-diaria?filtro=horas-extra" },
   { label: "Clock Out Pendientes", href: "/revision-diaria?filtro=clock-out" },
   { label: "Ausencias / Licencias", href: "/revision-diaria?filtro=ausencias" },
+  { label: "Documentos", href: "/documentos" },
 ];
 
 const RRHH_MAIN: NavItem[] = [
@@ -46,7 +47,7 @@ const RRHH_MAIN: NavItem[] = [
   { label: "Horas Extras", href: "/revision-diaria?filtro=horas-extra" },
   { label: "Clock Out Pendientes", href: "/revision-diaria?filtro=clock-out" },
   { label: "Ausencias / Licencias", href: "/revision-diaria?filtro=ausencias" },
-  { label: "Documentos", href: "/revision-diaria?filtro=documentos" },
+  { label: "Documentos", href: "/documentos" },
 ];
 
 const FUTURE_MODULES: NavItem[] = [
