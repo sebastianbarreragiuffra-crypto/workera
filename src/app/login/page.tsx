@@ -81,44 +81,44 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <div className="hidden w-[42%] shrink-0 flex-col justify-between bg-arcotex-navy px-10 py-12 text-white lg:flex xl:px-14">
-        <ArcotexLogo className="h-8 w-20 text-white" />
+    <div className="flex min-h-screen bg-[#f4f8fb]">
+      <div className="hidden w-[42%] shrink-0 flex-col justify-between bg-gradient-to-br from-[#071018] via-[#0b2a3f] to-[#1f6f9f] px-10 py-12 text-white lg:flex xl:px-14">
+        <ArcotexLogo inverse className="h-20 w-48" />
 
         <div className="max-w-md">
           <h1 className="text-3xl font-semibold leading-tight">Plataforma de Gestión Workera</h1>
-          <p className="mt-4 text-sm leading-relaxed text-slate-300">
+          <p className="mt-4 text-sm leading-relaxed text-blue-50/80">
             Controla, revisa y gestiona la asistencia de tu equipo de forma simple, confiable y eficiente.
           </p>
 
           <ul className="mt-8 space-y-4">
             {VALUE_POINTS.map((point) => (
               <li key={point.title} className="flex items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-blue-200">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-[#8ed2f5]">
                   <ValueIcon name={point.icon} />
                 </span>
-                <span className="text-sm font-medium text-slate-200">{point.title}</span>
+                <span className="text-sm font-medium text-blue-50/90">{point.title}</span>
               </li>
             ))}
           </ul>
         </div>
 
-        <p className="text-xs text-slate-500">© 2026 ARCOTEX. Todos los derechos reservados.</p>
+        <p className="text-xs text-blue-100/50">© 2026 ARCOTEX. Todos los derechos reservados.</p>
       </div>
 
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-12">
         <div className="w-full max-w-sm">
           <div className="mb-6 flex justify-center lg:hidden">
-            <ArcotexLogo className="h-9 w-24 text-arcotex-navy" />
+            <ArcotexLogo className="h-20 w-48" />
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-8 shadow-sm">
+          <div className="rounded-xl border border-[#d5e3ec] bg-white p-8 shadow-[0_18px_50px_-28px_rgba(11,42,63,0.35)]">
             <div className="mb-6 hidden justify-center lg:flex">
-              <ArcotexLogo className="h-7 w-18 text-arcotex-navy" />
+              <ArcotexLogo className="h-16 w-40" />
             </div>
 
-            <h2 className="text-center text-xl font-semibold text-slate-900">Bienvenido de nuevo</h2>
-            <p className="mt-1 text-center text-sm text-slate-500">Inicia sesión para continuar</p>
+            <h2 className="text-center text-xl font-semibold text-[#111827]">Bienvenido de nuevo</h2>
+            <p className="mt-1 text-center text-sm text-[#607486]">Inicia sesión para continuar</p>
 
             <Suspense fallback={null}>
               <OAuthErrorBanner />
@@ -126,7 +126,7 @@ export default function LoginPage() {
 
             <form action={formAction} className="mt-6 space-y-4">
               <div>
-                <label htmlFor="email" className="text-xs font-medium text-slate-700">
+                <label htmlFor="email" className="text-xs font-medium text-[#263b4b]">
                   Email
                 </label>
                 <input
@@ -135,12 +135,12 @@ export default function LoginPage() {
                   name="email"
                   required
                   autoComplete="username"
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+                  className="mt-1 block w-full rounded-md border border-[#bfd0dc] bg-[#fbfdff] px-3 py-2 text-sm text-[#111827] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f82bb]"
                 />
               </div>
 
               <div>
-                <label htmlFor="password" className="text-xs font-medium text-slate-700">
+                <label htmlFor="password" className="text-xs font-medium text-[#263b4b]">
                   Contraseña
                 </label>
                 <div className="relative mt-1">
@@ -150,14 +150,14 @@ export default function LoginPage() {
                     name="password"
                     required
                     autoComplete="current-password"
-                    className="block w-full rounded-md border border-slate-300 px-3 py-2 pr-10 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+                    className="block w-full rounded-md border border-[#bfd0dc] bg-[#fbfdff] px-3 py-2 pr-10 text-sm text-[#111827] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f82bb]"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
                     aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
                     aria-pressed={showPassword}
-                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-slate-400 hover:text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-[#718596] hover:text-[#2f82bb] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f82bb]"
                   >
                     <EyeIcon open={showPassword} />
                   </button>
@@ -173,32 +173,32 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={pending}
-                className="w-full rounded-md bg-arcotex-blue px-4 py-2.5 text-sm font-medium text-white hover:bg-arcotex-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-md bg-[#2f82bb] px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-[#236b9d] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f82bb] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {pending ? "Ingresando..." : "Iniciar sesión"}
               </button>
             </form>
 
             <div className="mt-5 flex items-center gap-3">
-              <span className="h-px flex-1 bg-border" />
-              <span className="text-xs text-slate-400">o continúa con</span>
-              <span className="h-px flex-1 bg-border" />
+              <span className="h-px flex-1 bg-[#dbe5ec]" />
+              <span className="text-xs text-[#718596]">o continúa con</span>
+              <span className="h-px flex-1 bg-[#dbe5ec]" />
             </div>
 
             <form action={loginWithGoogle} className="mt-4">
               <button
                 type="submit"
-                className="flex w-full items-center justify-center gap-2 rounded-md border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-[#bfd0dc] px-4 py-2.5 text-sm font-medium text-[#263b4b] hover:bg-[#eef6fb] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f82bb]"
               >
                 <GoogleIcon />
                 Continuar con Google
               </button>
             </form>
 
-            <p className="mt-5 text-center text-xs text-slate-400">Acceso exclusivo para colaboradores</p>
+            <p className="mt-5 text-center text-xs text-[#718596]">Acceso exclusivo para colaboradores</p>
           </div>
 
-          <p className="mt-6 text-center text-xs text-slate-400 lg:hidden">© 2026 ARCOTEX. Todos los derechos reservados.</p>
+          <p className="mt-6 text-center text-xs text-[#718596] lg:hidden">© 2026 ARCOTEX. Todos los derechos reservados.</p>
         </div>
       </div>
     </div>

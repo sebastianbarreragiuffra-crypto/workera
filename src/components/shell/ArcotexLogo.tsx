@@ -1,32 +1,28 @@
-/**
- * Marca ARCOTEX (Fase 8B.1) -- recreación vectorial de las dos líneas
- * curvas superpuestas del logo real, adaptada a fondo oscuro (sidebar azul
- * marino) para mantener contraste. Nunca un archivo raster externo -- SVG
- * inline, sin dependencias.
- */
-export function ArcotexLogo({ className }: { className?: string }) {
+/** Marca ARCOTEX completa: arcos negros y wordmark azul del logo corporativo. */
+export function ArcotexLogo({ className, inverse = false }: { className?: string; inverse?: boolean }) {
   return (
     <svg
-      viewBox="0 0 64 28"
+      viewBox="0 0 240 105"
       className={className}
       role="img"
       aria-label="Arcotex"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path
-        d="M2 24C10 6 24 -2 32 -2C40 -2 54 6 62 24"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        opacity="0.55"
-      />
-      <path
-        d="M0 22C9 3 24 -4 32 -4C40 -4 55 3 64 22"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-      />
+      <path d="M6 72C26 20 79 2 120 2s94 18 114 70" stroke={inverse ? "#ffffff" : "#111111"} strokeWidth="3.5" />
+      <path d="M10 73C30 29 78 11 120 11s90 18 110 62" stroke={inverse ? "#ffffff" : "#111111"} strokeWidth="3.5" />
+      <text
+        x="120"
+        y="94"
+        fill={inverse ? "#78c7f3" : "#2f82bb"}
+        fontFamily="Arial, Helvetica, sans-serif"
+        fontSize="48"
+        fontWeight="500"
+        letterSpacing="-1.5"
+        textAnchor="middle"
+      >
+        ARCOTEX
+      </text>
     </svg>
   );
 }
