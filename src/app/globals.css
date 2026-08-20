@@ -11,10 +11,21 @@
   --background: #f3f5f8;
   --foreground: #0f172a;
 
-  --color-arcotex-blue: #3e6fb0;
-  --color-arcotex-blue-dark: #2f5790;
+  --color-arcotex-blue: #2f82bb;
+  --color-arcotex-blue-dark: #236b9d;
   --color-arcotex-navy: #142a4c;
   --color-arcotex-navy-dark: #0b1930;
+
+  --color-login-background: #f4f8fb;
+  --color-login-panel-start: #071018;
+  --color-login-panel-middle: #0b2a3f;
+  --color-login-panel-end: #1f6f9f;
+  --color-login-border: #bfd0dc;
+  --color-login-border-soft: #d5e3ec;
+  --color-login-muted: #607486;
+  --color-login-muted-light: #718596;
+  --color-login-input: #fbfdff;
+  --color-login-hover: #eef6fb;
 
   --color-card: #ffffff;
   --color-border: #e2e8f0;
@@ -46,6 +57,16 @@
   --color-arcotex-blue-dark: var(--color-arcotex-blue-dark);
   --color-arcotex-navy: var(--color-arcotex-navy);
   --color-arcotex-navy-dark: var(--color-arcotex-navy-dark);
+  --color-login-background: var(--color-login-background);
+  --color-login-panel-start: var(--color-login-panel-start);
+  --color-login-panel-middle: var(--color-login-panel-middle);
+  --color-login-panel-end: var(--color-login-panel-end);
+  --color-login-border: var(--color-login-border);
+  --color-login-border-soft: var(--color-login-border-soft);
+  --color-login-muted: var(--color-login-muted);
+  --color-login-muted-light: var(--color-login-muted-light);
+  --color-login-input: var(--color-login-input);
+  --color-login-hover: var(--color-login-hover);
   --color-card: var(--color-card);
   --color-border: var(--color-border);
   --color-warning: var(--color-warning);

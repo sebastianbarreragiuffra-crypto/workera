@@ -9,6 +9,9 @@ import { todayInSantiago, previousDate, nextDate, formatDateLong } from "../../.
 import { EmptyState, ErrorState } from "../../../components/shell/StateMessages";
 import { ReviewDetailPanel } from "./ReviewDetailPanel";
 import { CaseCard } from "./CaseCard";
+import { PageHeader } from "../../../components/shell/PageHeader";
+import { FilterBar, type FilterOption } from "../../../components/shell/FilterBar";
+import { SearchInput } from "../../../components/shell/SearchInput";
 
 const AREA_LABEL: Record<AreaCode, string> = {
   PRODUCTION: "Producción",
@@ -79,6 +82,14 @@ function matchesFilter(card: DailyReviewCardViewModel, filter: string): boolean 
   }
 }
 
+function buildReviewHref({ date, area, filter, search, employeeId }: { date: string; area: AreaCode; filter?: string; search?: string; employeeId?: string }) {
+  const query = new URLSearchParams({ fecha: date, area });
+  if (filter) query.set("filtro", filter);
+  if (search) query.set("q", search);
+  if (employeeId) query.set("empleado", employeeId);
+  return `/revision-diaria?${query.toString()}`;
+}
+
 export default async function DailyReviewPage({
   searchParams,
 }: {
@@ -93,7 +104,7 @@ export default async function DailyReviewPage({
   const requestedArea = (params.area as AreaCode | undefined) ?? allowedAreas[0];
   const filter = params.filtro && FILTERS.some((f) => f.key === params.filtro) ? params.filtro : DEFAULT_FILTER;
   const search = params.q?.trim().toLowerCase() ?? "";
-  const selectedEmployeeId = params.empleado;
+  const requestedEmployeeId = params.empleado;
   const feedback = params.hecho;
 
   try {
@@ -120,6 +131,11 @@ export default async function DailyReviewPage({
   let filteredCards = filter === "pendientes" ? pendingCards : board.cards.filter((c) => matchesFilter(c, filter));
   if (search) filteredCards = filteredCards.filter((c) => c.displayName.toLowerCase().includes(search));
 
+  const selectedCard = requestedEmployeeId ? board.cards.find((card) => card.employeeId === requestedEmployeeId) : undefined;
+  const selectedMatchesSearch = !search || selectedCard?.displayName.toLowerCase().includes(search);
+  const selectedMatchesFilter = selectedCard && (filter === "pendientes" || matchesFilter(selectedCard, filter));
+  const selectedEmployeeId = selectedCard && selectedMatchesSearch && selectedMatchesFilter ? selectedCard.employeeId : undefined;
+
   let detail = null;
   if (selectedEmployeeId) {
     try {
@@ -141,14 +157,10 @@ export default async function DailyReviewPage({
         </div>
       )}
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Revisión diaria</h1>
-          <p className="text-sm text-slate-500">
-            {AREA_LABEL[requestedArea]} · {formatDateLong(date)}
-          </p>
-        </div>
-        <nav aria-label="Navegación de fecha" className="flex items-center gap-2">
+      <PageHeader
+        title="Revisión diaria"
+        subtitle={`${AREA_LABEL[requestedArea]} · ${formatDateLong(date)}`}
+        actions={<nav aria-label="Navegación de fecha" className="flex items-center gap-2">
           <Link href={`/revision-diaria?fecha=${previousDate(date)}&area=${requestedArea}`} aria-label="Día anterior" className="rounded-md border border-slate-300 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50">
             ‹
           </Link>
@@ -158,8 +170,8 @@ export default async function DailyReviewPage({
           <Link href={`/revision-diaria?fecha=${nextDate(date)}&area=${requestedArea}`} aria-label="Día siguiente" className="rounded-md border border-slate-300 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50">
             ›
           </Link>
-        </nav>
-      </div>
+        </nav>}
+      />
 
       {allowedAreas.length > 1 && (
         <div role="tablist" aria-label="Área" className="flex gap-2">
@@ -191,35 +203,25 @@ export default async function DailyReviewPage({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {FILTERS.map((f) => (
-          <Link
-            key={f.key}
-            href={`/revision-diaria?fecha=${date}&area=${requestedArea}&filtro=${f.key}`}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              filter === f.key ? "bg-slate-900 text-white" : "bg-white text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-50"
-            }`}
-          >
-            {f.label} {board.counts[f.countKey]}
-          </Link>
-        ))}
-      </div>
+      <FilterBar
+        options={FILTERS.map<FilterOption>((item) => {
+          const keepEmployee = selectedCard && (item.key === "pendientes" || matchesFilter(selectedCard, item.key)) && selectedMatchesSearch;
+          return {
+            key: item.key,
+            label: item.label,
+            count: board.counts[item.countKey],
+            active: filter === item.key,
+            href: buildReviewHref({ date, area: requestedArea, filter: item.key, search, employeeId: keepEmployee ? selectedCard.employeeId : undefined }),
+          };
+        })}
+      />
 
       <form method="get" className="max-w-sm">
         <input type="hidden" name="fecha" value={date} />
         <input type="hidden" name="area" value={requestedArea} />
         <input type="hidden" name="filtro" value={filter} />
-        <label htmlFor="q" className="sr-only">
-          Buscar trabajador
-        </label>
-        <input
-          id="q"
-          name="q"
-          type="search"
-          defaultValue={search}
-          placeholder="Buscar trabajador…"
-          className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-arcotex-blue"
-        />
+        {selectedEmployeeId && <input type="hidden" name="empleado" value={selectedEmployeeId} />}
+        <SearchInput name="q" defaultValue={search} placeholder="Buscar trabajador…" label="Buscar trabajador" />
       </form>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,38%)_1fr]">
@@ -233,7 +235,7 @@ export default async function DailyReviewPage({
           ) : (
             <ul className="space-y-2">
               {filteredCards.map((card) => (
-                <CaseCard key={card.employeeId} card={card} date={date} selected={card.employeeId === selectedEmployeeId} />
+                <CaseCard key={card.employeeId} card={card} date={date} filter={filter} search={search} selected={card.employeeId === selectedEmployeeId} />
               ))}
             </ul>
           )}
@@ -245,7 +247,7 @@ export default async function DailyReviewPage({
               </summary>
               <ul className="space-y-2 border-t border-border p-2">
                 {noIssueCards.map((card) => (
-                  <CaseCard key={card.employeeId} card={card} date={date} selected={card.employeeId === selectedEmployeeId} />
+                  <CaseCard key={card.employeeId} card={card} date={date} filter={filter} search={search} selected={card.employeeId === selectedEmployeeId} />
                 ))}
               </ul>
             </details>
@@ -255,7 +257,7 @@ export default async function DailyReviewPage({
         <div className={selectedEmployeeId ? "" : "hidden lg:block"}>
           {selectedEmployeeId ? (
             <div className="space-y-2">
-              <Link href={`/revision-diaria?fecha=${date}&area=${requestedArea}&filtro=${filter}`} className="inline-block text-sm text-arcotex-blue hover:underline lg:hidden">
+              <Link href={buildReviewHref({ date, area: requestedArea, filter, search })} className="inline-block text-sm text-arcotex-blue hover:underline lg:hidden">
                 ← Volver a la lista
               </Link>
               {detail ? (

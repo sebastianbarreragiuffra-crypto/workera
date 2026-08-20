@@ -1,5 +1,6 @@
 import type { DailyReviewDetailViewModel } from "../../../lib/view-models/daily-review-view";
 import type { AreaCode } from "../../../lib/access/scope";
+import Link from "next/link";
 import { DayTimeline } from "./DayTimeline";
 import { DecisionBadge } from "./StatusBadge";
 import {
@@ -82,6 +83,9 @@ export function ReviewDetailPanel({
         <p className="text-xs text-slate-400">
           {detail.timeControl.kind === "EXEMPT" ? "Exento de control horario" : "Control horario normal"}
         </p>
+        <Link href={`/empleados/${detail.employeeId}`} className="mt-1 inline-block text-xs font-medium text-arcotex-blue hover:underline">
+          Ver ficha completa →
+        </Link>
       </div>
 
       <Section title="Horario y marcaciones">

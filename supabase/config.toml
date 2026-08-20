@@ -342,7 +342,7 @@ email_optional = false
 # producción). Nunca hardcodear el Client ID ni el Secret acá -- ambos vía
 # variable de entorno, igual patrón que `auth.external.apple` arriba.
 [auth.external.google]
-enabled = false
+enabled = true
 client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
 # DO NOT commit your OAuth provider secret to git. Use environment variable substitution instead:
 secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"

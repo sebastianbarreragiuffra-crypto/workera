@@ -3,16 +3,27 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "../../../lib/supabase/server";
-import { uploadSupportingDocument, getSignedDocumentUrl, type SupportingDocumentType } from "../../../lib/decisions/documents";
+import { uploadSupportingDocument, getSignedDocumentUrl, type SupportingDocumentType, type SupportingDocumentRelation } from "../../../lib/decisions/documents";
 
 export async function uploadGeneralDocumentAction(formData: FormData) {
   const supabase = await createClient();
   const employeeId = String(formData.get("employeeId"));
   const documentType = String(formData.get("documentType")) as SupportingDocumentType;
   const file = formData.get("file") as File | null;
+  const relationValue = String(formData.get("relation") ?? "");
 
   if (!employeeId || !file || file.size === 0) {
     throw new Error("Selecciona un trabajador y un archivo antes de adjuntar.");
+  }
+
+  let relation: SupportingDocumentRelation | undefined;
+  if (relationValue) {
+    const [kind, recordId] = relationValue.split(":");
+    if ((kind !== "EARLY_DEPARTURE" && kind !== "ABSENCE") || !recordId) throw new Error("El caso pendiente seleccionado no es válido.");
+    const table = kind === "EARLY_DEPARTURE" ? "early_departure_records" : "absence_records";
+    const { data: record, error } = await supabase.from(table).select("id, employee_id").eq("id", recordId).eq("employee_id", employeeId).single();
+    if (error || !record) throw new Error("El caso pendiente no corresponde al trabajador seleccionado.");
+    relation = kind === "EARLY_DEPARTURE" ? { kind, earlyDepartureRecordId: recordId } : { kind, absenceRecordId: recordId };
   }
 
   const fileBytes = new Uint8Array(await file.arrayBuffer());
@@ -22,9 +33,11 @@ export async function uploadGeneralDocumentAction(formData: FormData) {
     originalFilename: file.name,
     mimeType: file.type || "application/octet-stream",
     fileBytes,
+    relation,
   });
 
   revalidatePath("/documentos");
+  if (relation) revalidatePath("/revision-diaria");
   redirect(`/documentos?hecho=documento-adjuntado`);
 }
 

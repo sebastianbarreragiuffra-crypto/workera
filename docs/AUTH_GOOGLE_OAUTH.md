@@ -1,8 +1,9 @@
 # Google OAuth — preparación de código
 
-Código preparado, credenciales reales pendientes de configuración manual
-externa (no hay nada que este repo o Claude puedan generar por sí solos:
-requieren una cuenta de Google Cloud y acceso al Dashboard de Supabase).
+Código preparado y proveedor local habilitado mediante variables de entorno.
+La configuración de producción sigue siendo manual y externa: requiere acceso
+a Google Cloud y al Dashboard de Supabase; las credenciales nunca se guardan
+en este repositorio.
 
 ## Qué ya existe en el código
 
@@ -14,8 +15,8 @@ requieren una cuenta de Google Cloud y acceso al Dashboard de Supabase).
 - `src/lib/supabase/middleware.ts` — `/auth/callback` agregado a
   `PUBLIC_PATHS` (necesario: llega antes de que exista sesión).
 - `src/app/login/page.tsx` — botón "Continuar con Google".
-- `supabase/config.toml` — `[auth.external.google]`, `enabled = false` hasta
-  que se complete la configuración de abajo.
+- `supabase/config.toml` — `[auth.external.google]`, habilitado y configurado
+  para leer Client ID/Secret desde variables de entorno, nunca hardcodeados.
 
 ## Por qué no hace falta código adicional para autorización
 
@@ -50,8 +51,9 @@ a esa MISMA fila de `auth.users`/`profiles` — no crea un segundo profile.
    tipo "Web application".
 4. **Authorized redirect URIs** — agregar la URL de callback de **Supabase**
    (no la de esta app):
-   - Local: `http://127.0.0.1:54421/auth/v1/callback` (o el puerto real de
-     `supabase start` en este equipo).
+   - Local en este proyecto: `http://127.0.0.1:54321/auth/v1/callback`.
+     Si otro equipo usa un override local, confirmar siempre el valor mostrado
+     por `supabase start` antes de registrarlo en Google.
    - Producción: `https://<tu-project-ref>.supabase.co/auth/v1/callback`.
 5. Copiar el **Client ID** y el **Client Secret** generados.
 
@@ -63,8 +65,8 @@ a esa MISMA fila de `auth.users`/`profiles` — no crea un segundo profile.
   SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID=<client id de Google>
   SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET=<client secret de Google>
   ```
-- Cambiar `enabled = false` a `enabled = true` en
-  `supabase/config.toml` → `[auth.external.google]`.
+- Confirmar que `enabled = true` en `supabase/config.toml` →
+  `[auth.external.google]` (ya está habilitado en la configuración actual).
 - Reiniciar `supabase start` para que tome la config nueva.
 
 **Producción (Supabase Dashboard, fuera de este repo):**

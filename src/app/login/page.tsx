@@ -81,8 +81,8 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
 
   return (
-    <div className="flex min-h-screen bg-[#f4f8fb]">
-      <div className="hidden w-[42%] shrink-0 flex-col justify-between bg-gradient-to-br from-[#071018] via-[#0b2a3f] to-[#1f6f9f] px-10 py-12 text-white lg:flex xl:px-14">
+    <div className="flex min-h-screen bg-login-background">
+      <div className="hidden w-[42%] shrink-0 flex-col justify-between bg-gradient-to-br from-login-panel-start via-login-panel-middle to-login-panel-end px-10 py-12 text-white lg:flex xl:px-14">
         <ArcotexLogo inverse className="h-20 w-48" />
 
         <div className="max-w-md">
@@ -94,7 +94,7 @@ export default function LoginPage() {
           <ul className="mt-8 space-y-4">
             {VALUE_POINTS.map((point) => (
               <li key={point.title} className="flex items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-[#8ed2f5]">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-blue-200">
                   <ValueIcon name={point.icon} />
                 </span>
                 <span className="text-sm font-medium text-blue-50/90">{point.title}</span>
@@ -112,13 +112,13 @@ export default function LoginPage() {
             <ArcotexLogo className="h-20 w-48" />
           </div>
 
-          <div className="rounded-xl border border-[#d5e3ec] bg-white p-8 shadow-[0_18px_50px_-28px_rgba(11,42,63,0.35)]">
+          <div className="rounded-xl border border-login-border-soft bg-card p-8 shadow-sm">
             <div className="mb-6 hidden justify-center lg:flex">
               <ArcotexLogo className="h-16 w-40" />
             </div>
 
-            <h2 className="text-center text-xl font-semibold text-[#111827]">Bienvenido de nuevo</h2>
-            <p className="mt-1 text-center text-sm text-[#607486]">Inicia sesión para continuar</p>
+            <h2 className="text-center text-xl font-semibold text-foreground">Bienvenido de nuevo</h2>
+            <p className="mt-1 text-center text-sm text-login-muted">Inicia sesión para continuar</p>
 
             <Suspense fallback={null}>
               <OAuthErrorBanner />
@@ -126,7 +126,7 @@ export default function LoginPage() {
 
             <form action={formAction} className="mt-6 space-y-4">
               <div>
-                <label htmlFor="email" className="text-xs font-medium text-[#263b4b]">
+                <label htmlFor="email" className="text-xs font-medium text-slate-700">
                   Email
                 </label>
                 <input
@@ -135,12 +135,12 @@ export default function LoginPage() {
                   name="email"
                   required
                   autoComplete="username"
-                  className="mt-1 block w-full rounded-md border border-[#bfd0dc] bg-[#fbfdff] px-3 py-2 text-sm text-[#111827] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f82bb]"
+                  className="mt-1 block w-full rounded-md border border-login-border bg-login-input px-3 py-2 text-sm text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
                 />
               </div>
 
               <div>
-                <label htmlFor="password" className="text-xs font-medium text-[#263b4b]">
+                <label htmlFor="password" className="text-xs font-medium text-slate-700">
                   Contraseña
                 </label>
                 <div className="relative mt-1">
@@ -150,14 +150,14 @@ export default function LoginPage() {
                     name="password"
                     required
                     autoComplete="current-password"
-                    className="block w-full rounded-md border border-[#bfd0dc] bg-[#fbfdff] px-3 py-2 pr-10 text-sm text-[#111827] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f82bb]"
+                    className="block w-full rounded-md border border-login-border bg-login-input px-3 py-2 pr-10 text-sm text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
                     aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
                     aria-pressed={showPassword}
-                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-[#718596] hover:text-[#2f82bb] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f82bb]"
+                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-login-muted-light hover:text-arcotex-blue focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
                   >
                     <EyeIcon open={showPassword} />
                   </button>
@@ -173,32 +173,32 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={pending}
-                className="w-full rounded-md bg-[#2f82bb] px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-[#236b9d] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f82bb] disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-md bg-arcotex-blue px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-arcotex-blue-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {pending ? "Ingresando..." : "Iniciar sesión"}
               </button>
             </form>
 
             <div className="mt-5 flex items-center gap-3">
-              <span className="h-px flex-1 bg-[#dbe5ec]" />
-              <span className="text-xs text-[#718596]">o continúa con</span>
-              <span className="h-px flex-1 bg-[#dbe5ec]" />
+              <span className="h-px flex-1 bg-border" />
+              <span className="text-xs text-login-muted-light">o continúa con</span>
+              <span className="h-px flex-1 bg-border" />
             </div>
 
             <form action={loginWithGoogle} className="mt-4">
               <button
                 type="submit"
-                className="flex w-full items-center justify-center gap-2 rounded-md border border-[#bfd0dc] px-4 py-2.5 text-sm font-medium text-[#263b4b] hover:bg-[#eef6fb] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f82bb]"
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-login-border px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-login-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
               >
                 <GoogleIcon />
                 Continuar con Google
               </button>
             </form>
 
-            <p className="mt-5 text-center text-xs text-[#718596]">Acceso exclusivo para colaboradores</p>
+            <p className="mt-5 text-center text-xs text-login-muted-light">Acceso exclusivo para colaboradores</p>
           </div>
 
-          <p className="mt-6 text-center text-xs text-[#718596] lg:hidden">© 2026 ARCOTEX. Todos los derechos reservados.</p>
+          <p className="mt-6 text-center text-xs text-login-muted-light lg:hidden">© 2026 ARCOTEX. Todos los derechos reservados.</p>
         </div>
       </div>
     </div>

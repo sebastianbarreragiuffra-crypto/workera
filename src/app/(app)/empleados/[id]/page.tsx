@@ -56,6 +56,9 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
         subtitle={`${AREA_LABEL[detail.areaCode]} · ${detail.active ? "Activo" : "Inactivo"}`}
         actions={
           <div className="flex items-center gap-2">
+            <Link href={`/revision-diaria?fecha=${todayInSantiago()}&area=${detail.areaCode}&filtro=todos&empleado=${detail.employeeId}`} className="rounded-md bg-arcotex-blue px-3 py-1.5 text-sm font-medium text-white hover:bg-arcotex-blue-dark">
+              Revisar hoy
+            </Link>
             <EmployeeAvatar displayName={detail.displayName} />
             <Badge label={detail.timeControl.kind === "EXEMPT" ? "Exento de control horario" : "Control horario normal"} tone={detail.timeControl.kind === "EXEMPT" ? "info" : "neutral"} />
           </div>

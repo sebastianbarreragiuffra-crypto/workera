@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../lib/auth/session";
-import { getDocumentCenter } from "../../../lib/view-models/documents-view";
+import { getDocumentCenter, getPendingDocumentRelations } from "../../../lib/view-models/documents-view";
 import { getEmployeeRoster } from "../../../lib/view-models/employees-view";
 import { areasVisibleToRole, type AreaCode } from "../../../lib/access/scope";
 import { todayInSantiago, formatDateLong } from "../../../lib/view-models/date-utils";
@@ -10,7 +10,8 @@ import { EmptyState, ErrorState } from "../../../components/shell/StateMessages"
 import { PageHeader } from "../../../components/shell/PageHeader";
 import { SectionCard } from "../../../components/shell/SectionCard";
 import { FilterBar, type FilterOption } from "../../../components/shell/FilterBar";
-import { uploadGeneralDocumentAction, viewDocumentAction } from "./actions";
+import { viewDocumentAction } from "./actions";
+import { DocumentUploadForm } from "./DocumentUploadForm";
 
 const AREA_LABEL: Record<AreaCode, string> = {
   PRODUCTION: "Producción",
@@ -38,11 +39,13 @@ export default async function DocumentCenterPage({ searchParams }: { searchParam
 
   let documents;
   let roster;
+  let pendingRelations;
   try {
     [documents, roster] = await Promise.all([
       getDocumentCenter(supabase, profile.role, { areaCode: areaFilter }),
       getEmployeeRoster(supabase, profile.role, { areaCode: areaFilter, activeOnly: true }, todayInSantiago()),
     ]);
+    pendingRelations = await getPendingDocumentRelations(supabase, roster.map((employee) => employee.employeeId), todayInSantiago());
   } catch {
     return <ErrorState retryHref="/documentos" />;
   }
@@ -68,43 +71,7 @@ export default async function DocumentCenterPage({ searchParams }: { searchParam
       {areaFilterOptions.length > 0 && <FilterBar options={areaFilterOptions} />}
 
       <SectionCard title="Adjuntar documento">
-        <form action={uploadGeneralDocumentAction} className="flex flex-wrap items-end gap-3">
-          {areaFilter && <input type="hidden" name="area" value={areaFilter} />}
-          <div>
-            <label htmlFor="employeeId" className="text-xs font-medium text-slate-500">
-              Trabajador
-            </label>
-            <select id="employeeId" name="employeeId" required className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-              <option value="">Selecciona…</option>
-              {roster.map((e) => (
-                <option key={e.employeeId} value={e.employeeId}>
-                  {e.displayName}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="documentType" className="text-xs font-medium text-slate-500">
-              Tipo
-            </label>
-            <select id="documentType" name="documentType" required className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-              {Object.entries(DOCUMENT_TYPE_LABEL).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="file" className="text-xs font-medium text-slate-500">
-              Archivo
-            </label>
-            <input id="file" type="file" name="file" required className="mt-1 block text-sm" />
-          </div>
-          <button type="submit" className="rounded-md bg-arcotex-blue px-3 py-1.5 text-sm font-medium text-white hover:bg-arcotex-blue-dark">
-            Adjuntar
-          </button>
-        </form>
+        <DocumentUploadForm roster={roster} pendingRelations={pendingRelations} />
       </SectionCard>
 
       {documents.length === 0 ? (

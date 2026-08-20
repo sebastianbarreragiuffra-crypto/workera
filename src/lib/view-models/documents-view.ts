@@ -28,6 +28,56 @@ export interface DocumentCenterFilter {
   employeeId?: string;
 }
 
+export interface PendingDocumentRelation {
+  employeeId: string;
+  kind: "EARLY_DEPARTURE" | "ABSENCE";
+  recordId: string;
+  label: string;
+}
+
+/** Casos del día que esperan respaldo, obtenidos en dos consultas por lote. */
+export async function getPendingDocumentRelations(
+  supabase: SupabaseClient<Database>,
+  employeeIds: string[],
+  date: string
+): Promise<PendingDocumentRelation[]> {
+  if (employeeIds.length === 0) return [];
+
+  const [earlyRes, absenceRes] = await Promise.all([
+    supabase
+      .from("early_departure_records")
+      .select("id, employee_id, early_departure_decisions(document_required, is_current)")
+      .in("employee_id", employeeIds)
+      .eq("work_date", date)
+      .eq("is_current", true),
+    supabase
+      .from("absence_records")
+      .select("id, employee_id, absence_decisions(decision_status, document_required, is_current)")
+      .in("employee_id", employeeIds)
+      .lte("start_date", date)
+      .gte("end_date", date)
+      .eq("is_current", true),
+  ]);
+
+  if (earlyRes.error) throw new Error(`getPendingDocumentRelations: fallo leyendo salidas anticipadas: ${earlyRes.error.message}`);
+  if (absenceRes.error) throw new Error(`getPendingDocumentRelations: fallo leyendo ausencias: ${absenceRes.error.message}`);
+
+  const relations: PendingDocumentRelation[] = [];
+  for (const row of earlyRes.data ?? []) {
+    const decisions = Array.isArray(row.early_departure_decisions) ? row.early_departure_decisions : [row.early_departure_decisions].filter(Boolean);
+    if (decisions.some((decision) => decision?.is_current && decision.document_required)) {
+      relations.push({ employeeId: row.employee_id, kind: "EARLY_DEPARTURE", recordId: row.id, label: "Comprobante de salida médica" });
+    }
+  }
+  for (const row of absenceRes.data ?? []) {
+    const decisions = Array.isArray(row.absence_decisions) ? row.absence_decisions : [row.absence_decisions].filter(Boolean);
+    if (decisions.some((decision) => decision?.is_current && decision.document_required && decision.decision_status === "PENDING_DOCUMENT")) {
+      relations.push({ employeeId: row.employee_id, kind: "ABSENCE", recordId: row.id, label: "Documento de licencia" });
+    }
+  }
+  return relations;
+}
+
 export async function getDocumentCenter(
   supabase: SupabaseClient<Database>,
   callerRole: CallerRole,
