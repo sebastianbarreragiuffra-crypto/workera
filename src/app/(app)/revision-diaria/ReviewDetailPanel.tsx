@@ -46,6 +46,23 @@ const PRIMARY_BTN = "rounded-md bg-arcotex-blue px-3 py-1.5 text-sm font-medium 
 const SECONDARY_BTN = "rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50";
 const DANGER_BTN = "rounded-md border border-critical-border px-3 py-1.5 text-sm font-medium text-critical hover:bg-critical-bg";
 
+function CommentField() {
+  return (
+    <div>
+      <label htmlFor="reason" className="text-xs font-medium text-slate-500">
+        Comentario / Justificación
+      </label>
+      <textarea
+        id="reason"
+        name="reason"
+        rows={2}
+        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-700"
+        placeholder="Opcional"
+      />
+    </div>
+  );
+}
+
 export function ReviewDetailPanel({
   detail,
   date,
@@ -93,24 +110,19 @@ export function ReviewDetailPanel({
               </p>
             </div>
           ) : (
-            <div className="flex gap-2 pt-1">
-              <form action={decideLateArrivalAction}>
-                <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
-                <input type="hidden" name="lateArrivalRecordId" value={detail.lateArrival.recordId} />
-                <input type="hidden" name="justified" value="true" />
-                <button type="submit" className={PRIMARY_BTN}>
+            <form action={decideLateArrivalAction} className="space-y-2 pt-1">
+              <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
+              <input type="hidden" name="lateArrivalRecordId" value={detail.lateArrival.recordId} />
+              <CommentField />
+              <div className="flex gap-2">
+                <button type="submit" name="justified" value="true" className={PRIMARY_BTN}>
                   Justificar
                 </button>
-              </form>
-              <form action={decideLateArrivalAction}>
-                <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
-                <input type="hidden" name="lateArrivalRecordId" value={detail.lateArrival.recordId} />
-                <input type="hidden" name="justified" value="false" />
-                <button type="submit" className={SECONDARY_BTN}>
+                <button type="submit" name="justified" value="false" className={SECONDARY_BTN}>
                   No justificar
                 </button>
-              </form>
-            </div>
+              </div>
+            </form>
           )}
         </Section>
       )}
@@ -135,24 +147,19 @@ export function ReviewDetailPanel({
               </p>
             </div>
           ) : (
-            <div className="flex gap-2 pt-1">
-              <form action={decideOvertimeAction}>
-                <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
-                <input type="hidden" name="overtimeRecordId" value={detail.overtime.recordId} />
-                <input type="hidden" name="action" value="APPROVE" />
-                <button type="submit" className={PRIMARY_BTN}>
+            <form action={decideOvertimeAction} className="space-y-2 pt-1">
+              <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
+              <input type="hidden" name="overtimeRecordId" value={detail.overtime.recordId} />
+              <CommentField />
+              <div className="flex gap-2">
+                <button type="submit" name="action" value="APPROVE" className={PRIMARY_BTN}>
                   Aprobar
                 </button>
-              </form>
-              <form action={decideOvertimeAction}>
-                <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
-                <input type="hidden" name="overtimeRecordId" value={detail.overtime.recordId} />
-                <input type="hidden" name="action" value="REJECT" />
-                <button type="submit" className={DANGER_BTN}>
+                <button type="submit" name="action" value="REJECT" className={DANGER_BTN}>
                   Rechazar
                 </button>
-              </form>
-            </div>
+              </div>
+            </form>
           )}
         </Section>
       )}
@@ -179,34 +186,23 @@ export function ReviewDetailPanel({
           {detail.earlyDeparture.decision ? (
             <EarlyDepartureDecisionSummary detail={detail} date={date} area={area} />
           ) : (
-            <div className="space-y-2 pt-1">
+            <form action={decideEarlyDepartureOtherAction} className="space-y-2 pt-1">
+              <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
+              <input type="hidden" name="earlyDepartureRecordId" value={detail.earlyDeparture.recordId} />
               <p className="text-sm text-slate-700">¿Salida por atención médica?</p>
+              <CommentField />
               <div className="flex flex-wrap gap-2">
-                <form action={markEarlyDepartureMedicalAction}>
-                  <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
-                  <input type="hidden" name="earlyDepartureRecordId" value={detail.earlyDeparture.recordId} />
-                  <button type="submit" className={SECONDARY_BTN}>
-                    Médico
-                  </button>
-                </form>
-                <form action={decideEarlyDepartureOtherAction}>
-                  <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
-                  <input type="hidden" name="earlyDepartureRecordId" value={detail.earlyDeparture.recordId} />
-                  <input type="hidden" name="reasonCategory" value="OTHER_JUSTIFIED" />
-                  <button type="submit" className={SECONDARY_BTN}>
-                    Otro (justificado)
-                  </button>
-                </form>
-                <form action={decideEarlyDepartureOtherAction}>
-                  <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
-                  <input type="hidden" name="earlyDepartureRecordId" value={detail.earlyDeparture.recordId} />
-                  <input type="hidden" name="reasonCategory" value="UNJUSTIFIED" />
-                  <button type="submit" className={DANGER_BTN}>
-                    No justificado
-                  </button>
-                </form>
+                <button type="submit" formAction={markEarlyDepartureMedicalAction} className={SECONDARY_BTN}>
+                  Médico
+                </button>
+                <button type="submit" name="reasonCategory" value="OTHER_JUSTIFIED" className={SECONDARY_BTN}>
+                  Otro (justificado)
+                </button>
+                <button type="submit" name="reasonCategory" value="UNJUSTIFIED" className={DANGER_BTN}>
+                  No justificado
+                </button>
               </div>
-            </div>
+            </form>
           )}
         </Section>
       )}
@@ -219,26 +215,21 @@ export function ReviewDetailPanel({
           {detail.absence.decision ? (
             <AbsenceDecisionSummary detail={detail} date={date} area={area} />
           ) : (
-            <div className="space-y-2">
+            <form action={markAbsencePendingDocumentAction} className="space-y-2">
+              <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
+              <input type="hidden" name="absenceRecordId" value={detail.absence.recordId} />
+              <input type="hidden" name="startDate" value={date} />
               <p className="text-sm text-slate-700">¿Trabajador con licencia?</p>
+              <CommentField />
               <div className="flex gap-2">
-                <form action={markAbsencePendingDocumentAction}>
-                  <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
-                  <input type="hidden" name="absenceRecordId" value={detail.absence.recordId} />
-                  <input type="hidden" name="startDate" value={date} />
-                  <button type="submit" className={PRIMARY_BTN}>
-                    Sí
-                  </button>
-                </form>
-                <form action={disputeAbsenceAction}>
-                  <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
-                  <input type="hidden" name="absenceRecordId" value={detail.absence.recordId} />
-                  <button type="submit" className={SECONDARY_BTN}>
-                    No
-                  </button>
-                </form>
+                <button type="submit" className={PRIMARY_BTN}>
+                  Sí
+                </button>
+                <button type="submit" formAction={disputeAbsenceAction} className={SECONDARY_BTN}>
+                  No
+                </button>
               </div>
-            </div>
+            </form>
           )}
         </Section>
       )}
