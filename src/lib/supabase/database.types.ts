@@ -583,6 +583,24 @@ export type Database = {
           },
         ]
       }
+      authorized_email_roles: {
+        Row: {
+          created_at: string
+          email: string
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          role?: Database["public"]["Enums"]["app_role"]
+        }
+        Relationships: []
+      }
       bonus_policies: {
         Row: {
           amount: number
@@ -1604,6 +1622,92 @@ export type Database = {
         }
         Relationships: []
       }
+      payroll_batch_items: {
+        Row: {
+          batch_id: string
+          created_at: string
+          id: string
+          nombre_cliente: string
+          nro_docto: string
+          status: string
+          supplier_id: string | null
+          valor_total: number
+        }
+        Insert: {
+          batch_id: string
+          created_at?: string
+          id?: string
+          nombre_cliente: string
+          nro_docto: string
+          status: string
+          supplier_id?: string | null
+          valor_total: number
+        }
+        Update: {
+          batch_id?: string
+          created_at?: string
+          id?: string
+          nombre_cliente?: string
+          nro_docto?: string
+          status?: string
+          supplier_id?: string | null
+          valor_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payroll_batch_items_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "payroll_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_batch_items_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payroll_batches: {
+        Row: {
+          generated_at: string
+          generated_by: string
+          id: string
+          matched_count: number
+          source_filename: string
+          total_amount: number
+          unmatched_count: number
+        }
+        Insert: {
+          generated_at?: string
+          generated_by: string
+          id?: string
+          matched_count: number
+          source_filename: string
+          total_amount: number
+          unmatched_count: number
+        }
+        Update: {
+          generated_at?: string
+          generated_by?: string
+          id?: string
+          matched_count?: number
+          source_filename?: string
+          total_amount?: number
+          unmatched_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payroll_batches_generated_by_fkey"
+            columns: ["generated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       period_snapshots: {
         Row: {
           created_at: string
@@ -1808,6 +1912,56 @@ export type Database = {
           {
             foreignKeyName: "supervisor_assignments_supervisor_profile_id_fkey"
             columns: ["supervisor_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      suppliers: {
+        Row: {
+          account_number: string
+          active: boolean
+          bank_code: string
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+          normalized_name: string
+          payment_method: string
+          rut: string
+          updated_at: string
+        }
+        Insert: {
+          account_number: string
+          active?: boolean
+          bank_code: string
+          created_at?: string
+          created_by: string
+          id?: string
+          name: string
+          normalized_name: string
+          payment_method: string
+          rut: string
+          updated_at?: string
+        }
+        Update: {
+          account_number?: string
+          active?: boolean
+          bank_code?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          name?: string
+          normalized_name?: string
+          payment_method?: string
+          rut?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "suppliers_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
