@@ -2,9 +2,23 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ArcotexLogo } from "./ArcotexLogo";
-import type { NavSection } from "./nav-config";
+import type { NavItem, NavSection } from "./nav-config";
 import type { PeriodWindow } from "../../lib/view-models/dashboard-view";
+
+/**
+ * Un item está activo si su ruta (ignorando query string) coincide con la
+ * ruta actual -- así "Pendientes" (`/revision-diaria`) queda activo tanto en
+ * `/revision-diaria` como en cualquiera de sus variantes con filtro
+ * (`?filtro=atrasos`, etc.), ya que esos filtros dejaron de tener su propia
+ * entrada de navegación pero siguen siendo la misma página.
+ */
+function isNavItemActive(item: NavItem, pathname: string): boolean {
+  if (item.comingSoon || !item.href) return false;
+  const itemPath = item.href.split("?")[0];
+  return itemPath === pathname;
+}
 
 function formatShortDate(date: string): string {
   const [, month, day] = date.split("-");
@@ -47,6 +61,7 @@ export function Sidebar({
   areaLabel: string | null;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const pathname = usePathname();
 
   /**
    * Fase 8B.1, PASO 12: en mobile/tablet angosto el sidebar SIEMPRE queda
@@ -112,7 +127,10 @@ export function Sidebar({
                   <Link
                     key={item.href}
                     href={item.href}
-                    className="block rounded-md px-3 py-2 text-sm font-medium text-slate-300 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                    aria-current={isNavItemActive(item, pathname) ? "page" : undefined}
+                    className={`block rounded-md px-3 py-2 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
+                      isNavItemActive(item, pathname) ? "bg-white/10 text-white" : "text-slate-300 hover:bg-white/10 hover:text-white"
+                    }`}
                     title={item.label}
                   >
                     <span className={expandedContentClass}>{item.label}</span>

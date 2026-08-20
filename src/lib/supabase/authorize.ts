@@ -53,3 +53,41 @@ export async function requireCurrentRole(
 export async function requireAppAdmin(): Promise<{ actorId: string; actorRole: AppRole }> {
   return requireCurrentRole("SUPER_ADMIN");
 }
+
+/**
+ * Gate único para aprobar/rechazar licencias médicas (encargo Licencias --
+ * flujo de dos etapas). Deliberadamente NO usa rol (`ADMIN_RRHH`) ni
+ * `requireAppAdmin()` -- la autoridad de aprobación está restringida a UNA
+ * cuenta específica (marcada `profiles.medical_license_approver`, ver
+ * migración `20260825100000_medical_license_approval.sql`), nunca a "todo
+ * ADMIN_RRHH" ni a SUPER_ADMIN por bypass. RLS/las funciones
+ * `approve_medical_license`/`reject_medical_license` vuelven a exigir esto
+ * mismo en la base de datos -- este gate es una segunda capa con mensaje
+ * claro, no la única barrera (ver docs/SECURITY_PHASE3.md).
+ */
+export async function requireMedicalLicenseApprover(): Promise<{ actorId: string; actorRole: AppRole }> {
+  const session = await createSessionClient();
+  const { data: authData, error: authError } = await session.auth.getClaims();
+  const actorId = authData?.claims?.sub as string | undefined;
+
+  if (authError || !actorId) {
+    throw new AuthorizationError("No hay sesión autenticada.");
+  }
+
+  const { data: profile, error: profileError } = await session
+    .from("profiles")
+    .select("role, medical_license_approver")
+    .eq("id", actorId)
+    .single();
+
+  if (profileError || !profile?.role || !profile.medical_license_approver) {
+    throw new AuthorizationError("Esta operación requiere ser la cuenta autorizada para aprobar licencias médicas.");
+  }
+
+  return { actorId, actorRole: profile.role };
+}
+
+/** Versión pura/síncrona del mismo criterio, para gatear UI (mostrar/ocultar botones) a partir de un profile ya cargado -- nunca la única barrera, ver `requireMedicalLicenseApprover`. */
+export function canApproveMedicalLicense(profile: { medical_license_approver: boolean } | null | undefined): boolean {
+  return profile?.medical_license_approver === true;
+}

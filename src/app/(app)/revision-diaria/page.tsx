@@ -158,7 +158,7 @@ export default async function DailyReviewPage({
       )}
 
       <PageHeader
-        title="Revisión diaria"
+        title="Pendientes"
         subtitle={`${AREA_LABEL[requestedArea]} · ${formatDateLong(date)}`}
         actions={<nav aria-label="Navegación de fecha" className="flex items-center gap-2">
           <Link href={`/revision-diaria?fecha=${previousDate(date)}&area=${requestedArea}`} aria-label="Día anterior" className="rounded-md border border-slate-300 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50">

@@ -3,7 +3,8 @@
 import { useActionState } from "react";
 import { SectionCard } from "../../../components/shell/SectionCard";
 import { Badge } from "../../../components/shell/Badge";
-import { uploadSuppliersAction, generatePayrollBatchAction, type UploadSuppliersActionState, type GenerateBatchActionState } from "./actions";
+import { generatePayrollBatchAction, uploadSuppliersAction, type GenerateBatchActionState, type UploadSuppliersActionState } from "./actions";
+import { FileUploadBox } from "./FileUploadBox";
 
 interface RecentBatch {
   id: string;
@@ -14,33 +15,80 @@ interface RecentBatch {
   total_amount: number;
 }
 
-const UPLOAD_SUPPLIERS_INITIAL: UploadSuppliersActionState = { status: "idle", message: "" };
 const GENERATE_BATCH_INITIAL: GenerateBatchActionState = { status: "idle", message: "" };
+const UPLOAD_SUPPLIERS_INITIAL: UploadSuppliersActionState = { status: "idle", message: "" };
 
 function formatCLP(amount: number): string {
   return amount.toLocaleString("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 });
 }
 
-export function NominaDashboard({ suppliersCount, recentBatches }: { suppliersCount: number; recentBatches: RecentBatch[] }) {
-  const [suppliersState, suppliersFormAction, suppliersPending] = useActionState(uploadSuppliersAction, UPLOAD_SUPPLIERS_INITIAL);
+export function NominaDashboard({ recentBatches }: { recentBatches: RecentBatch[] }) {
   const [batchState, batchFormAction, batchPending] = useActionState(generatePayrollBatchAction, GENERATE_BATCH_INITIAL);
+  const [suppliersState, suppliersFormAction, suppliersPending] = useActionState(uploadSuppliersAction, UPLOAD_SUPPLIERS_INITIAL);
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <SectionCard title="Maestro de proveedores" actions={<Badge label={`${suppliersCount} activos`} tone="info" />}>
+      <SectionCard title="Nómina mensual">
         <p className="text-sm text-slate-600">
-          Sube el listado de proveedores (Rut, Nombre Beneficiario, FP, BCO, N° Cuenta Cte.) para actualizar los datos
-          bancarios usados al generar la nómina. Un proveedor con el mismo nombre se actualiza; nunca se duplica.
+          Sube el Excel de facturas que envía finanzas. Se genera la nómina automáticamente, cruzando cada proveedor
+          con sus datos bancarios -- descarga el Excel generado abajo para confirmar que todo quedó correcto.
         </p>
-        <form action={suppliersFormAction} encType="multipart/form-data" className="mt-3 space-y-2">
-          <input type="file" name="file" accept=".xlsx,.xls" required aria-label="Archivo de proveedores" className="block w-full text-sm" />
-          <button
-            type="submit"
-            disabled={suppliersPending}
-            className="rounded-md bg-arcotex-blue px-3 py-1.5 text-sm font-medium text-white hover:bg-arcotex-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {suppliersPending ? "Importando..." : "Importar proveedores"}
-          </button>
+        <form action={batchFormAction} className="mt-3">
+          <FileUploadBox
+            name="file"
+            accept=".xlsx,.xls"
+            ariaLabel="Excel mensual de facturas"
+            pending={batchPending}
+            pendingLabel="Generando..."
+          />
+        </form>
+
+        {batchState.status === "success" && (
+          <div role="status" className="mt-3 space-y-2 rounded-md border border-success-border bg-success-bg px-3 py-2 text-sm text-success">
+            <p>✓ Nómina generada -- {((batchState.matchedCount ?? 0) + (batchState.unmatchedCount ?? 0))} facturas procesadas.</p>
+            <p>Monto total: {formatCLP(batchState.totalAmount ?? 0)}</p>
+            <p>Proveedores encontrados: {batchState.matchedCount ?? 0}</p>
+            <p className={(batchState.unmatchedCount ?? 0) > 0 ? "text-critical font-medium" : ""}>
+              Proveedores no encontrados: {batchState.unmatchedCount ?? 0}
+            </p>
+            {batchState.batchId && (
+              <a href={`/nomina-de-pago/export/${batchState.batchId}`} className="inline-block rounded-md border border-success-border bg-white px-2 py-1 text-xs font-medium text-success hover:bg-success-bg">
+                Descargar Excel para confirmar →
+              </a>
+            )}
+            {(batchState.unmatchedNames?.length ?? 0) > 0 && (
+              <div className="text-critical">
+                <p className="font-medium">🔴 {batchState.unmatchedNames!.length} registros requieren revisión -- sin coincidencia en el maestro de proveedores:</p>
+                <ul className="mt-1 list-disc pl-5">
+                  {batchState.unmatchedNames!.map((name, i) => (
+                    <li key={i}>{name}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+        {batchState.status === "error" && (
+          <p role="alert" className="mt-3 rounded-md border border-critical-border bg-critical-bg px-3 py-2 text-sm text-critical">
+            {batchState.message}
+          </p>
+        )}
+      </SectionCard>
+
+      <SectionCard title="Listado de proveedores">
+        <p className="text-sm text-slate-600">
+          Sube el listado de proveedores (Rut, Nombre Beneficiario, FP, BCO, N° Cuenta Cte.) para agregar nuevos
+          proveedores o actualizar sus datos bancarios. Un proveedor con el mismo nombre se actualiza; nunca se
+          duplica.
+        </p>
+        <form action={suppliersFormAction} className="mt-3">
+          <FileUploadBox
+            name="file"
+            accept=".xlsx,.xls"
+            ariaLabel="Archivo de proveedores"
+            pending={suppliersPending}
+            pendingLabel="Importando..."
+          />
         </form>
 
         {suppliersState.status === "success" && (
@@ -63,50 +111,6 @@ export function NominaDashboard({ suppliersCount, recentBatches }: { suppliersCo
         {suppliersState.status === "error" && (
           <p role="alert" className="mt-3 rounded-md border border-critical-border bg-critical-bg px-3 py-2 text-sm text-critical">
             {suppliersState.message}
-          </p>
-        )}
-      </SectionCard>
-
-      <SectionCard title="Generar nómina mensual">
-        <p className="text-sm text-slate-600">
-          Sube el Excel de facturas que envía finanzas (columnas Nro. Docto. / Nombre Cliente / Valor Total ($)). Se
-          cruza por nombre exacto contra el maestro de proveedores — un nombre sin coincidencia queda fuera de la
-          exportación final y se reporta abajo para revisión manual.
-        </p>
-        <form action={batchFormAction} encType="multipart/form-data" className="mt-3 space-y-2">
-          <input type="file" name="file" accept=".xlsx,.xls" required aria-label="Excel mensual de facturas" className="block w-full text-sm" />
-          <button
-            type="submit"
-            disabled={batchPending}
-            className="rounded-md bg-arcotex-blue px-3 py-1.5 text-sm font-medium text-white hover:bg-arcotex-blue-dark disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {batchPending ? "Generando..." : "Generar nómina"}
-          </button>
-        </form>
-
-        {batchState.status === "success" && (
-          <div role="status" className="mt-3 space-y-2 rounded-md border border-success-border bg-success-bg px-3 py-2 text-sm text-success">
-            <p>✓ {batchState.message}</p>
-            {batchState.batchId && (batchState.matchedCount ?? 0) > 0 && (
-              <a href={`/nomina-de-pago/export/${batchState.batchId}`} className="inline-block rounded-md border border-success-border bg-white px-2 py-1 text-xs font-medium text-success hover:bg-success-bg">
-                Descargar Excel para el banco →
-              </a>
-            )}
-            {(batchState.unmatchedNames?.length ?? 0) > 0 && (
-              <div className="text-critical">
-                <p className="font-medium">Sin coincidencia en el maestro de proveedores:</p>
-                <ul className="mt-1 list-disc pl-5">
-                  {batchState.unmatchedNames!.map((name, i) => (
-                    <li key={i}>{name}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-        {batchState.status === "error" && (
-          <p role="alert" className="mt-3 rounded-md border border-critical-border bg-critical-bg px-3 py-2 text-sm text-critical">
-            {batchState.message}
           </p>
         )}
       </SectionCard>

@@ -2,7 +2,7 @@ import "server-only";
 import * as XLSX from "xlsx";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
-import { normalizeName } from "../business-rules/name-matching";
+import { normalizeName, normalizeRut } from "../business-rules/name-matching";
 
 /**
  * Importador del maestro de proveedores (Nómina de Pago). Formato real
@@ -168,6 +168,7 @@ export async function importSuppliers(
       rut: row.rut,
       name: row.name,
       normalized_name: normalizedName,
+      normalized_rut: normalizeRut(row.rut),
       payment_method: row.paymentMethod,
       bank_code: row.bankCode,
       account_number: row.accountNumber,

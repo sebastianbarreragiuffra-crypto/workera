@@ -15,6 +15,10 @@
   --color-arcotex-blue-dark: #236b9d;
   --color-arcotex-navy: #142a4c;
   --color-arcotex-navy-dark: #0b1930;
+  --color-arcotex-copper: #9a5129;
+  --color-arcotex-copper-dark: #783b1f;
+  --color-arcotex-copper-light: #fff4ec;
+  --color-arcotex-copper-border: #d9a17d;
 
   --color-login-background: #f4f8fb;
   --color-login-panel-start: #071018;
@@ -57,6 +61,10 @@
   --color-arcotex-blue-dark: var(--color-arcotex-blue-dark);
   --color-arcotex-navy: var(--color-arcotex-navy);
   --color-arcotex-navy-dark: var(--color-arcotex-navy-dark);
+  --color-arcotex-copper: var(--color-arcotex-copper);
+  --color-arcotex-copper-dark: var(--color-arcotex-copper-dark);
+  --color-arcotex-copper-light: var(--color-arcotex-copper-light);
+  --color-arcotex-copper-border: var(--color-arcotex-copper-border);
   --color-login-background: var(--color-login-background);
   --color-login-panel-start: var(--color-login-panel-start);
   --color-login-panel-middle: var(--color-login-panel-middle);

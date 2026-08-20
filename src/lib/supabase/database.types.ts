@@ -1089,9 +1089,11 @@ export type Database = {
           employee_group_id: string | null
           external_workera_id: string
           first_name: string
+          hire_date: string | null
           id: string
           last_name: string
           rut: string | null
+          source: string
           updated_at: string
         }
         Insert: {
@@ -1101,9 +1103,11 @@ export type Database = {
           employee_group_id?: string | null
           external_workera_id: string
           first_name: string
+          hire_date?: string | null
           id?: string
           last_name: string
           rut?: string | null
+          source?: string
           updated_at?: string
         }
         Update: {
@@ -1113,9 +1117,11 @@ export type Database = {
           employee_group_id?: string | null
           external_workera_id?: string
           first_name?: string
+          hire_date?: string | null
           id?: string
           last_name?: string
           rut?: string | null
+          source?: string
           updated_at?: string
         }
         Relationships: [
@@ -1415,6 +1421,109 @@ export type Database = {
             columns: ["late_arrival_policy_id"]
             isOneToOne: false
             referencedRelation: "late_arrival_policies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      medical_license_approvals: {
+        Row: {
+          absence_record_id: string
+          approved_at: string | null
+          approved_by: string | null
+          confirmed_end_date: string | null
+          confirmed_start_date: string | null
+          created_at: string
+          id: string
+          is_current: boolean
+          proposed_end_date: string
+          proposed_start_date: string
+          rejected_at: string | null
+          rejected_by: string | null
+          rejection_reason: string | null
+          status: Database["public"]["Enums"]["medical_license_approval_status"]
+          supporting_document_id: string
+          uploaded_at: string
+          uploaded_by: string
+        }
+        Insert: {
+          absence_record_id: string
+          approved_at?: string | null
+          approved_by?: string | null
+          confirmed_end_date?: string | null
+          confirmed_start_date?: string | null
+          created_at?: string
+          id?: string
+          is_current?: boolean
+          proposed_end_date: string
+          proposed_start_date: string
+          rejected_at?: string | null
+          rejected_by?: string | null
+          rejection_reason?: string | null
+          status?: Database["public"]["Enums"]["medical_license_approval_status"]
+          supporting_document_id: string
+          uploaded_at?: string
+          uploaded_by: string
+        }
+        Update: {
+          absence_record_id?: string
+          approved_at?: string | null
+          approved_by?: string | null
+          confirmed_end_date?: string | null
+          confirmed_start_date?: string | null
+          created_at?: string
+          id?: string
+          is_current?: boolean
+          proposed_end_date?: string
+          proposed_start_date?: string
+          rejected_at?: string | null
+          rejected_by?: string | null
+          rejection_reason?: string | null
+          status?: Database["public"]["Enums"]["medical_license_approval_status"]
+          supporting_document_id?: string
+          uploaded_at?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "medical_license_approvals_absence_record_id_fkey"
+            columns: ["absence_record_id"]
+            isOneToOne: false
+            referencedRelation: "absence_records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "medical_license_approvals_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "medical_license_approvals_rejected_by_fkey"
+            columns: ["rejected_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "medical_license_approvals_supporting_document_id_fkey"
+            columns: ["supporting_document_id"]
+            isOneToOne: false
+            referencedRelation: "supporting_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "medical_license_approvals_supporting_document_id_fkey"
+            columns: ["supporting_document_id"]
+            isOneToOne: false
+            referencedRelation: "supporting_documents_metadata"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "medical_license_approvals_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -1756,6 +1865,7 @@ export type Database = {
           created_at: string
           display_name: string
           id: string
+          medical_license_approver: boolean
           role: Database["public"]["Enums"]["app_role"] | null
         }
         Insert: {
@@ -1763,6 +1873,7 @@ export type Database = {
           created_at?: string
           display_name: string
           id?: string
+          medical_license_approver?: boolean
           role?: Database["public"]["Enums"]["app_role"] | null
         }
         Update: {
@@ -1770,6 +1881,7 @@ export type Database = {
           created_at?: string
           display_name?: string
           id?: string
+          medical_license_approver?: boolean
           role?: Database["public"]["Enums"]["app_role"] | null
         }
         Relationships: []
@@ -1918,6 +2030,78 @@ export type Database = {
           },
         ]
       }
+      supplier_master_imports: {
+        Row: {
+          activated_at: string | null
+          created_at: string
+          file_size: number
+          id: string
+          inserted_count: number
+          original_filename: string
+          rejected_count: number
+          replaced_at: string | null
+          replaces_import_id: string | null
+          row_count: number
+          status: Database["public"]["Enums"]["supplier_master_import_status"]
+          storage_path: string | null
+          unchanged_count: number
+          updated_count: number
+          uploaded_at: string
+          uploaded_by: string
+        }
+        Insert: {
+          activated_at?: string | null
+          created_at?: string
+          file_size: number
+          id?: string
+          inserted_count?: number
+          original_filename: string
+          rejected_count?: number
+          replaced_at?: string | null
+          replaces_import_id?: string | null
+          row_count: number
+          status?: Database["public"]["Enums"]["supplier_master_import_status"]
+          storage_path?: string | null
+          unchanged_count?: number
+          updated_count?: number
+          uploaded_at?: string
+          uploaded_by: string
+        }
+        Update: {
+          activated_at?: string | null
+          created_at?: string
+          file_size?: number
+          id?: string
+          inserted_count?: number
+          original_filename?: string
+          rejected_count?: number
+          replaced_at?: string | null
+          replaces_import_id?: string | null
+          row_count?: number
+          status?: Database["public"]["Enums"]["supplier_master_import_status"]
+          storage_path?: string | null
+          unchanged_count?: number
+          updated_count?: number
+          uploaded_at?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_master_imports_replaces_import_id_fkey"
+            columns: ["replaces_import_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_master_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_master_imports_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       suppliers: {
         Row: {
           account_number: string
@@ -1928,6 +2112,7 @@ export type Database = {
           id: string
           name: string
           normalized_name: string
+          normalized_rut: string
           payment_method: string
           rut: string
           updated_at: string
@@ -1941,6 +2126,7 @@ export type Database = {
           id?: string
           name: string
           normalized_name: string
+          normalized_rut: string
           payment_method: string
           rut: string
           updated_at?: string
@@ -1954,6 +2140,7 @@ export type Database = {
           id?: string
           name?: string
           normalized_name?: string
+          normalized_rut?: string
           payment_method?: string
           rut?: string
           updated_at?: string
@@ -2497,6 +2684,40 @@ export type Database = {
       }
     }
     Functions: {
+      apply_personnel_roster_import: {
+        Args: {
+          p_actor_id: string
+          p_deactivate_ids: Json
+          p_insert_rows: Json
+          p_update_rows: Json
+        }
+        Returns: undefined
+      }
+      apply_supplier_master_import: {
+        Args: {
+          p_file_size: number
+          p_import_id: string
+          p_insert_rows: Json
+          p_inserted_count: number
+          p_original_filename: string
+          p_rejected_count: number
+          p_row_count: number
+          p_storage_path: string
+          p_unchanged_count: number
+          p_update_rows: Json
+          p_updated_count: number
+          p_uploaded_by: string
+        }
+        Returns: undefined
+      }
+      approve_medical_license: {
+        Args: {
+          p_approval_id: string
+          p_confirmed_end_date: string
+          p_confirmed_start_date: string
+        }
+        Returns: undefined
+      }
       can_manage_employee: { Args: { p_employee_id: string }; Returns: boolean }
       classify_overtime_type_id: {
         Args: { p_work_date: string }
@@ -2508,6 +2729,7 @@ export type Database = {
       }
       is_admin_rrhh: { Args: never; Returns: boolean }
       is_corporate_user: { Args: never; Returns: boolean }
+      is_medical_license_approver: { Args: never; Returns: boolean }
       is_privileged_admin: { Args: never; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
       is_supervisor_installation: { Args: never; Returns: boolean }
@@ -2536,6 +2758,10 @@ export type Database = {
         Args: { p_employee_id: string; p_work_date: string }
         Returns: undefined
       }
+      reject_medical_license: {
+        Args: { p_approval_id: string; p_reason: string }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role:
@@ -2551,6 +2777,10 @@ export type Database = {
         | "SYNC_CONFLICT"
         | "CORRECTED_AFTER_REVIEW"
         | "READY_FOR_WEEKLY_CLOSE"
+      medical_license_approval_status:
+        | "PENDING_RRHH_APPROVAL"
+        | "APPROVED"
+        | "REJECTED"
       missing_punch_status:
         | "PENDING_CONTACT"
         | "CONTACTED"
@@ -2570,6 +2800,13 @@ export type Database = {
         | "READY_TO_CLOSE"
         | "CLOSED"
         | "REOPENED"
+      supplier_master_import_status:
+        | "VALIDATING"
+        | "READY"
+        | "IMPORTING"
+        | "ACTIVE"
+        | "REPLACED"
+        | "FAILED"
       sync_run_status: "RUNNING" | "SUCCEEDED" | "FAILED" | "PARTIAL"
       weekly_review_status: "OPEN" | "READY_TO_CLOSE" | "CLOSED" | "REOPENED"
     }
@@ -2717,6 +2954,11 @@ export const Constants = {
         "CORRECTED_AFTER_REVIEW",
         "READY_FOR_WEEKLY_CLOSE",
       ],
+      medical_license_approval_status: [
+        "PENDING_RRHH_APPROVAL",
+        "APPROVED",
+        "REJECTED",
+      ],
       missing_punch_status: [
         "PENDING_CONTACT",
         "CONTACTED",
@@ -2739,6 +2981,14 @@ export const Constants = {
         "READY_TO_CLOSE",
         "CLOSED",
         "REOPENED",
+      ],
+      supplier_master_import_status: [
+        "VALIDATING",
+        "READY",
+        "IMPORTING",
+        "ACTIVE",
+        "REPLACED",
+        "FAILED",
       ],
       sync_run_status: ["RUNNING", "SUCCEEDED", "FAILED", "PARTIAL"],
       weekly_review_status: ["OPEN", "READY_TO_CLOSE", "CLOSED", "REOPENED"],

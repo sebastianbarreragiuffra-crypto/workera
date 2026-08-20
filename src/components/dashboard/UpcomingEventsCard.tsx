@@ -1,4 +1,5 @@
 import type { UpcomingEvents } from "../../lib/view-models/dashboard-view";
+import { BIRTHDAY_CONTRIBUTION_PER_PERSON, calculateBirthdayContributionPerWorker } from "../../lib/business-rules/birthday-contribution";
 
 const MONTH_NAMES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -12,6 +13,14 @@ function daysUntilLabel(daysUntil: number): string {
   return "Ya pasó este mes";
 }
 
+function formatClp(value: number): string {
+  return new Intl.NumberFormat("es-CL", {
+    style: "currency",
+    currency: "CLP",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
 /**
  * Fase 8B.1, PASO 7/7A/7B -- únicamente cumpleaños del mes y próximo
  * feriado, real desde `employee_birthdays`/`holidays`. Nunca recalcula la
@@ -20,6 +29,8 @@ function daysUntilLabel(daysUntil: number): string {
  */
 export function UpcomingEventsCard({ events, monthLabel }: { events: UpcomingEvents; monthLabel: number }) {
   const monthName = MONTH_NAMES[monthLabel - 1];
+  const birthdayCount = events.birthdaysThisMonth.length;
+  const contributionPerWorker = calculateBirthdayContributionPerWorker(birthdayCount);
 
   return (
     <section aria-labelledby="upcoming-events-heading" className="rounded-lg border border-border bg-card p-4 shadow-sm">
@@ -31,7 +42,7 @@ export function UpcomingEventsCard({ events, monthLabel }: { events: UpcomingEve
         <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           🎂 Cumpleaños de {monthName}
         </h3>
-        {events.birthdaysThisMonth.length === 0 ? (
+        {birthdayCount === 0 ? (
           <p role="status" className="mt-2 text-sm text-slate-500">
             No hay cumpleaños registrados este mes en tu área.
           </p>
@@ -50,10 +61,19 @@ export function UpcomingEventsCard({ events, monthLabel }: { events: UpcomingEve
               ))}
             </ul>
             <p className="mt-2 text-xs text-slate-400">
-              {events.birthdaysThisMonth.length} cumpleaños este mes
+              {birthdayCount} cumpleaños este mes
             </p>
           </>
         )}
+        <div className="mt-3 rounded-md border border-arcotex-copper-border bg-arcotex-copper-light px-3 py-2">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-medium text-slate-600">Cuota por trabajador</span>
+            <strong className="text-base text-arcotex-copper-dark">{formatClp(contributionPerWorker)}</strong>
+          </div>
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            {birthdayCount} cumpleaños × {formatClp(BIRTHDAY_CONTRIBUTION_PER_PERSON)} por persona
+          </p>
+        </div>
       </div>
 
       <div className="mt-4 border-t border-border pt-3">

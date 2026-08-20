@@ -24,3 +24,14 @@ export function normalizeName(value: string): string {
     .replace(/\s+/g, " ")
     .toUpperCase();
 }
+
+/**
+ * Normalización de RUT para identidad canónica de proveedores (Nómina de
+ * Pago -- reemplazo del maestro). Quita puntos/guion/espacios, mayúsculas.
+ * A diferencia de `normalizeName`, este SÍ es un identificador estable
+ * confiable (el nombre puede escribirse de formas distintas para el mismo
+ * proveedor; el RUT no).
+ */
+export function normalizeRut(value: string): string {
+  return value.toUpperCase().replace(/[^0-9K]/g, "");
+}

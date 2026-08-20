@@ -29,28 +29,36 @@ export interface NavSection {
   heading?: string;
 }
 
+/**
+ * "Pendientes" (antes "Revisión Diaria" + 4 entradas separadas por filtro --
+ * consolidado porque nunca fueron módulos distintos, solo filtros de la
+ * misma cola de trabajo interactiva). La ruta sigue siendo `/revision-diaria`
+ * a propósito -- renombrar la ruta solo por estética generaría una migración
+ * innecesaria; los filtros (`?filtro=atrasos`, etc.) siguen funcionando
+ * igual, solo dejaron de tener su propia entrada en el menú principal (ver
+ * `FilterBar` dentro de la página, y los KPI del dashboard que enlazan
+ * directo a esos query params).
+ */
+/**
+ * "Licencias" (antes "Trabajadores" + "Licencias" como entradas separadas)
+ * -- consolidado: `/licencias` ahora es el directorio de empleados completo
+ * (reutilizado tal cual desde la antigua `/empleados`, ver
+ * `EmployeeDirectory`) MÁS la gestión de licencias médicas. `/empleados`
+ * sigue existiendo como ruta (redirige a `/licencias`, por estabilidad de
+ * enlaces antiguos) pero ya no tiene entrada propia en el menú.
+ */
 const SUPERVISOR_MAIN: NavItem[] = [
   { label: "Resumen Diario", href: "/dashboard" },
-  { label: "Mi Equipo", href: "/empleados" },
-  { label: "Revisión Diaria", href: "/revision-diaria" },
-  { label: "Atrasos", href: "/revision-diaria?filtro=atrasos" },
-  { label: "Horas Extras", href: "/revision-diaria?filtro=horas-extra" },
-  { label: "Clock Out Pendientes", href: "/revision-diaria?filtro=clock-out" },
-  { label: "Ausencias / Licencias", href: "/revision-diaria?filtro=ausencias" },
-  { label: "Documentos", href: "/documentos" },
+  { label: "Pendientes", href: "/revision-diaria" },
+  { label: "Licencias", href: "/licencias" },
 ];
 
 const RRHH_MAIN: NavItem[] = [
   { label: "Resumen Diario", href: "/dashboard" },
-  { label: "Empleados", href: "/empleados" },
+  { label: "Pendientes", href: "/revision-diaria" },
+  { label: "Licencias", href: "/licencias" },
   { label: "Colaciones", href: "/colaciones" },
   { label: "Nómina de Pago", href: "/nomina-de-pago" },
-  { label: "Revisión Diaria", href: "/revision-diaria" },
-  { label: "Atrasos", href: "/revision-diaria?filtro=atrasos" },
-  { label: "Horas Extras", href: "/revision-diaria?filtro=horas-extra" },
-  { label: "Clock Out Pendientes", href: "/revision-diaria?filtro=clock-out" },
-  { label: "Ausencias / Licencias", href: "/revision-diaria?filtro=ausencias" },
-  { label: "Documentos", href: "/documentos" },
 ];
 
 const FUTURE_MODULES: NavItem[] = [{ label: "Rendiciones", href: "", comingSoon: true }];

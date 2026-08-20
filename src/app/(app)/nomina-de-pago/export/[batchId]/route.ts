@@ -22,22 +22,25 @@ export async function GET(_request: Request, { params }: { params: Promise<{ bat
   const { data: rows, error } = await supabase
     .from("payroll_batch_items")
     .select("nro_docto, nombre_cliente, valor_total, status, suppliers(rut, name, payment_method, bank_code, account_number)")
-    .eq("batch_id", batchId)
-    .eq("status", "MATCHED");
+    .eq("batch_id", batchId);
 
   if (error) {
     return NextResponse.json({ error: "No pudimos generar el archivo." }, { status: 500 });
   }
 
+  // TODAS las filas del lote van al Excel, con o sin match -- un proveedor sin match
+  // nunca queda fuera del archivo, solo sus campos bancarios quedan en blanco
+  // (ver `buildPayrollExportWorkbook`).
   const items: PayrollBatchItemResult[] = (rows ?? []).map((row) => {
     const supplierRelation = row.suppliers as { rut: string; name: string; payment_method: string; bank_code: string; account_number: string } | null;
+    const isMatched = row.status === "MATCHED" && supplierRelation !== null;
     return {
       nroDocto: row.nro_docto,
       nombreCliente: row.nombre_cliente,
       valorTotal: row.valor_total,
-      status: "MATCHED",
-      supplier: supplierRelation
-        ? { rut: supplierRelation.rut, name: supplierRelation.name, paymentMethod: supplierRelation.payment_method, bankCode: supplierRelation.bank_code, accountNumber: supplierRelation.account_number }
+      status: isMatched ? "MATCHED" : "UNMATCHED",
+      supplier: isMatched
+        ? { rut: supplierRelation!.rut, name: supplierRelation!.name, paymentMethod: supplierRelation!.payment_method, bankCode: supplierRelation!.bank_code, accountNumber: supplierRelation!.account_number }
         : null,
     };
   });

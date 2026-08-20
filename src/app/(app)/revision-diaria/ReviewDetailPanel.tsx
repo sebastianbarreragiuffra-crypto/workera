@@ -45,6 +45,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 const PRIMARY_BTN = "rounded-md bg-arcotex-blue px-3 py-1.5 text-sm font-medium text-white hover:bg-arcotex-blue-dark";
 const SECONDARY_BTN = "rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50";
+const UPLOAD_BTN = "rounded-md bg-arcotex-copper px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-arcotex-copper-dark";
+const UPLOAD_INPUT = "w-full rounded-md border border-arcotex-copper-border bg-arcotex-copper-light p-1.5 text-xs text-slate-600 file:mr-2 file:cursor-pointer file:rounded file:border-0 file:bg-arcotex-copper file:px-2 file:py-1 file:font-semibold file:text-white hover:file:bg-arcotex-copper-dark";
 const DANGER_BTN = "rounded-md border border-critical-border px-3 py-1.5 text-sm font-medium text-critical hover:bg-critical-bg";
 
 function CommentField() {
@@ -268,8 +270,8 @@ function EarlyDepartureDecisionSummary({ detail, date, area }: { detail: DailyRe
           <input type="hidden" name="documentType" value="MEDICAL_CERTIFICATE" />
           <input type="hidden" name="relationKind" value="EARLY_DEPARTURE" />
           <input type="hidden" name="relationId" value={detail.earlyDeparture!.recordId} />
-          <input type="file" name="file" required aria-label="Adjuntar comprobante médico" className="text-xs" />
-          <button type="submit" className={SECONDARY_BTN}>
+          <input type="file" name="file" required aria-label="Adjuntar comprobante médico" className={UPLOAD_INPUT} />
+          <button type="submit" className={UPLOAD_BTN}>
             Adjuntar comprobante
           </button>
         </form>
@@ -308,8 +310,8 @@ function AbsenceDecisionSummary({ detail, date, area }: { detail: DailyReviewDet
           <input type="hidden" name="documentType" value="OTHER" />
           <input type="hidden" name="relationKind" value="ABSENCE" />
           <input type="hidden" name="relationId" value={detail.absence!.recordId} />
-          <input type="file" name="file" required aria-label="Adjuntar licencia" className="text-xs" />
-          <button type="submit" className={SECONDARY_BTN}>
+          <input type="file" name="file" required aria-label="Adjuntar licencia" className={UPLOAD_INPUT} />
+          <button type="submit" className={UPLOAD_BTN}>
             Adjuntar licencia
           </button>
         </form>
