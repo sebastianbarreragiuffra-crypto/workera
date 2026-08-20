@@ -7,13 +7,19 @@ import { normalizeName } from "../business-rules/name-matching";
 /**
  * Importador del maestro de proveedores (Nómina de Pago). Formato real
  * confirmado (archivo "LISTADO DE PROVEEDORES", hoja "Beneficiarios"):
- * columnas fijas en orden -- Rut, Nombre Beneficiario, FP, BCO,
- * N° Cuenta Cte. -- sin fila de relleno antes del encabezado, a diferencia
- * del Excel mensual de facturas (`invoice-import.ts`). Se lee por POSICIÓN
- * de columna (no por nombre de encabezado) porque los archivos reales
- * exportados desde Excel antiguo traen el símbolo "°" con problemas de
- * codificación (aparece como "N� Cuenta Cte.") -- comparar por texto sería
- * frágil; la posición de columna es estable.
+ * columnas Rut, Nombre Beneficiario, FP, BCO, N° Cuenta Cte. El encabezado
+ * se BUSCA por nombre de columna (nunca se asume una posición fija de fila
+ * u hoja) -- un usuario real puede subir el archivo equivocado (ej. la
+ * plantilla de facturas mensuales, que tiene "Nombre Cliente" en vez de
+ * "Nombre Beneficiario" y ninguna columna FP/BCO/Cuenta) o un archivo con
+ * más de una hoja donde los datos no están en la primera; buscar por texto
+ * en las primeras filas de CADA hoja detecta ambos casos y da un error
+ * claro en vez de "0 filas válidas" sin explicación.
+ *
+ * El símbolo "°" a veces llega con problemas de codificación en archivos
+ * exportados desde Excel antiguo (aparece como "N� Cuenta Cte.") -- la
+ * columna de cuenta se detecta por `incluye "cuenta"`, nunca por igualdad
+ * exacta con el símbolo, para no depender de esa codificación.
  *
  * ADVERTENCIA DE SEGURIDAD (mismo criterio que `import-birthdays.ts`, Fase
  * 7): la librería `xlsx` (SheetJS) tiene vulnerabilidades conocidas sin
@@ -31,7 +37,7 @@ export interface ParsedSupplierRow {
   accountNumber: string;
 }
 
-export type SupplierParseIssueReason = "MISSING_FIELD";
+export type SupplierParseIssueReason = "MISSING_FIELD" | "HEADER_NOT_FOUND";
 
 export interface SupplierParseIssue {
   rowNumber: number;
@@ -43,25 +49,62 @@ export interface ParseSuppliersExcelResult {
   issues: SupplierParseIssue[];
 }
 
+interface SupplierHeaderLocation {
+  sheetName: string;
+  rowIndex: number;
+  rutCol: number;
+  nameCol: number;
+  fpCol: number;
+  bcoCol: number;
+  accountCol: number;
+}
+
+function findSupplierHeader(workbook: XLSX.WorkBook): SupplierHeaderLocation | null {
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json<(string | number | null)[]>(sheet, { header: 1, defval: null });
+    const maxScan = Math.min(rows.length, 15);
+
+    for (let i = 0; i < maxScan; i += 1) {
+      const row = rows[i] ?? [];
+      const normalized = row.map((cell) => (typeof cell === "string" ? cell.trim().toLowerCase() : ""));
+      const rutCol = normalized.findIndex((c) => c === "rut");
+      const nameCol = normalized.findIndex((c) => c.startsWith("nombre"));
+      const fpCol = normalized.findIndex((c) => c === "fp");
+      const bcoCol = normalized.findIndex((c) => c === "bco");
+      const accountCol = normalized.findIndex((c) => c.includes("cuenta"));
+
+      if (rutCol >= 0 && nameCol >= 0 && fpCol >= 0 && bcoCol >= 0 && accountCol >= 0) {
+        return { sheetName, rowIndex: i, rutCol, nameCol, fpCol, bcoCol, accountCol };
+      }
+    }
+  }
+  return null;
+}
+
 export function parseSuppliersExcel(fileBytes: Uint8Array): ParseSuppliersExcelResult {
   const workbook = XLSX.read(fileBytes, { type: "array" });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const header = findSupplierHeader(workbook);
+  if (!header) {
+    return { valid: [], issues: [{ rowNumber: 0, reason: "HEADER_NOT_FOUND" }] };
+  }
+
+  const sheet = workbook.Sheets[header.sheetName];
   const rows = XLSX.utils.sheet_to_json<(string | number | null)[]>(sheet, { header: 1, defval: null });
 
   const valid: ParsedSupplierRow[] = [];
   const issues: SupplierParseIssue[] = [];
 
-  // Fila 0 = encabezado (Rut, Nombre Beneficiario, FP, BCO, N° Cuenta Cte.), datos desde la fila 1.
-  for (let i = 1; i < rows.length; i += 1) {
+  for (let i = header.rowIndex + 1; i < rows.length; i += 1) {
     const row = rows[i];
     const excelRowNumber = i + 1;
     if (!row || row.every((cell) => cell === null || cell === "")) continue; // fila en blanco, se ignora sin reportar
 
-    const rut = String(row[0] ?? "").trim();
-    const name = String(row[1] ?? "").trim();
-    const paymentMethod = String(row[2] ?? "").trim();
-    const bankCode = String(row[3] ?? "").trim();
-    const accountNumber = String(row[4] ?? "").trim();
+    const rut = String(row[header.rutCol] ?? "").trim();
+    const name = String(row[header.nameCol] ?? "").trim();
+    const paymentMethod = String(row[header.fpCol] ?? "").trim();
+    const bankCode = String(row[header.bcoCol] ?? "").trim();
+    const accountNumber = String(row[header.accountCol] ?? "").trim();
 
     if (!rut || !name || !paymentMethod || !bankCode || !accountNumber) {
       issues.push({ rowNumber: excelRowNumber, reason: "MISSING_FIELD" });

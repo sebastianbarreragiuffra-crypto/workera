@@ -26,6 +26,47 @@ test("parseSuppliersExcel: fila con campo faltante se reporta como issue, no se 
   assert.deepEqual(result.issues, [{ rowNumber: 2, reason: "MISSING_FIELD" }]);
 });
 
+test("parseSuppliersExcel: archivo equivocado (formato de facturas mensuales, sin FP/BCO/Cuenta) -> HEADER_NOT_FOUND, nunca '0 filas válidas' sin explicación", () => {
+  // Regresión real: un usuario subió el mockup de facturas (Nro. Docto./Nombre Cliente/Valor Total)
+  // al importador de proveedores por error -- debe detectarse como archivo equivocado, no como archivo vacío.
+  const sheet = XLSX.utils.aoa_to_sheet([["Nro. Interno", "Nro. Docto.", "Fecha", "Nombre Cliente", "Valor Total ($)"], [1, "6050", "2026-08-01", "PROVEEDOR FICTICIO", 100000]]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, "PROVEEDORES");
+  const bytes = XLSX.write(workbook, { type: "array", bookType: "xlsx" }) as Uint8Array;
+
+  const result = parseSuppliersExcel(bytes);
+  assert.equal(result.valid.length, 0);
+  assert.deepEqual(result.issues, [{ rowNumber: 0, reason: "HEADER_NOT_FOUND" }]);
+});
+
+test("parseSuppliersExcel: encabezado se encuentra aunque no esté en la primera hoja del archivo", () => {
+  const irrelevantSheet = XLSX.utils.aoa_to_sheet([["algo", "irrelevante"]]);
+  const suppliersSheet = XLSX.utils.aoa_to_sheet([["Rut", "Nombre Beneficiario", "FP", "BCO", "N° Cuenta Cte."], ["11111111", "PROVEEDOR FICTICIO SPA", "OTC", "1", "12345678"]]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, irrelevantSheet, "Portada");
+  XLSX.utils.book_append_sheet(workbook, suppliersSheet, "Beneficiarios");
+  const bytes = XLSX.write(workbook, { type: "array", bookType: "xlsx" }) as Uint8Array;
+
+  const result = parseSuppliersExcel(bytes);
+  assert.equal(result.valid.length, 1);
+});
+
+test("parseSuppliersExcel: encabezado se encuentra aunque tenga filas de título antes (no asume fila 0)", () => {
+  const sheet = XLSX.utils.aoa_to_sheet([
+    ["LISTADO DE PROVEEDORES"],
+    [],
+    ["Rut", "Nombre Beneficiario", "FP", "BCO", "N° Cuenta Cte."],
+    ["11111111", "PROVEEDOR FICTICIO SPA", "OTC", "1", "12345678"],
+  ]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, "Beneficiarios");
+  const bytes = XLSX.write(workbook, { type: "array", bookType: "xlsx" }) as Uint8Array;
+
+  const result = parseSuppliersExcel(bytes);
+  assert.equal(result.valid.length, 1);
+  assert.equal(result.valid[0].rowNumber, 4);
+});
+
 test("parseSuppliersExcel: fila en blanco se ignora sin reportar issue", () => {
   const bytes = buildWorkbookBytes([[null, null, null, null, null], ["11111111", "PROVEEDOR FICTICIO SPA", "OTC", "1", "12345678"]]);
   const result = parseSuppliersExcel(bytes);

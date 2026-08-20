@@ -43,6 +43,12 @@ export async function uploadSuppliersAction(_prev: UploadSuppliersActionState, f
 
   const fileBytes = new Uint8Array(await file.arrayBuffer());
   const parsed = parseSuppliersExcel(fileBytes);
+  if (parsed.issues.some((i) => i.reason === "HEADER_NOT_FOUND")) {
+    return {
+      status: "error",
+      message: "No encontramos las columnas Rut / Nombre Beneficiario / FP / BCO / N° Cuenta en ninguna hoja de este archivo. ¿Es el listado de proveedores correcto?",
+    };
+  }
   if (parsed.valid.length === 0) {
     return { status: "error", message: "No se encontraron filas válidas en el archivo." };
   }
