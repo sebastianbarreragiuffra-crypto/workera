@@ -417,11 +417,13 @@ test("el matcher de proxy.ts excluye _next/static, _next/image, favicon y extens
 });
 
 // Cobertura directa de los helpers de clasificación de rutas.
-test("isPublicPath: solo /login es pública", () => {
+test("isPublicPath: /login y /auth/callback (OAuth) son públicas, nada más", () => {
   assert.equal(isPublicPath("/login"), true);
+  assert.equal(isPublicPath("/auth/callback"), true);
   assert.equal(isPublicPath("/"), false);
   assert.equal(isPublicPath("/login/"), false);
   assert.equal(isPublicPath("/dashboard"), false);
+  assert.equal(isPublicPath("/auth/callback/"), false);
 });
 
 test("isApiPath: reconoce /api y cualquier subruta", () => {

@@ -1,7 +1,7 @@
 import "server-only";
 import { createClient as createSessionClient } from "../supabase/server";
 import { createAdminClient } from "../supabase/admin-client";
-import { requireCurrentRole, AuthorizationError } from "../supabase/authorize";
+import { requireAppAdmin, AuthorizationError } from "../supabase/authorize";
 import type { Database } from "../supabase/database.types";
 
 /**
@@ -38,9 +38,14 @@ export interface AppUserSummary {
   createdAt: string;
 }
 
-/** Lista los usuarios de la aplicación. Requiere SUPER_ADMIN o ADMIN_RRHH — la misma RLS de `profiles_select` ya lo garantiza; esta función solo formatea el resultado. */
+/**
+ * Lista los usuarios de la aplicación. Requiere APP_ADMIN (SUPER_ADMIN) --
+ * restringido en Fase 8D (antes permitía también ADMIN_RRHH; el encargo de
+ * Fase 8D es explícito: "user administration" es una capacidad exclusiva de
+ * APP_ADMIN, ADMIN_RRHH no la hereda).
+ */
 export async function listAppUsers(): Promise<AppUserSummary[]> {
-  await requireCurrentRole("SUPER_ADMIN", "ADMIN_RRHH");
+  await requireAppAdmin();
 
   const session = await createSessionClient();
   const { data, error } = await session
@@ -69,20 +74,15 @@ export interface CreateAppUserInput {
 
 /**
  * Crea una cuenta humana nueva (Supabase Auth, vía admin client) y le asigna
- * el rol solicitado. Requiere SUPER_ADMIN o ADMIN_RRHH — pero crear una
- * cuenta con role="SUPER_ADMIN" requiere ser SUPER_ADMIN explícitamente
- * (revalidado aquí como defensa en profundidad, además de que la RLS de
- * `profiles_update` de todas formas rechazaría el UPDATE de rol si un
- * ADMIN_RRHH lo intentara).
+ * el rol solicitado. Requiere APP_ADMIN (SUPER_ADMIN) -- restringido en
+ * Fase 8D (antes permitía también ADMIN_RRHH; "role assignment"/"user
+ * administration" son capacidades exclusivas de APP_ADMIN por encargo
+ * explícito). La RLS de `profiles_update` sigue siendo la autoridad real
+ * para la protección de SUPER_ADMIN -- este gate es defensa en profundidad,
+ * no el único lugar donde se decide.
  */
 export async function createAppUser(input: CreateAppUserInput): Promise<{ userId: string }> {
-  const { actorRole } = await requireCurrentRole("SUPER_ADMIN", "ADMIN_RRHH");
-
-  if (input.role === "SUPER_ADMIN" && actorRole !== "SUPER_ADMIN") {
-    throw new UserManagementAuthorizationError(
-      "Solo SUPER_ADMIN puede crear otra cuenta SUPER_ADMIN."
-    );
-  }
+  await requireAppAdmin();
 
   const admin = createAdminClient();
   const { data, error } = await admin.auth.admin.createUser({
@@ -110,18 +110,28 @@ export async function createAppUser(input: CreateAppUserInput): Promise<{ userId
   return { userId: data.user.id };
 }
 
-/** Cambia el rol de un usuario existente. Sujeto en última instancia a la RLS de `profiles_update` (protección de SUPER_ADMIN incluida). */
+/**
+ * Cambia el rol de un usuario existente. Requiere APP_ADMIN (SUPER_ADMIN) --
+ * restringido en Fase 8D (antes permitía también ADMIN_RRHH). Sujeto en
+ * última instancia a la RLS de `profiles_update` (protección de SUPER_ADMIN
+ * incluida) como defensa en profundidad, no como único gate.
+ */
 export async function assignRole(targetUserId: string, role: AppRole): Promise<void> {
-  await requireCurrentRole("SUPER_ADMIN", "ADMIN_RRHH");
+  await requireAppAdmin();
 
   const session = await createSessionClient();
   const { error } = await session.from("profiles").update({ role }).eq("id", targetUserId);
   if (error) throw error;
 }
 
-/** Activa/desactiva el acceso de un usuario. Sujeto a la RLS de `profiles_update` (incluida la protección del último SUPER_ADMIN activo). */
+/**
+ * Activa/desactiva el acceso de un usuario. Requiere APP_ADMIN (SUPER_ADMIN)
+ * -- restringido en Fase 8D (antes permitía también ADMIN_RRHH). Sujeto a
+ * la RLS de `profiles_update` (incluida la protección del último SUPER_ADMIN
+ * activo) como defensa en profundidad.
+ */
 export async function setUserActive(targetUserId: string, active: boolean): Promise<void> {
-  await requireCurrentRole("SUPER_ADMIN", "ADMIN_RRHH");
+  await requireAppAdmin();
 
   const session = await createSessionClient();
   const { error } = await session.from("profiles").update({ active }).eq("id", targetUserId);

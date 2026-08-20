@@ -6,8 +6,16 @@ import type { Database } from "./database.types";
  * Rutas accesibles sin sesión. Todo lo demás es privado por defecto
  * (secure-by-default): una página nueva queda protegida automáticamente
  * salvo que se agregue aquí explícitamente — nunca al revés.
+ *
+ * `/auth/callback` DEBE ser pública: es el redirect de vuelta de Google
+ * (u otro proveedor OAuth) ANTES de que exista sesión -- ese route handler
+ * es el que recién la crea vía `exchangeCodeForSession`. No es un bypass de
+ * autorización: un OAuth exitoso solo crea sesión (igual que email+password);
+ * el acceso real a la app lo sigue decidiendo el layout de `(app)`
+ * (`profile.role`/`profile.active`), exactamente igual para ambos métodos de
+ * login.
  */
-const PUBLIC_PATHS = new Set<string>(["/login"]);
+const PUBLIC_PATHS = new Set<string>(["/login", "/auth/callback"]);
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.has(pathname);

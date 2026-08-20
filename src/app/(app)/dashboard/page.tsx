@@ -45,15 +45,15 @@ export default async function DashboardPage() {
         <p className="text-sm text-slate-500">Resumen operacional — {formatDateLong(date)}</p>
       </div>
 
-      <KpiRow kpis={dashboard.kpis} />
+      <KpiRow kpis={dashboard.kpis} date={date} />
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <PriorityQueueCard items={dashboard.priorityQueue} date={date} />
         <ReviewQueueCard people={dashboard.reviewQueue} />
         <UpcomingEventsCard events={dashboard.upcomingEvents} monthLabel={month} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <WeekSummaryCard summary={dashboard.weekSummary} />
         <ExcelExportCard />
         {dashboard.kind === "ADMIN" && <WorkeraSyncStatus health={dashboard.syncHealth} />}

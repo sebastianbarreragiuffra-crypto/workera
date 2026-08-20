@@ -37,3 +37,19 @@ export async function requireCurrentRole(
 
   return { actorId, actorRole: profile.role };
 }
+
+/**
+ * Gate de las capacidades de administración de aplicación (Fase 8D --
+ * gestión de usuarios, asignación/cambio de rol, configuración privilegiada,
+ * módulos/integraciones, y cualquier configuración de layout/tema que se
+ * exponga a futuro). "APP_ADMIN" es un concepto de UI/negocio, NO un valor
+ * nuevo de `app_role` -- el rol técnico sigue siendo SUPER_ADMIN (ya
+ * modelado en Fase 5D con su propia RLS y protección del último admin
+ * activo); esta función es el único lugar del código de aplicación que
+ * declara esa equivalencia, para que ningún otro archivo tenga que repetir
+ * el string `"SUPER_ADMIN"` para decidir acceso administrativo de app.
+ * ADMIN_RRHH y los roles de supervisor NUNCA deben pasar este gate.
+ */
+export async function requireAppAdmin(): Promise<{ actorId: string; actorRole: AppRole }> {
+  return requireCurrentRole("SUPER_ADMIN");
+}
