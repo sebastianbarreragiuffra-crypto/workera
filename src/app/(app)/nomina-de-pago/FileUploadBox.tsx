@@ -59,12 +59,21 @@ export function FileUploadBox({
         dragActive ? "border-arcotex-copper bg-arcotex-copper-light" : "border-arcotex-copper-border bg-arcotex-copper-light/50 hover:border-arcotex-copper hover:bg-arcotex-copper-light"
       }`}
     >
+      {/*
+        Sin `required`: un input de archivo oculto (`display:none`) y
+        requerido bloquea el submit del navegador sin poder mostrar la
+        burbuja de validación (no es enfocable) -- el usuario no ve ningún
+        error, el botón simplemente "no hace nada" (mismo bug ya encontrado
+        y corregido en RosterImportCard.tsx). El backstop real ya existe: el
+        Server Action valida `file.size === 0` y devuelve un mensaje visible
+        (ver nomina-de-pago/actions.ts), así que dejar que el submit llegue
+        al servidor es estrictamente mejor que bloquearlo en el navegador.
+      */}
       <input
         ref={inputRef}
         type="file"
         name={name}
         accept={accept}
-        required
         aria-label={ariaLabel}
         className="hidden"
         onChange={(e) => setFileName(e.target.files?.[0]?.name ?? null)}

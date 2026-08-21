@@ -1,12 +1,8 @@
 import "server-only";
 
-import path from "node:path";
-import { readFile } from "node:fs/promises";
 import * as XLSX from "xlsx";
 import type { ProductionMealDiscountDataset, ProductionMealDiscountRecord } from "./types";
 import { getProductionMealPricing } from "./pricing";
-
-const SOURCE_FILE = "DESCUENTO DE COLACIONES.xlsx";
 
 function toIsoDate(value: unknown): string | null {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
@@ -99,10 +95,18 @@ export function parseProductionMealDiscountRows(rows: unknown[][]): ProductionMe
   return records;
 }
 
-export async function getProductionMealDiscountDataset(): Promise<ProductionMealDiscountDataset> {
-  const sourcePath = path.join(process.cwd(), SOURCE_FILE);
-  const bytes = await readFile(sourcePath);
-  const workbook = XLSX.read(bytes, { type: "buffer", cellDates: true });
+/**
+ * Construye el dataset a partir de bytes YA EN MEMORIA -- nunca lee del
+ * filesystem. Antes esto vivía inline dentro de una función que leía
+ * `DESCUENTO DE COLACIONES.xlsx` del disco local (`process.cwd()`); ese
+ * archivo está en `.gitignore` y nunca viaja con el despliegue, así que la
+ * lectura fallaba siempre fuera de esta máquina (bloqueador real de Vercel).
+ * Ahora los bytes vienen de Supabase Storage (ver
+ * `discount-workbook-storage.ts`) -- la interpretación de negocio (parseo,
+ * ciclo de facturación, pricing) es EXACTAMENTE la misma, sin cambios.
+ */
+export function buildProductionMealDiscountDataset(bytes: Uint8Array, sourceFileLabel: string): ProductionMealDiscountDataset {
+  const workbook = XLSX.read(bytes, { type: "array", cellDates: true });
   const detailSheet = workbook.Sheets.Hoja1;
   if (!detailSheet) throw new Error("El Excel no contiene la hoja Hoja1 esperada.");
 
@@ -114,7 +118,7 @@ export async function getProductionMealDiscountDataset(): Promise<ProductionMeal
   const records = parsedRecords.filter((record) => record.date >= cycle.start && record.date <= cycle.end);
 
   return {
-    sourceFile: SOURCE_FILE,
+    sourceFile: sourceFileLabel,
     cycleName: cycle.name,
     cycleStart: cycle.start,
     cycleEnd: cycle.end,

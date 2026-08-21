@@ -13,7 +13,7 @@ import {
 } from "./actions";
 import type { MedicalLicenseListItem } from "../../../lib/decisions/medical-license";
 
-const UPLOAD_INITIAL: UploadMedicalLicenseActionState = { status: "idle", message: "" };
+const UPLOAD_INITIAL: UploadMedicalLicenseActionState = { status: "idle", message: "", extractionStatus: null };
 const APPROVE_INITIAL: ApproveMedicalLicenseActionState = { status: "idle", message: "" };
 const REJECT_INITIAL: RejectMedicalLicenseActionState = { status: "idle", message: "" };
 
@@ -34,17 +34,19 @@ function formatDate(date: string): string {
   return new Date(`${date}T00:00:00`).toLocaleDateString("es-CL");
 }
 
-function UploadLicenseCard({ employees }: { employees: { id: string; displayName: string }[] }) {
+/**
+ * Compacta: sin fechas manuales -- el documento es la fuente (ver
+ * `uploadMedicalLicenseAction`, que llama a `extractMedicalLicenseDates`).
+ * Exportada para que `page.tsx` la ubique junto a la tarjeta KPI en la fila
+ * superior.
+ */
+export function UploadLicenseCard({ employees }: { employees: { id: string; displayName: string }[] }) {
   const [state, formAction, pending] = useActionState(uploadMedicalLicenseAction, UPLOAD_INITIAL);
 
   return (
     <SectionCard title="Subir licencia médica">
-      <p className="text-sm text-slate-600">
-        Sube el documento de respaldo para un trabajador a tu cargo. La licencia queda pendiente de aprobación de
-        RRHH -- no se marca &quot;L&quot; en asistencia hasta que se apruebe.
-      </p>
-      <form action={formAction} className="mt-3 space-y-2">
-        <select name="employeeId" required defaultValue="" className="block w-full rounded-md border border-border px-3 py-1.5 text-sm">
+      <form action={formAction} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
+        <select name="employeeId" required defaultValue="" className="min-w-0 flex-1 rounded-md border border-border px-3 py-1.5 text-sm">
           <option value="" disabled>
             Selecciona un trabajador
           </option>
@@ -54,32 +56,30 @@ function UploadLicenseCard({ employees }: { employees: { id: string; displayName
             </option>
           ))}
         </select>
-        <div className="flex gap-2">
-          <label className="flex-1 text-xs text-slate-500">
-            Inicio
-            <input type="date" name="startDate" required className="mt-0.5 block w-full rounded-md border border-border px-3 py-1.5 text-sm" />
-          </label>
-          <label className="flex-1 text-xs text-slate-500">
-            Término
-            <input type="date" name="endDate" required className="mt-0.5 block w-full rounded-md border border-border px-3 py-1.5 text-sm" />
-          </label>
-        </div>
-        <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required aria-label="Documento de la licencia" className="block w-full rounded-md border border-arcotex-copper-border bg-arcotex-copper-light p-2 text-sm text-slate-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-arcotex-copper file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white hover:file:bg-arcotex-copper-dark" />
+        <input
+          type="file"
+          name="file"
+          accept=".pdf,.jpg,.jpeg,.png"
+          required
+          aria-label="Documento de la licencia"
+          className="min-w-0 flex-1 rounded-md border border-arcotex-copper-border bg-arcotex-copper-light p-1.5 text-xs text-slate-600 file:mr-2 file:cursor-pointer file:rounded-md file:border-0 file:bg-arcotex-copper file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-white hover:file:bg-arcotex-copper-dark"
+        />
         <button
           type="submit"
           disabled={pending}
-          className="rounded-md bg-arcotex-copper px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-arcotex-copper-dark disabled:cursor-not-allowed disabled:opacity-60"
+          className="shrink-0 rounded-md bg-arcotex-copper px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-arcotex-copper-dark disabled:cursor-not-allowed disabled:opacity-60"
         >
           {pending ? "Subiendo..." : "Subir licencia"}
         </button>
       </form>
+      <p className="mt-2 text-xs text-slate-500">Las fechas se detectan del documento -- RRHH las revisa y confirma al aprobar.</p>
       {state.status === "success" && (
-        <p role="status" className="mt-3 rounded-md border border-success-border bg-success-bg px-3 py-2 text-sm text-success">
+        <p role="status" className="mt-2 rounded-md border border-success-border bg-success-bg px-3 py-2 text-xs text-success">
           ✓ {state.message}
         </p>
       )}
       {state.status === "error" && (
-        <p role="alert" className="mt-3 rounded-md border border-critical-border bg-critical-bg px-3 py-2 text-sm text-critical">
+        <p role="alert" className="mt-2 rounded-md border border-critical-border bg-critical-bg px-3 py-2 text-xs text-critical">
           {state.message}
         </p>
       )}
@@ -98,6 +98,11 @@ function ApprovalPanel({ license, onDone }: { license: MedicalLicenseListItem; o
 
   return (
     <SectionCard title={`Revisar licencia -- ${license.employeeName}`}>
+      {license.extractionStatus === "REQUIERE_REVISION" && (
+        <p role="alert" className="mb-3 rounded-md border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning">
+          No se pudieron leer las fechas del documento con confianza -- verifica el documento y corrige el rango antes de aprobar.
+        </p>
+      )}
       <div className="space-y-1 text-sm text-slate-600">
         <p>
           Área: <span className="font-medium text-slate-800">{license.areaCode ? AREA_LABEL[license.areaCode] : "—"}</span>
@@ -242,7 +247,10 @@ function PendingApprovalsCard({ pending }: { pending: MedicalLicenseListItem[] }
                     l.approvalId === selected?.approvalId ? "bg-arcotex-navy text-white" : "bg-slate-50 text-slate-700 hover:bg-slate-100"
                   }`}
                 >
-                  <div className="font-medium">{l.employeeName}</div>
+                  <div className="flex items-center gap-1.5 font-medium">
+                    {l.employeeName}
+                    {l.extractionStatus === "REQUIERE_REVISION" && <Badge label="Requiere revisión" tone="warning" />}
+                  </div>
                   <div className={l.approvalId === selected?.approvalId ? "text-slate-200" : "text-slate-500"}>
                     {formatDate(l.proposedStartDate)} – {formatDate(l.proposedEndDate)} · {daysBetween(l.proposedStartDate, l.proposedEndDate)} días
                   </div>
@@ -295,18 +303,15 @@ function LicenseStatusList({ licenses }: { licenses: MedicalLicenseListItem[] })
 export function LicenciasDashboard({
   isApprover,
   licenses,
-  employees,
 }: {
   isApprover: boolean;
   licenses: MedicalLicenseListItem[];
-  employees: { id: string; displayName: string }[];
 }) {
   const pending = licenses.filter((l) => l.status === "PENDING_RRHH_APPROVAL");
   const others = licenses.filter((l) => !isApprover || l.status !== "PENDING_RRHH_APPROVAL");
 
   return (
     <div className="space-y-4">
-      <UploadLicenseCard employees={employees} />
       {isApprover && <PendingApprovalsCard pending={pending} />}
       <LicenseStatusList licenses={others} />
     </div>

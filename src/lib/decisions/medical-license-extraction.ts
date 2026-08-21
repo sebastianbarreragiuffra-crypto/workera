@@ -45,7 +45,7 @@ function inclusiveDays(startDate: string, endDate: string): number {
  * confundir fechas de emisión, nacimiento u otras fechas del certificado.
  */
 export function extractMedicalLicenseDates(fileBytes: Uint8Array): MedicalLicenseExtractionResult {
-  const rawText = new TextDecoder("latin1").decode(fileBytes);
+  const rawText = new TextDecoder("utf-8").decode(fileBytes);
   const text = normalizeDocumentText(rawText);
   const startMatch = text.match(new RegExp(`(?:fecha de inicio|inicio|desde)\\s*[:.-]?\\s*${DATE_CAPTURE}`, "i"));
   const endMatch = text.match(new RegExp(`(?:fecha de termino|termino|hasta)\\s*[:.-]?\\s*${DATE_CAPTURE}`, "i"));

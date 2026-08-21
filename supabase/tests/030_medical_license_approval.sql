@@ -7,7 +7,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(27);
+select plan(35);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures
@@ -339,6 +339,116 @@ select is(
 );
 
 reset role;
+
+-- ---------------------------------------------------------------------------
+-- 8) Auditoría de integración licencia -> asistencia -> "Excel": rango
+--    multi-día COMPLETO (el ejemplo literal del encargo: 2026-08-20 al
+--    2026-08-22, los 3 días quedan L) -- distinto del caso de la sección 3,
+--    que a propósito prueba que el rango CONFIRMADO puede ser más corto que
+--    el propuesto. Acá se confirma exactamente el rango propuesto completo.
+insert into public.absence_records (id, employee_id, absence_type_id, start_date, end_date, source, source_hash, created_by) values
+  ('99100000-0000-0000-0000-0000000000a5',
+   (select id from public.employees where external_workera_id = 'TEST-ML-INST-001'),
+   (select id from public.absence_types where code = 'MEDICAL_LEAVE'),
+   date '2026-08-20', date '2026-08-22', 'manual', 'hash-ml-5',
+   '99100000-0000-0000-0000-000000000002');
+
+insert into public.supporting_documents (id, employee_id, absence_record_id, document_type, storage_path, mime_type, original_filename, uploaded_by) values
+  ('99100000-0000-0000-0000-0000000000d5',
+   (select id from public.employees where external_workera_id = 'TEST-ML-INST-001'),
+   '99100000-0000-0000-0000-0000000000a5',
+   'MEDICAL_CERTIFICATE', 'test-only/fixture-certificado-5.pdf', 'application/pdf', 'certificado5.pdf',
+   '99100000-0000-0000-0000-000000000002');
+
+insert into public.medical_license_approvals (id, absence_record_id, supporting_document_id, proposed_start_date, proposed_end_date, extraction_status, uploaded_by) values
+  ('99100000-0000-0000-0000-0000000000e5', '99100000-0000-0000-0000-0000000000a5', '99100000-0000-0000-0000-0000000000d5',
+   date '2026-08-20', date '2026-08-22', 'EXTRAIDO', '99100000-0000-0000-0000-000000000002');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '99100000-0000-0000-0000-000000000004'; -- aprobador
+
+select lives_ok(
+  $$ select public.approve_medical_license('99100000-0000-0000-0000-0000000000e5', date '2026-08-20', date '2026-08-22') $$,
+  'aprobar el rango propuesto completo (3 días) funciona'
+);
+
+reset role;
+
+select is(
+  (
+    select count(*)::int from public.attendance_status_records asr
+    join public.attendance_statuses ast on ast.id = asr.attendance_status_id
+    where asr.employee_id = (select id from public.employees where external_workera_id = 'TEST-ML-INST-001')
+      and asr.work_date between date '2026-08-20' and date '2026-08-22'
+      and asr.is_current and ast.code = 'L'
+  ),
+  3,
+  'un rango de 3 días aprobado completo genera exactamente 3 registros de "L" -- uno por día, sin entrada manual día a día'
+);
+
+select is(
+  (select ast.code from public.attendance_status_records asr join public.attendance_statuses ast on ast.id = asr.attendance_status_id
+   where asr.employee_id = (select id from public.employees where external_workera_id = 'TEST-ML-INST-001') and asr.work_date = date '2026-08-20' and asr.is_current),
+  'L', '20/08 queda L'
+);
+
+select is(
+  (select ast.code from public.attendance_status_records asr join public.attendance_statuses ast on ast.id = asr.attendance_status_id
+   where asr.employee_id = (select id from public.employees where external_workera_id = 'TEST-ML-INST-001') and asr.work_date = date '2026-08-21' and asr.is_current),
+  'L', '21/08 queda L'
+);
+
+select is(
+  (select ast.code from public.attendance_status_records asr join public.attendance_statuses ast on ast.id = asr.attendance_status_id
+   where asr.employee_id = (select id from public.employees where external_workera_id = 'TEST-ML-INST-001') and asr.work_date = date '2026-08-22' and asr.is_current),
+  'L', '22/08 queda L'
+);
+
+-- ---------------------------------------------------------------------------
+-- 9) extraction_status = REQUIERE_REVISION (fechas propuestas no confiables,
+--    ver medical-license-extraction.ts) NUNCA genera L por sí solo -- el único
+--    gate real es `status`, que sigue en PENDING_RRHH_APPROVAL hasta que el
+--    aprobador decida. extraction_status es informativo, no autoritativo.
+insert into public.absence_records (id, employee_id, absence_type_id, start_date, end_date, source, source_hash, created_by) values
+  ('99100000-0000-0000-0000-0000000000a6',
+   (select id from public.employees where external_workera_id = 'TEST-ML-PROD-001'),
+   (select id from public.absence_types where code = 'MEDICAL_LEAVE'),
+   date '2026-10-01', date '2026-10-01', 'manual', 'hash-ml-6',
+   '99100000-0000-0000-0000-000000000001');
+
+insert into public.supporting_documents (id, employee_id, absence_record_id, document_type, storage_path, mime_type, original_filename, uploaded_by) values
+  ('99100000-0000-0000-0000-0000000000d6',
+   (select id from public.employees where external_workera_id = 'TEST-ML-PROD-001'),
+   '99100000-0000-0000-0000-0000000000a6',
+   'MEDICAL_CERTIFICATE', 'test-only/fixture-certificado-6.pdf', 'application/pdf', 'certificado6.pdf',
+   '99100000-0000-0000-0000-000000000001');
+
+insert into public.medical_license_approvals (id, absence_record_id, supporting_document_id, proposed_start_date, proposed_end_date, extraction_status, uploaded_by) values
+  ('99100000-0000-0000-0000-0000000000e6', '99100000-0000-0000-0000-0000000000a6', '99100000-0000-0000-0000-0000000000d6',
+   date '2026-10-01', date '2026-10-01', 'REQUIERE_REVISION', '99100000-0000-0000-0000-000000000001');
+
+select is(
+  (select extraction_status from public.medical_license_approvals where id = '99100000-0000-0000-0000-0000000000e6'),
+  'REQUIERE_REVISION',
+  'la extracción automática no confiable queda registrada como REQUIERE_REVISION'
+);
+
+select is(
+  (select status::text from public.medical_license_approvals where id = '99100000-0000-0000-0000-0000000000e6'),
+  'PENDING_RRHH_APPROVAL',
+  'REQUIERE_REVISION no es un estado de aprobación -- la fila sigue PENDING_RRHH_APPROVAL, igual que cualquier otra'
+);
+
+select is(
+  (
+    select count(*)::int from public.attendance_status_records asr
+    join public.attendance_statuses ast on ast.id = asr.attendance_status_id
+    where asr.employee_id = (select id from public.employees where external_workera_id = 'TEST-ML-PROD-001')
+      and asr.work_date = date '2026-10-01' and asr.is_current and ast.code = 'L'
+  ),
+  0,
+  'REQUIERE_REVISION + PENDING nunca genera "L" -- ni la extracción automática ni el estado pendiente son autoritativos'
+);
 
 select * from finish();
 rollback;

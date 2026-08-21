@@ -7,6 +7,8 @@ import { getCurrentProfile } from "../../../lib/auth/session";
 import { requireMedicalLicenseApprover } from "../../../lib/supabase/authorize";
 import { assertEmployeeAccessAllowed, type CallerRole } from "../../../lib/access/scope";
 import { uploadMedicalLicense, approveMedicalLicense, rejectMedicalLicense } from "../../../lib/decisions/medical-license";
+import { extractMedicalLicenseDates } from "../../../lib/decisions/medical-license-extraction";
+import { todayInSantiago } from "../../../lib/view-models/date-utils";
 
 /**
  * Server Actions de Licencias. Cada una usa el cliente de SESIÓN (nunca
@@ -23,25 +25,32 @@ async function requireAuthenticatedProfile() {
 export interface UploadMedicalLicenseActionState {
   status: "idle" | "success" | "error";
   message: string;
+  extractionStatus: "EXTRAIDO" | "REQUIERE_REVISION" | null;
 }
 
+/**
+ * Ya no pide fecha de inicio/término manuales -- el documento subido es la
+ * fuente de esas fechas (`extractMedicalLicenseDates`, reutilizada tal cual,
+ * sin segundo sistema de extracción). Si el documento no se puede
+ * interpretar con confianza, la licencia queda marcada REQUIERE_REVISION con
+ * un placeholder de un solo día (hoy) -- nunca se inventa un rango -- y el
+ * aprobador corrige las fechas en el paso de aprobación (ya existente:
+ * `ApprovalPanel` deja editar el rango propuesto antes de confirmar).
+ * Subir NUNCA marca "L" -- eso sigue dependiendo exclusivamente de
+ * `approveMedicalLicenseAction`.
+ */
 export async function uploadMedicalLicenseAction(_prev: UploadMedicalLicenseActionState, formData: FormData): Promise<UploadMedicalLicenseActionState> {
   const profile = await requireAuthenticatedProfile();
   const supabase = await createClient();
 
   const employeeId = formData.get("employeeId") as string | null;
-  const startDate = formData.get("startDate") as string | null;
-  const endDate = formData.get("endDate") as string | null;
   const file = formData.get("file") as File | null;
 
-  if (!employeeId || !startDate || !endDate) {
-    return { status: "error", message: "Selecciona el trabajador y el rango de fechas de la licencia." };
+  if (!employeeId) {
+    return { status: "error", message: "Selecciona el trabajador.", extractionStatus: null };
   }
   if (!file || file.size === 0) {
-    return { status: "error", message: "Adjunta el documento de la licencia médica." };
-  }
-  if (endDate < startDate) {
-    return { status: "error", message: "La fecha de término no puede ser anterior a la fecha de inicio." };
+    return { status: "error", message: "Adjunta el documento de la licencia médica.", extractionStatus: null };
   }
 
   try {
@@ -49,27 +58,36 @@ export async function uploadMedicalLicenseAction(_prev: UploadMedicalLicenseActi
     // ya usado en revision-diaria/empleados/[id] para cualquier acción que reciba un employeeId.
     await assertEmployeeAccessAllowed(supabase, profile.role, employeeId);
   } catch {
-    return { status: "error", message: "No tienes acceso a este trabajador." };
+    return { status: "error", message: "No tienes acceso a este trabajador.", extractionStatus: null };
   }
 
   const fileBytes = new Uint8Array(await file.arrayBuffer());
+  const extraction = extractMedicalLicenseDates(fileBytes);
+  const today = todayInSantiago();
+  const proposedStartDate = extraction.proposedStartDate ?? today;
+  const proposedEndDate = extraction.proposedEndDate ?? today;
 
   try {
     await uploadMedicalLicense(supabase, {
       employeeId,
-      proposedStartDate: startDate,
-      proposedEndDate: endDate,
+      proposedStartDate,
+      proposedEndDate,
+      extractionStatus: extraction.status,
       originalFilename: file.name,
       mimeType: file.type || "application/octet-stream",
       fileBytes,
       uploadedBy: profile.id,
     });
   } catch (err) {
-    return { status: "error", message: err instanceof Error ? err.message : "No pudimos subir la licencia." };
+    return { status: "error", message: err instanceof Error ? err.message : "No pudimos subir la licencia.", extractionStatus: null };
   }
 
   revalidatePath("/licencias");
-  return { status: "success", message: "Licencia subida -- queda pendiente de aprobación de RRHH." };
+  const message =
+    extraction.status === "EXTRAIDO"
+      ? "Licencia subida -- fechas detectadas en el documento, queda pendiente de aprobación de RRHH."
+      : "Licencia subida -- no se pudieron leer las fechas del documento con confianza, queda pendiente de revisión y aprobación de RRHH.";
+  return { status: "success", message, extractionStatus: extraction.status };
 }
 
 export interface ApproveMedicalLicenseActionState {

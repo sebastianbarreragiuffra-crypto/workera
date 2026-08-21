@@ -3,15 +3,20 @@ import { getCurrentProfile } from "../../../lib/auth/session";
 import { createClient } from "../../../lib/supabase/server";
 import { PageHeader } from "../../../components/shell/PageHeader";
 import { SectionCard } from "../../../components/shell/SectionCard";
-import { Badge } from "../../../components/shell/Badge";
-import { canApproveMedicalLicense } from "../../../lib/supabase/authorize";
+import { canApproveMedicalLicense, isPrivilegedAdmin } from "../../../lib/supabase/authorize";
 import { listMedicalLicenses, computeLicenseSummary } from "../../../lib/decisions/medical-license";
+import { getActiveLicenseKpiTone } from "../../../lib/decisions/medical-license-kpi";
 import { getEmployeeRoster } from "../../../lib/view-models/employees-view";
 import { todayInSantiago } from "../../../lib/view-models/date-utils";
 import { areasVisibleToRole, type AreaCode, type CallerRole } from "../../../lib/access/scope";
 import { EmployeeDirectory } from "../../../components/employees/EmployeeDirectory";
-import { LicenciasDashboard } from "./LicenciasDashboard";
+import { LicenciasDashboard, UploadLicenseCard } from "./LicenciasDashboard";
 import { RosterImportCard } from "./RosterImportCard";
+
+const KPI_TONE_CLASS: Record<"healthy" | "attention", string> = {
+  healthy: "border-success-border bg-success-bg text-success",
+  attention: "border-warning-border bg-warning-bg text-warning",
+};
 
 /**
  * Página consolidada: directorio de empleados ("Trabajadores", reutilizado
@@ -32,7 +37,7 @@ export default async function LicenciasPage({ searchParams }: { searchParams: Pr
 
   const supabase = await createClient();
   const isApprover = canApproveMedicalLicense(profile);
-  const isRosterAdmin = profile.role === "SUPER_ADMIN" || profile.role === "ADMIN_RRHH";
+  const isRosterAdmin = isPrivilegedAdmin(profile.role);
 
   const [licenses, uploadPickerRoster, directoryRoster] = await Promise.all([
     listMedicalLicenses(supabase),
@@ -41,6 +46,8 @@ export default async function LicenciasPage({ searchParams }: { searchParams: Pr
   ]);
 
   const summary = computeLicenseSummary(licenses, today);
+  const kpiTone = getActiveLicenseKpiTone(summary.activeNowCount);
+  const employeeOptions = uploadPickerRoster.map((e) => ({ id: e.employeeId, displayName: e.displayName }));
 
   return (
     <div className="space-y-4">
@@ -49,26 +56,19 @@ export default async function LicenciasPage({ searchParams }: { searchParams: Pr
         subtitle={isApprover ? "Directorio de empleados y licencias médicas -- sube documentos y revisa las pendientes de aprobación." : "Directorio de empleados y licencias médicas."}
       />
 
-      <SectionCard title="Licencias activas">
-        {!summary.hasAnyLicense ? (
-          <p className="text-sm text-slate-500">Sin licencias activas.</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            <Badge label={`${summary.activeNowCount} activas hoy`} tone={summary.activeNowCount > 0 ? "positive" : "neutral"} />
-            <Badge label={`${summary.pendingCount} pendientes de aprobación RRHH`} tone={summary.pendingCount > 0 ? "warning" : "neutral"} />
-            <Badge label={`${summary.approvedCount} aprobadas (total)`} tone="info" />
-            <Badge label={`${summary.rejectedCount} rechazadas (total)`} tone={summary.rejectedCount > 0 ? "negative" : "neutral"} />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <SectionCard title="Licencias activas">
+          <div className={`flex items-center justify-center rounded-md border px-4 py-3 ${KPI_TONE_CLASS[kpiTone]}`}>
+            <span className="text-3xl font-semibold leading-none">{summary.activeNowCount}</span>
           </div>
-        )}
-      </SectionCard>
+        </SectionCard>
+
+        <UploadLicenseCard employees={employeeOptions} />
+      </div>
 
       {isRosterAdmin && <RosterImportCard />}
 
-      <LicenciasDashboard
-        isApprover={isApprover}
-        licenses={licenses}
-        employees={uploadPickerRoster.map((e) => ({ id: e.employeeId, displayName: e.displayName }))}
-      />
+      <LicenciasDashboard isApprover={isApprover} licenses={licenses} />
 
       <SectionCard title={`Empleados (${directoryRoster.length})`}>
         <EmployeeDirectory roster={directoryRoster} allowedAreas={allowedAreas} areaFilter={areaFilter} search={search} baseHref="/licencias" />

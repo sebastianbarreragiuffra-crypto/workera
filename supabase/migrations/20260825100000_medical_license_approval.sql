@@ -97,10 +97,11 @@ create table public.medical_license_approvals (
 
   status                  public.medical_license_approval_status not null default 'PENDING_RRHH_APPROVAL',
 
-  -- Propuestas al subir el documento (ingresadas por quien sube, nunca por
-  -- extracción automática -- no existe OCR/IA en este esquema hoy). El
-  -- aprobador puede corregirlas; los valores APROBADOS (confirmed_*) son los
-  -- únicos que generan asistencia.
+  -- Propuestas al subir el documento -- desde la fase de extracción
+  -- automática (ver columna extraction_status, migración
+  -- 20260827100000) provienen de intentar leer el documento, nunca
+  -- ingresadas a mano. El aprobador puede corregirlas; los valores
+  -- APROBADOS (confirmed_*) son los únicos que generan asistencia.
   proposed_start_date     date not null,
   proposed_end_date       date not null,
 

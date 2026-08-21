@@ -6,6 +6,7 @@ import { createClient } from "../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../lib/auth/session";
 import { computePersonnelRosterPreview, applyPersonnelRosterImport, type PersonnelRosterPreview } from "../../../lib/employees/personnel-roster-import";
 import { getWorkeraConfig } from "../../../lib/workera/config";
+import { WorkeraConfigurationError } from "../../../lib/workera/errors";
 import { HttpWorkeraClient } from "../../../lib/workera/http-client";
 import { bootstrapEmployeesFromRoster, type BootstrapRosterResult } from "../../../lib/business-rules/employee-roster-reconciliation";
 
@@ -15,6 +16,9 @@ import { bootstrapEmployeesFromRoster, type BootstrapRosterResult } from "../../
  * escritura de `employees` (RLS `employees_write_admin`, exclusiva de
  * `is_privileged_admin()`): SUPER_ADMIN/ADMIN_RRHH. Nunca supervisores.
  */
+/** Mismo límite ya usado para el resto de importadores Excel de la app (Nómina/Colaciones) -- ninguna razón para que este sea el único sin tope. */
+const MAX_ROSTER_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+
 async function requireRosterAdmin() {
   const profile = await getCurrentProfile();
   if (!profile?.role) redirect("/login");
@@ -37,6 +41,9 @@ export async function previewPersonnelRosterAction(_prev: RosterPreviewActionSta
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) {
     return { status: "error", message: "Selecciona la planilla de personal antes de continuar." };
+  }
+  if (file.size > MAX_ROSTER_FILE_SIZE_BYTES) {
+    return { status: "error", message: `El archivo supera el máximo permitido (${Math.round(MAX_ROSTER_FILE_SIZE_BYTES / 1024 / 1024)} MB).` };
   }
 
   const fileBytes = new Uint8Array(await file.arrayBuffer());
@@ -63,6 +70,9 @@ export async function applyPersonnelRosterAction(_prev: ApplyRosterActionState, 
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) {
     return { status: "error", message: "Selecciona la planilla de personal antes de confirmar." };
+  }
+  if (file.size > MAX_ROSTER_FILE_SIZE_BYTES) {
+    return { status: "error", message: `El archivo supera el máximo permitido (${Math.round(MAX_ROSTER_FILE_SIZE_BYTES / 1024 / 1024)} MB).` };
   }
 
   const fileBytes = new Uint8Array(await file.arrayBuffer());
@@ -99,7 +109,25 @@ export async function runWorkeraRosterReconciliationAction(
 ): Promise<WorkeraRosterReconciliationActionState> {
   await requireRosterAdmin();
 
-  const config = getWorkeraConfig();
+  let config;
+  try {
+    config = getWorkeraConfig();
+  } catch (err) {
+    // En producción (Vercel), getWorkeraConfig() es fail-closed y LANZA si
+    // WORKERA_PROVIDER != "http" (nunca cae al mock silenciosamente) -- eso
+    // es correcto para el resto de la app, pero acá el propio contrato de
+    // esta acción (ver comentario de la función) es "no bloquea ni rompe".
+    // Sin este catch, un staging sin credenciales reales (WORKERA_PROVIDER=
+    // mock, el valor seguro por defecto) rompía esta acción con un error no
+    // controlado en vez de reportar el estado esperado.
+    if (err instanceof WorkeraConfigurationError) {
+      return {
+        status: "credentials_required",
+        message: "La reconciliación con Workera está lista pero no hay credenciales reales configuradas (WORKERA_PROVIDER/WORKERA_BASE_URL/WORKERA_API_USER/WORKERA_API_KEY). El bootstrap por planilla de personal sigue disponible mientras tanto.",
+      };
+    }
+    throw err;
+  }
   if (config.provider !== "http" || !config.baseUrl || !config.apiUser || !config.apiKey) {
     return {
       status: "credentials_required",

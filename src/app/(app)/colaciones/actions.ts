@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { getCurrentProfile } from "../../../lib/auth/session";
 import { createClient } from "../../../lib/supabase/server";
+import { isPrivilegedAdmin } from "../../../lib/supabase/authorize";
 import { parseMealMenuDocx, type ParsedMealMenu } from "../../../lib/colaciones/menu-docx";
 import { buildWeeklyMealGoogleFormPayload, type WeeklyMealGoogleFormPayload } from "../../../lib/colaciones/google-forms-payload";
 import { createWeeklyMealGoogleForm } from "../../../lib/colaciones/google-forms";
@@ -73,7 +74,7 @@ function toCreatedFormState(created: Awaited<ReturnType<typeof createWeeklyMealG
 
 export async function parseMealMenuAction(_previousState: MenuUploadState, formData: FormData): Promise<MenuUploadState> {
   const profile = await getCurrentProfile();
-  if (!profile?.role || (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH")) {
+  if (!profile?.role || !isPrivilegedAdmin(profile.role)) {
     return { status: "error", message: "No tienes permiso para adjuntar menús de colaciones.", ...IDLE_STATE_BASE };
   }
 
@@ -127,7 +128,7 @@ export async function parseMealMenuAction(_previousState: MenuUploadState, formD
 /** Reintento -- recibe el MISMO payload ya validado (mismo requestId), nunca vuelve a pedir el archivo ni a re-parsear el menú. */
 export async function retryCreateGoogleFormAction(_previousState: MenuUploadState, formData: FormData): Promise<MenuUploadState> {
   const profile = await getCurrentProfile();
-  if (!profile?.role || (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH")) {
+  if (!profile?.role || !isPrivilegedAdmin(profile.role)) {
     return { status: "error", message: "No tienes permiso para reintentar la creación del formulario.", ...IDLE_STATE_BASE };
   }
 

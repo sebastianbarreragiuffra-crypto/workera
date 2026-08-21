@@ -25,6 +25,7 @@ export interface UploadMedicalLicenseInput {
   employeeId: string;
   proposedStartDate: string;
   proposedEndDate: string;
+  extractionStatus: "EXTRAIDO" | "REQUIERE_REVISION";
   originalFilename: string;
   mimeType: string;
   fileBytes: Uint8Array;
@@ -93,6 +94,7 @@ export async function uploadMedicalLicense(
     supporting_document_id: documentId,
     proposed_start_date: input.proposedStartDate,
     proposed_end_date: input.proposedEndDate,
+    extraction_status: input.extractionStatus,
     uploaded_by: input.uploadedBy,
   });
   if (approvalError) {
@@ -145,6 +147,8 @@ export interface MedicalLicenseListItem {
   areaCode: string | null;
   proposedStartDate: string;
   proposedEndDate: string;
+  /** Resultado de la extracción automática asistida (ver medical-license-extraction.ts). Null = licencia subida antes de esta fase. */
+  extractionStatus: "EXTRAIDO" | "REQUIERE_REVISION" | null;
   confirmedStartDate: string | null;
   confirmedEndDate: string | null;
   uploadedByName: string;
@@ -162,6 +166,7 @@ interface MedicalLicenseRow {
   status: "PENDING_RRHH_APPROVAL" | "APPROVED" | "REJECTED";
   proposed_start_date: string;
   proposed_end_date: string;
+  extraction_status: "EXTRAIDO" | "REQUIERE_REVISION" | null;
   confirmed_start_date: string | null;
   confirmed_end_date: string | null;
   uploaded_at: string;
@@ -200,6 +205,7 @@ function mapRow(row: MedicalLicenseRow): MedicalLicenseListItem {
     areaCode: employeeGroup?.code ?? null,
     proposedStartDate: row.proposed_start_date,
     proposedEndDate: row.proposed_end_date,
+    extractionStatus: row.extraction_status,
     confirmedStartDate: row.confirmed_start_date,
     confirmedEndDate: row.confirmed_end_date,
     uploadedByName: single(row.uploader)?.display_name ?? "—",
@@ -214,7 +220,7 @@ function mapRow(row: MedicalLicenseRow): MedicalLicenseListItem {
 }
 
 const SELECT_COLUMNS =
-  "id, status, proposed_start_date, proposed_end_date, confirmed_start_date, confirmed_end_date, uploaded_at, approved_at, rejected_at, rejection_reason, supporting_document_id, " +
+  "id, status, proposed_start_date, proposed_end_date, extraction_status, confirmed_start_date, confirmed_end_date, uploaded_at, approved_at, rejected_at, rejection_reason, supporting_document_id, " +
   "absence_records!inner(employee_id, employees(display_name, employee_groups(code))), " +
   "uploader:uploaded_by(display_name), approver:approved_by(display_name), rejecter:rejected_by(display_name)";
 

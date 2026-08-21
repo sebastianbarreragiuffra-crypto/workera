@@ -72,7 +72,6 @@ test("las Server Actions de colaciones verifican el rol antes de tocar el menú 
     const fnEnd = content.indexOf("\nexport async function", fnStart + 1);
     const fnBody = content.slice(fnStart, fnEnd === -1 ? undefined : fnEnd);
     assert.match(fnBody, /getCurrentProfile\(\)/, `${fnName} debe verificar el perfil antes de continuar`);
-    assert.match(fnBody, /SUPER_ADMIN/);
-    assert.match(fnBody, /ADMIN_RRHH/);
+    assert.match(fnBody, /isPrivilegedAdmin\(profile\.role\)/, `${fnName} debe restringir a SUPER_ADMIN/ADMIN_RRHH vía el helper compartido isPrivilegedAdmin`);
   }
 });

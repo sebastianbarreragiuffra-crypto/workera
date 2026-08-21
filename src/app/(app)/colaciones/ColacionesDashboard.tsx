@@ -9,9 +9,11 @@ import { PRODUCTION_MEAL_PRICES } from "../../../lib/colaciones/pricing";
 import type { ProductionMealDiscountDataset } from "../../../lib/colaciones/types";
 import { MenuUploadDashboard } from "./MenuUploadDashboard";
 import { ActiveMealFormDashboard } from "./ActiveMealFormDashboard";
+import { DiscountWorkbookAdminCard } from "./DiscountWorkbookAdminCard";
 import type { CreatedWeeklyMealGoogleForm } from "../../../lib/colaciones/google-forms";
 import type { MealResponseTracking } from "../../../lib/colaciones/response-tracking";
 import type { MealFormBusinessState } from "../../../lib/colaciones/form-business-state";
+import type { DiscountWorkbookMeta } from "../../../lib/colaciones/discount-workbook-storage";
 
 type Panel = "menu" | "responses" | "billing";
 
@@ -69,6 +71,7 @@ function ActionNotice({ message }: { message: string }) {
 export function ColacionesDashboard({
   discountDataset,
   discountError,
+  discountWorkbookMeta,
   recentForms,
   formsError,
   activeForm,
@@ -78,6 +81,7 @@ export function ColacionesDashboard({
 }: {
   discountDataset: ProductionMealDiscountDataset | null;
   discountError: string | null;
+  discountWorkbookMeta: DiscountWorkbookMeta | null;
   recentForms: CreatedWeeklyMealGoogleForm[];
   formsError: string | null;
   activeForm: CreatedWeeklyMealGoogleForm | null;
@@ -249,12 +253,14 @@ export function ColacionesDashboard({
         <ActiveMealFormDashboard activeForm={activeForm} responseStatus={formBusinessState.responseStatus} tracking={responseTracking} trackingError={trackingError} showPending onCreateForm={() => goTo("menu")} onViewPending={() => goTo("responses")} />
       )}
 
+      {panel === "billing" && <DiscountWorkbookAdminCard activeWorkbook={discountWorkbookMeta} />}
+
       {panel === "billing" && discountError && (
         <SectionCard title="Descargar Excel de descuento de colaciones" actions={<Badge label="Revisión requerida" tone="warning" />}>
           <div className="rounded-md border border-critical-border bg-critical-bg p-4">
             <p className="text-sm font-medium text-critical">No pudimos procesar el Excel de Producción</p>
             <p className="mt-1 text-sm text-slate-700">{discountError}</p>
-            <p className="mt-2 text-xs text-slate-600">El panel para adjuntar el menú sigue disponible. Revisa que el Excel incluya las columnas Nombre, Fecha y Monto.</p>
+            <p className="mt-2 text-xs text-slate-600">El panel para adjuntar el menú sigue disponible. Usa &quot;Actualizar archivo de descuentos&quot; arriba para configurar o corregir el archivo activo.</p>
           </div>
         </SectionCard>
       )}

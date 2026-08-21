@@ -38,6 +38,14 @@ export interface UploadSupportingDocumentResult {
   storagePath: string;
 }
 
+/**
+ * Fotos de licencia/comprobantes tomadas con celular pesan más que una
+ * planilla -- 10MB en vez de los 5MB de los importadores Excel (auditoría de
+ * Vercel readiness: este límite antes no existía en absoluto, único upload
+ * de la app sin tope).
+ */
+export const MAX_SUPPORTING_DOCUMENT_SIZE_BYTES = 10 * 1024 * 1024;
+
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(-120);
 }
@@ -46,6 +54,10 @@ export async function uploadSupportingDocument(
   supabase: SupabaseClient<Database>,
   input: UploadSupportingDocumentInput
 ): Promise<UploadSupportingDocumentResult> {
+  if (input.fileBytes.byteLength > MAX_SUPPORTING_DOCUMENT_SIZE_BYTES) {
+    throw new Error(`El archivo supera el tamaño máximo permitido (${MAX_SUPPORTING_DOCUMENT_SIZE_BYTES / (1024 * 1024)}MB).`);
+  }
+
   const storagePath = `${input.employeeId}/${crypto.randomUUID()}-${sanitizeFilename(input.originalFilename)}`;
 
   const { error: uploadError } = await supabase.storage

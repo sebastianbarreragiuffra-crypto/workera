@@ -91,3 +91,17 @@ export async function requireMedicalLicenseApprover(): Promise<{ actorId: string
 export function canApproveMedicalLicense(profile: { medical_license_approver: boolean } | null | undefined): boolean {
   return profile?.medical_license_approver === true;
 }
+
+/**
+ * Versión pura/síncrona de "SUPER_ADMIN o ADMIN_RRHH" -- el mismo criterio
+ * que RLS ya centraliza en `is_privileged_admin()` (Postgres), pero para
+ * decidir en código de aplicación (páginas/Server Actions que ya tienen un
+ * `profile` en mano vía `getCurrentProfile()` y solo necesitan la
+ * comparación, sin volver a consultar la sesión). Antes cada página/acción
+ * repetía `role !== "SUPER_ADMIN" && role !== "ADMIN_RRHH"` por su cuenta;
+ * RLS sigue siendo el enforcement real -- esto es la segunda capa con
+ * mensaje claro, igual que el resto de gates de este archivo.
+ */
+export function isPrivilegedAdmin(role: AppRole | null | undefined): boolean {
+  return role === "SUPER_ADMIN" || role === "ADMIN_RRHH";
+}

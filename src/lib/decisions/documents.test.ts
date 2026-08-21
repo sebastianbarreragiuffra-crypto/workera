@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { uploadSupportingDocument, getSignedDocumentUrl } from "./documents";
+import { uploadSupportingDocument, getSignedDocumentUrl, MAX_SUPPORTING_DOCUMENT_SIZE_BYTES } from "./documents";
 
 function mockSupabase({ insertedRows, docRow, signedUrlOk = true }: { insertedRows: Record<string, unknown>[]; docRow?: { storage_path: string } | null; signedUrlOk?: boolean }) {
   return {
@@ -65,6 +65,44 @@ test("uploadSupportingDocument: nunca llama .select() tras el insert -- una fila
   assert.ok(result.documentId, "debe devolver un documentId generado en el cliente");
   assert.equal(insertedRows.length, 1);
   assert.equal(insertedRows[0].id, result.documentId, "el id insertado debe coincidir con el devuelto");
+});
+
+test("uploadSupportingDocument: archivo más grande que MAX_SUPPORTING_DOCUMENT_SIZE_BYTES -> rechaza ANTES de tocar Storage/la base (auditoría de Vercel readiness: antes este upload no tenía ningún tope)", async () => {
+  const insertedRows: Record<string, unknown>[] = [];
+  const uploadCalls: unknown[] = [];
+  const supabase = {
+    storage: {
+      from() {
+        return {
+          upload: (...args: unknown[]) => {
+            uploadCalls.push(args);
+            return Promise.resolve({ data: { path: "x" }, error: null });
+          },
+        };
+      },
+    },
+    from(table: string) {
+      if (table === "supporting_documents") {
+        return { insert: (row: Record<string, unknown>) => (insertedRows.push(row), Promise.resolve({ data: null, error: null })) };
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+
+  await assert.rejects(
+    () =>
+      uploadSupportingDocument(supabase, {
+        employeeId: "e1",
+        documentType: "OTHER",
+        originalFilename: "foto.jpg",
+        mimeType: "image/jpeg",
+        fileBytes: new Uint8Array(MAX_SUPPORTING_DOCUMENT_SIZE_BYTES + 1),
+      }),
+    /tamaño máximo/
+  );
+  assert.deepEqual(uploadCalls, [], "un archivo demasiado grande nunca debe llegar a subirse a Storage");
+  assert.deepEqual(insertedRows, [], "un archivo demasiado grande nunca debe insertar metadata");
 });
 
 test("uploadSupportingDocument: relation ausente -> documento general sin FK a ningún caso puntual", async () => {

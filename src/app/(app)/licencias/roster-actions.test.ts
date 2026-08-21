@@ -54,3 +54,30 @@ test("las Server Actions de roster nunca leen un campo del formData para decidir
   assert.doesNotMatch(content, /formData\.get\(["']role["']\)/);
   assert.doesNotMatch(content, /formData\.get\(["']isAdmin["']\)/);
 });
+
+test("runWorkeraRosterReconciliationAction nunca deja escapar WorkeraConfigurationError -- en producción (Vercel) getWorkeraConfig() es fail-closed y LANZA si el provider no es 'http' (auditoría de Vercel readiness: WORKERA_PROVIDER=mock es el valor seguro de staging)", () => {
+  const content = readSource();
+  const fnStart = content.indexOf("export async function runWorkeraRosterReconciliationAction");
+  const fnEnd = content.indexOf("\nexport ", fnStart + 1);
+  const fnBody = content.slice(fnStart, fnEnd === -1 ? undefined : fnEnd);
+
+  const tryIdx = fnBody.indexOf("try {");
+  const getConfigIdx = fnBody.indexOf("getWorkeraConfig()");
+  const catchIdx = fnBody.indexOf("catch (err)");
+  const catchesConfigErrorIdx = fnBody.indexOf("err instanceof WorkeraConfigurationError");
+
+  assert.ok(tryIdx >= 0 && getConfigIdx >= 0 && catchIdx >= 0, "getWorkeraConfig() debe estar envuelto en try/catch");
+  assert.ok(tryIdx < getConfigIdx && getConfigIdx < catchIdx, "getWorkeraConfig() debe llamarse DENTRO del try, antes del catch");
+  assert.ok(catchesConfigErrorIdx > catchIdx, "el catch debe manejar específicamente WorkeraConfigurationError -- nunca dejarlo propagar como un 500 no controlado");
+});
+
+test("previewPersonnelRosterAction y applyPersonnelRosterAction validan un tamaño máximo de archivo -- antes era el único importador Excel de la app sin tope (auditoría de arquitectura)", () => {
+  const content = readSource();
+  assert.match(content, /MAX_ROSTER_FILE_SIZE_BYTES/, "debe existir un límite explícito, no un tope arbitrario silencioso");
+  for (const fnName of ["previewPersonnelRosterAction", "applyPersonnelRosterAction"]) {
+    const fnStart = content.indexOf(`export async function ${fnName}`);
+    const fnEnd = content.indexOf("\nexport", fnStart + 1);
+    const fnBody = content.slice(fnStart, fnEnd === -1 ? undefined : fnEnd);
+    assert.match(fnBody, /file\.size > MAX_ROSTER_FILE_SIZE_BYTES/, `${fnName} debe rechazar archivos más grandes que el límite`);
+  }
+});

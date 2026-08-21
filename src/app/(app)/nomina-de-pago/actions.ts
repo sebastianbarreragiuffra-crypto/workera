@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../lib/auth/session";
+import { isPrivilegedAdmin } from "../../../lib/supabase/authorize";
 import { parseSuppliersExcel, importSuppliers } from "../../../lib/payroll/suppliers-import";
 import { parseInvoiceExcel, generatePayrollBatch } from "../../../lib/payroll/invoice-import";
 import { computeSupplierMasterPreview, applySupplierMasterImport, validateFileMeta, type SupplierMasterPreview } from "../../../lib/payroll/supplier-master";
@@ -18,7 +19,7 @@ import { computeSupplierMasterPreview, applySupplierMasterImport, validateFileMe
 async function requirePayrollAccess() {
   const profile = await getCurrentProfile();
   if (!profile?.role) redirect("/login");
-  if (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH") {
+  if (!isPrivilegedAdmin(profile.role)) {
     throw new Error("Esta operación requiere rol SUPER_ADMIN o ADMIN_RRHH.");
   }
   return profile;
@@ -40,6 +41,10 @@ export async function uploadSuppliersAction(_prev: UploadSuppliersActionState, f
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) {
     return { status: "error", message: "Selecciona un archivo antes de importar." };
+  }
+  const fileMeta = validateFileMeta(file.name, file.size);
+  if (!fileMeta.ok) {
+    return { status: "error", message: fileMeta.error! };
   }
 
   const fileBytes = new Uint8Array(await file.arrayBuffer());
@@ -91,6 +96,10 @@ export async function generatePayrollBatchAction(_prev: GenerateBatchActionState
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) {
     return { status: "error", message: "Selecciona el Excel mensual de facturas antes de generar la nómina." };
+  }
+  const meta = validateFileMeta(file.name, file.size);
+  if (!meta.ok) {
+    return { status: "error", message: meta.error! };
   }
 
   const fileBytes = new Uint8Array(await file.arrayBuffer());

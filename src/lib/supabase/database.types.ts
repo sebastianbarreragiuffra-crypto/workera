@@ -679,6 +679,50 @@ export type Database = {
         }
         Relationships: []
       }
+      colaciones_discount_workbooks: {
+        Row: {
+          active: boolean
+          checksum: string
+          created_at: string
+          file_size: number
+          id: string
+          original_filename: string
+          storage_path: string
+          uploaded_at: string
+          uploaded_by: string
+        }
+        Insert: {
+          active?: boolean
+          checksum: string
+          created_at?: string
+          file_size: number
+          id?: string
+          original_filename: string
+          storage_path: string
+          uploaded_at?: string
+          uploaded_by: string
+        }
+        Update: {
+          active?: boolean
+          checksum?: string
+          created_at?: string
+          file_size?: number
+          id?: string
+          original_filename?: string
+          storage_path?: string
+          uploaded_at?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "colaciones_discount_workbooks_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_reviews: {
         Row: {
           created_at: string
@@ -1433,6 +1477,7 @@ export type Database = {
           confirmed_end_date: string | null
           confirmed_start_date: string | null
           created_at: string
+          extraction_status: string | null
           id: string
           is_current: boolean
           proposed_end_date: string
@@ -1452,6 +1497,7 @@ export type Database = {
           confirmed_end_date?: string | null
           confirmed_start_date?: string | null
           created_at?: string
+          extraction_status?: string | null
           id?: string
           is_current?: boolean
           proposed_end_date: string
@@ -1471,6 +1517,7 @@ export type Database = {
           confirmed_end_date?: string | null
           confirmed_start_date?: string | null
           created_at?: string
+          extraction_status?: string | null
           id?: string
           is_current?: boolean
           proposed_end_date?: string
@@ -2604,6 +2651,27 @@ export type Database = {
           },
         ]
       }
+      pg_all_foreign_keys: {
+        Row: {
+          fk_columns: unknown[] | null
+          fk_constraint_name: unknown
+          fk_schema_name: unknown
+          fk_table_name: unknown
+          fk_table_oid: unknown
+          is_deferrable: boolean | null
+          is_deferred: boolean | null
+          match_type: string | null
+          on_delete: string | null
+          on_update: string | null
+          pk_columns: unknown[] | null
+          pk_constraint_name: unknown
+          pk_index_name: unknown
+          pk_schema_name: unknown
+          pk_table_name: unknown
+          pk_table_oid: unknown
+        }
+        Relationships: []
+      }
       supporting_documents_metadata: {
         Row: {
           absence_record_id: string | null
@@ -2682,8 +2750,53 @@ export type Database = {
           },
         ]
       }
+      tap_funky: {
+        Row: {
+          args: string | null
+          is_definer: boolean | null
+          is_strict: boolean | null
+          is_visible: boolean | null
+          kind: unknown
+          langoid: unknown
+          name: unknown
+          oid: unknown
+          owner: unknown
+          returns: string | null
+          returns_set: boolean | null
+          schema: unknown
+          volatility: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      _cleanup: { Args: never; Returns: boolean }
+      _contract_on: { Args: { "": string }; Returns: unknown }
+      _currtest: { Args: never; Returns: number }
+      _db_privs: { Args: never; Returns: unknown[] }
+      _extensions: { Args: never; Returns: unknown[] }
+      _get: { Args: { "": string }; Returns: number }
+      _get_latest: { Args: { "": string }; Returns: number[] }
+      _get_note: { Args: { "": string }; Returns: string }
+      _is_verbose: { Args: never; Returns: boolean }
+      _prokind: { Args: { p_oid: unknown }; Returns: unknown }
+      _query: { Args: { "": string }; Returns: string }
+      _refine_vol: { Args: { "": string }; Returns: string }
+      _retval: { Args: { "": string }; Returns: string }
+      _table_privs: { Args: never; Returns: unknown[] }
+      _temptypes: { Args: { "": string }; Returns: string }
+      _todo: { Args: never; Returns: string }
+      activate_colaciones_discount_workbook: {
+        Args: {
+          p_checksum: string
+          p_file_size: number
+          p_id: string
+          p_original_filename: string
+          p_storage_path: string
+          p_uploaded_by: string
+        }
+        Returns: undefined
+      }
       apply_personnel_roster_import: {
         Args: {
           p_actor_id: string
@@ -2723,17 +2836,81 @@ export type Database = {
         Args: { p_work_date: string }
         Returns: string
       }
+      col_is_null:
+        | {
+            Args: {
+              column_name: unknown
+              description?: string
+              schema_name: unknown
+              table_name: unknown
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              column_name: unknown
+              description?: string
+              table_name: unknown
+            }
+            Returns: string
+          }
+      col_not_null:
+        | {
+            Args: {
+              column_name: unknown
+              description?: string
+              schema_name: unknown
+              table_name: unknown
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              column_name: unknown
+              description?: string
+              table_name: unknown
+            }
+            Returns: string
+          }
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
       }
+      diag:
+        | {
+            Args: { msg: unknown }
+            Returns: {
+              error: true
+            } & "Could not choose the best candidate function between: public.diag(msg => text), public.diag(msg => anyelement). Try renaming the parameters or the function itself in the database so function overloading can be resolved"
+          }
+        | {
+            Args: { msg: string }
+            Returns: {
+              error: true
+            } & "Could not choose the best candidate function between: public.diag(msg => text), public.diag(msg => anyelement). Try renaming the parameters or the function itself in the database so function overloading can be resolved"
+          }
+      diag_test_name: { Args: { "": string }; Returns: string }
+      do_tap:
+        | { Args: never; Returns: string[] }
+        | { Args: { "": string }; Returns: string[] }
+      fail:
+        | { Args: never; Returns: string }
+        | { Args: { "": string }; Returns: string }
+      findfuncs: { Args: { "": string }; Returns: string[] }
+      finish: { Args: { exception_on_failure?: boolean }; Returns: string[] }
+      format_type_string: { Args: { "": string }; Returns: string }
+      has_unique: { Args: { "": string }; Returns: string }
+      in_todo: { Args: never; Returns: boolean }
       is_admin_rrhh: { Args: never; Returns: boolean }
       is_corporate_user: { Args: never; Returns: boolean }
+      is_empty: { Args: { "": string }; Returns: string }
       is_medical_license_approver: { Args: never; Returns: boolean }
       is_privileged_admin: { Args: never; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
       is_supervisor_installation: { Args: never; Returns: boolean }
       is_supervisor_production: { Args: never; Returns: boolean }
+      isnt_empty: { Args: { "": string }; Returns: string }
+      lives_ok: { Args: { "": string }; Returns: string }
       max_approvable_overtime_minutes: {
         Args: {
           p_employee_group_code: string
@@ -2742,6 +2919,15 @@ export type Database = {
         }
         Returns: number
       }
+      no_plan: { Args: never; Returns: boolean[] }
+      num_failed: { Args: never; Returns: number }
+      os_name: { Args: never; Returns: string }
+      pass:
+        | { Args: never; Returns: string }
+        | { Args: { "": string }; Returns: string }
+      pg_version: { Args: never; Returns: string }
+      pg_version_num: { Args: never; Returns: number }
+      pgtap_version: { Args: never; Returns: number }
       production_two_hour_proposal_minutes: {
         Args: { p_candidate_minutes: number }
         Returns: number
@@ -2762,6 +2948,22 @@ export type Database = {
         Args: { p_approval_id: string; p_reason: string }
         Returns: undefined
       }
+      runtests:
+        | { Args: never; Returns: string[] }
+        | { Args: { "": string }; Returns: string[] }
+      skip:
+        | { Args: { "": string }; Returns: string }
+        | { Args: { how_many: number; why: string }; Returns: string }
+      throws_ok: { Args: { "": string }; Returns: string }
+      todo:
+        | { Args: { how_many: number }; Returns: boolean[] }
+        | { Args: { how_many: number; why: string }; Returns: boolean[] }
+        | { Args: { why: string }; Returns: boolean[] }
+        | { Args: { how_many: number; why: string }; Returns: boolean[] }
+      todo_end: { Args: never; Returns: boolean[] }
+      todo_start:
+        | { Args: never; Returns: boolean[] }
+        | { Args: { "": string }; Returns: boolean[] }
     }
     Enums: {
       app_role:
@@ -2811,7 +3013,9 @@ export type Database = {
       weekly_review_status: "OPEN" | "READY_TO_CLOSE" | "CLOSED" | "REOPENED"
     }
     CompositeTypes: {
-      [_ in never]: never
+      _time_trial_type: {
+        a_time: number | null
+      }
     }
   }
 }

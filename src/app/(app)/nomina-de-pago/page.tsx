@@ -1,13 +1,14 @@
 import { redirect } from "next/navigation";
 import { getCurrentProfile } from "../../../lib/auth/session";
 import { createClient } from "../../../lib/supabase/server";
+import { isPrivilegedAdmin } from "../../../lib/supabase/authorize";
 import { PageHeader } from "../../../components/shell/PageHeader";
 import { NominaDashboard } from "./NominaDashboard";
 
 export default async function NominaDePagoPage() {
   const profile = await getCurrentProfile();
   if (!profile?.role) redirect("/login");
-  if (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH") redirect("/dashboard");
+  if (!isPrivilegedAdmin(profile.role)) redirect("/dashboard");
 
   const supabase = await createClient();
 

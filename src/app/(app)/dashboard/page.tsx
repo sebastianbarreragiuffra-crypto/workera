@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../lib/auth/session";
 import { getDashboardForRole } from "../../../lib/view-models/dashboard-view";
+import { getAttendanceReadiness } from "../../../lib/view-models/attendance-readiness";
 import { todayInSantiago, formatDateLong } from "../../../lib/view-models/date-utils";
 import { ErrorState } from "../../../components/shell/StateMessages";
 import { WorkeraSyncStatus } from "../../../components/shell/WorkeraSyncStatus";
@@ -10,7 +11,8 @@ import { PriorityQueueCard } from "../../../components/dashboard/PriorityQueueCa
 import { ReviewQueueCard } from "../../../components/dashboard/ReviewQueueCard";
 import { UpcomingEventsCard } from "../../../components/dashboard/UpcomingEventsCard";
 import { WeekSummaryCard } from "../../../components/dashboard/WeekSummaryCard";
-import { ExcelExportCard } from "../../../components/dashboard/ExcelExportCard";
+import { DescargarAsistenciaCard } from "../../../components/dashboard/DescargarAsistenciaCard";
+import { AttendanceReadinessCard } from "../../../components/dashboard/AttendanceReadinessCard";
 
 const AREA_LABEL: Record<"PRODUCTION" | "INSTALLATION" | "ADMINISTRATION", string> = {
   PRODUCTION: "Producción",
@@ -26,8 +28,12 @@ export default async function DashboardPage() {
   const supabase = await createClient();
 
   let dashboard;
+  let readiness;
   try {
-    dashboard = await getDashboardForRole(supabase, profile.role, date);
+    [dashboard, readiness] = await Promise.all([
+      getDashboardForRole(supabase, profile.role, date),
+      getAttendanceReadiness(supabase, profile.role),
+    ]);
   } catch {
     return <ErrorState retryHref="/dashboard" />;
   }
@@ -47,6 +53,11 @@ export default async function DashboardPage() {
 
       <KpiRow kpis={dashboard.kpis} date={date} />
 
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <DescargarAsistenciaCard />
+        <AttendanceReadinessCard readiness={readiness} />
+      </div>
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <PriorityQueueCard items={dashboard.priorityQueue} date={date} />
         <ReviewQueueCard people={dashboard.reviewQueue} />
@@ -55,7 +66,6 @@ export default async function DashboardPage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <WeekSummaryCard summary={dashboard.weekSummary} />
-        <ExcelExportCard />
         {dashboard.kind === "ADMIN" && <WorkeraSyncStatus health={dashboard.syncHealth} />}
       </div>
     </div>
