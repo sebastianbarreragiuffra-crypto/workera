@@ -59,6 +59,17 @@ export async function createWeeklyMealGoogleForm(payload: WeeklyMealGoogleFormPa
   return result.form;
 }
 
+export const COLACIONES_FORMS_LIST_CACHE_TAG = "colaciones-forms-list";
+export const COLACIONES_FORM_STATUS_CACHE_TAG_PREFIX = "colaciones-form-status-";
+
+/**
+ * Historial de formularios: cambia solo cuando alguien crea uno nuevo (una
+ * acción explícita, ya invalida este tag -- ver `retryCreateGoogleFormAction`
+ * en actions.ts), nunca "por sí solo" entre cargas de página. Un TTL corto
+ * (45s) evita repetir el round-trip completo a Apps Script -- que puede
+ * tardar varios segundos por el cold start del propio Apps Script -- en cada
+ * carga de /colaciones, sin arriesgar datos operacionalmente obsoletos.
+ */
 export async function listWeeklyMealGoogleForms(): Promise<CreatedWeeklyMealGoogleForm[]> {
   const { endpoint, sharedSecret } = getGoogleFormsConfiguration();
   const response = await fetch(endpoint, {
@@ -67,7 +78,7 @@ export async function listWeeklyMealGoogleForms(): Promise<CreatedWeeklyMealGoog
     body: JSON.stringify({ secret: sharedSecret, operation: "list" }),
     redirect: "follow",
     signal: AbortSignal.timeout(20_000),
-    cache: "no-store",
+    next: { revalidate: 45, tags: [COLACIONES_FORMS_LIST_CACHE_TAG] },
   });
 
   if (!response.ok) throw new Error(`Google Forms respondió con estado ${response.status}.`);
@@ -94,6 +105,12 @@ export async function listWeeklyMealGoogleForms(): Promise<CreatedWeeklyMealGoog
   });
 }
 
+/**
+ * TTL más corto (15s) que el historial: el conteo de respuestas SÍ importa
+ * operacionalmente (un supervisor puede querer ver una respuesta recién
+ * enviada), así que se prioriza frescura sobre el ahorro máximo -- igual
+ * evita repetir el round-trip a Apps Script en recargas rápidas seguidas.
+ */
 export async function getWeeklyMealGoogleFormStatus(formId: string): Promise<WeeklyMealGoogleFormStatus> {
   if (!formId.trim()) throw new Error("El formulario activo no es válido.");
   const { endpoint, sharedSecret } = getGoogleFormsConfiguration();
@@ -103,7 +120,7 @@ export async function getWeeklyMealGoogleFormStatus(formId: string): Promise<Wee
     body: JSON.stringify({ secret: sharedSecret, operation: "status", formId }),
     redirect: "follow",
     signal: AbortSignal.timeout(20_000),
-    cache: "no-store",
+    next: { revalidate: 15, tags: [`${COLACIONES_FORM_STATUS_CACHE_TAG_PREFIX}${formId}`] },
   });
 
   if (!response.ok) throw new Error(`Google Forms respondió con estado ${response.status}.`);

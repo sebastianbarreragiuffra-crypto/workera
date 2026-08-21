@@ -1,13 +1,13 @@
 "use server";
 
 import { createHash } from "node:crypto";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { getCurrentProfile } from "../../../lib/auth/session";
 import { createClient } from "../../../lib/supabase/server";
 import { isPrivilegedAdmin } from "../../../lib/supabase/authorize";
 import { parseMealMenuDocx, type ParsedMealMenu } from "../../../lib/colaciones/menu-docx";
 import { buildWeeklyMealGoogleFormPayload, type WeeklyMealGoogleFormPayload } from "../../../lib/colaciones/google-forms-payload";
-import { createWeeklyMealGoogleForm } from "../../../lib/colaciones/google-forms";
+import { createWeeklyMealGoogleForm, COLACIONES_FORMS_LIST_CACHE_TAG } from "../../../lib/colaciones/google-forms";
 import { getNextFridayMealFormClosing } from "../../../lib/colaciones/weekly-form-schedule";
 
 /**
@@ -154,6 +154,7 @@ export async function retryCreateGoogleFormAction(_previousState: MenuUploadStat
 async function createOrRetryGoogleForm(payload: WeeklyMealGoogleFormPayload, menu: ParsedMealMenu, fileName: string): Promise<MenuUploadState> {
   try {
     const created = await createWeeklyMealGoogleForm(payload);
+    updateTag(COLACIONES_FORMS_LIST_CACHE_TAG);
     revalidatePath("/colaciones");
     const holidayMessage = menu.omittedDays.length
       ? ` Se omitió ${menu.omittedDays.join(" y ")} porque está marcado como feriado.`
