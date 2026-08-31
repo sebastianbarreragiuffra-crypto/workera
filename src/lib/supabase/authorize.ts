@@ -27,11 +27,11 @@ export async function requireCurrentRole(
 
   const { data: profile, error: profileError } = await session
     .from("profiles")
-    .select("role")
+    .select("role, active")
     .eq("id", actorId)
     .single();
 
-  if (profileError || !profile?.role || !allowedRoles.includes(profile.role)) {
+  if (profileError || !profile?.active || !profile.role || !allowedRoles.includes(profile.role)) {
     throw new AuthorizationError(`Esta operación requiere uno de estos roles: ${allowedRoles.join(", ")}.`);
   }
 
@@ -76,11 +76,11 @@ export async function requireMedicalLicenseApprover(): Promise<{ actorId: string
 
   const { data: profile, error: profileError } = await session
     .from("profiles")
-    .select("role, medical_license_approver")
+    .select("role, active, medical_license_approver")
     .eq("id", actorId)
     .single();
 
-  if (profileError || !profile?.role || !profile.medical_license_approver) {
+  if (profileError || !profile?.active || !profile.role || !profile.medical_license_approver) {
     throw new AuthorizationError("Esta operación requiere ser la cuenta autorizada para aprobar licencias médicas.");
   }
 
@@ -88,8 +88,8 @@ export async function requireMedicalLicenseApprover(): Promise<{ actorId: string
 }
 
 /** Versión pura/síncrona del mismo criterio, para gatear UI (mostrar/ocultar botones) a partir de un profile ya cargado -- nunca la única barrera, ver `requireMedicalLicenseApprover`. */
-export function canApproveMedicalLicense(profile: { medical_license_approver: boolean } | null | undefined): boolean {
-  return profile?.medical_license_approver === true;
+export function canApproveMedicalLicense(profile: { active: boolean; medical_license_approver: boolean } | null | undefined): boolean {
+  return profile?.active === true && profile.medical_license_approver === true;
 }
 
 /**
