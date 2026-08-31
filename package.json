@@ -14,7 +14,8 @@
     "test:api": "tsx --conditions=react-server --test --experimental-test-coverage \"src/app/api/**/*.test.ts\"",
     "test:business-rules": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/business-rules/**/*.test.ts\"",
     "test:ui": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/access/**/*.test.ts\" \"src/lib/decisions/**/*.test.ts\" \"src/lib/view-models/**/*.test.ts\" \"src/components/**/*.test.ts\"",
-    "test:payroll": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/payroll/**/*.test.ts\""
+    "test:payroll": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/payroll/**/*.test.ts\"",
+    "test:tenant": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/tenant/**/*.test.ts\""
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
