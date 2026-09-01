@@ -107,6 +107,8 @@ export async function runWorkeraRosterReconciliationAction(
   _prev: WorkeraRosterReconciliationActionState,
   _formData: FormData
 ): Promise<WorkeraRosterReconciliationActionState> {
+  void _prev;
+  void _formData;
   await requireRosterAdmin();
 
   let config;

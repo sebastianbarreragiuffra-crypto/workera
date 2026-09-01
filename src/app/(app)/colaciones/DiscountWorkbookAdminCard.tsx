@@ -5,11 +5,12 @@ import { SectionCard } from "../../../components/shell/SectionCard";
 import { Badge } from "../../../components/shell/Badge";
 import { updateDiscountWorkbookAction, type UpdateDiscountWorkbookActionState } from "./discount-workbook-actions";
 import type { DiscountWorkbookMeta } from "../../../lib/colaciones/discount-workbook-storage";
+import { formatDateTimeInSantiago } from "../../../lib/view-models/date-utils";
 
 const INITIAL_STATE: UpdateDiscountWorkbookActionState = { status: "idle", message: "" };
 
 function formatUploadedAt(iso: string) {
-  return new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+  return formatDateTimeInSantiago(iso);
 }
 
 /**

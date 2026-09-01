@@ -43,8 +43,11 @@ function mockSupabase(opts: { currentSuppliers?: CurrentSupplierRow[]; failAt?: 
     },
     storage: {
       from(_bucket: string) {
+        void _bucket;
         return {
           upload(_path: string, _bytes: Uint8Array) {
+            void _path;
+            void _bytes;
             calls.push("upload");
             if (failAt === "upload") return Promise.resolve({ error: { message: "boom upload" } });
             return Promise.resolve({ error: null });
@@ -53,6 +56,7 @@ function mockSupabase(opts: { currentSuppliers?: CurrentSupplierRow[]; failAt?: 
       },
     },
     rpc(fnName: string, _args: unknown) {
+      void _args;
       calls.push(fnName);
       if (failAt === "apply") return Promise.resolve({ error: { message: "boom apply (transacción revertida)" } });
       return Promise.resolve({ error: null });

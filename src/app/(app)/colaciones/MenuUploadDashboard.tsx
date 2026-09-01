@@ -6,6 +6,7 @@ import { buildMealFormOptions } from "../../../lib/colaciones/menu-options";
 import { parseMealMenuAction, retryCreateGoogleFormAction, type MenuUploadState } from "./actions";
 import type { CreatedWeeklyMealGoogleForm } from "../../../lib/colaciones/google-forms";
 import type { MealFormBusinessState } from "../../../lib/colaciones/form-business-state";
+import { formatDateTimeInSantiago } from "../../../lib/view-models/date-utils";
 
 const INITIAL_STATE: MenuUploadState = { status: "idle", message: "", fileName: "", menu: null, googleForm: null, pendingPayload: null };
 
@@ -22,7 +23,7 @@ function formatCreatedAt(value: string) {
   if (!value) return null;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString("es-CL", { dateStyle: "medium", timeStyle: "short" });
+  return formatDateTimeInSantiago(parsed);
 }
 
 /** Ticker visual que avanza por las 3 etapas mientras la Server Action está en curso -- no hay progreso real streameado del servidor, así que se simula localmente y se reinicia al terminar. */

@@ -61,7 +61,7 @@ test(".env.example no contiene valores de credencial reales, solo placeholders v
   const envExamplePath = path.resolve(SRC_ROOT, "..", ".env.example");
   const content = readFileSync(envExamplePath, "utf8");
   const workeraLines = content
-    .split("\n")
+    .split(/\r?\n/)
     .filter((line) => line.startsWith("WORKERA_") && line.includes("="));
 
   for (const line of workeraLines) {

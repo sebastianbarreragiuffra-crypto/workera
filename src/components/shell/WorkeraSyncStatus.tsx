@@ -1,4 +1,5 @@
 import type { WorkeraSyncHealth, WorkeraSyncHealthStatus } from "../../lib/sync/scheduler";
+import { formatDateTimeInSantiago } from "../../lib/view-models/date-utils";
 
 /**
  * Estado de sincronización Workera (Fase 8, refinado visualmente en Fase
@@ -48,7 +49,7 @@ export function WorkeraSyncStatus({ health }: { health: WorkeraSyncHealth }) {
           <div>
             <dt className="inline">Última sincronización: </dt>
             <dd className="inline font-medium text-slate-700">
-              {new Date(health.lastSuccess.finishedAt).toLocaleString("es-CL")}
+              {formatDateTimeInSantiago(health.lastSuccess.finishedAt)}
             </dd>
           </div>
         ) : (

@@ -5,6 +5,7 @@ import { SectionCard } from "../../../components/shell/SectionCard";
 import { Badge } from "../../../components/shell/Badge";
 import { generatePayrollBatchAction, uploadSuppliersAction, type GenerateBatchActionState, type UploadSuppliersActionState } from "./actions";
 import { FileUploadBox } from "./FileUploadBox";
+import { formatDateTimeInSantiago } from "../../../lib/view-models/date-utils";
 
 interface RecentBatch {
   id: string;
@@ -136,7 +137,7 @@ export function NominaDashboard({ recentBatches }: { recentBatches: RecentBatch[
                   {recentBatches.map((batch) => (
                     <tr key={batch.id} className="border-b border-border last:border-0">
                       <td className="py-2 pr-4 text-slate-700">{batch.source_filename}</td>
-                      <td className="py-2 pr-4 text-slate-500">{new Date(batch.generated_at).toLocaleString("es-CL")}</td>
+                      <td className="py-2 pr-4 text-slate-500">{formatDateTimeInSantiago(batch.generated_at)}</td>
                       <td className="py-2 pr-4">
                         <Badge label={String(batch.matched_count)} tone="positive" />
                       </td>

@@ -90,7 +90,7 @@ test("createAdminClient nunca se importa desde un archivo fuera de src/lib/supab
 test(".env.example no contiene un valor real para SUPABASE_SERVICE_ROLE_KEY", () => {
   const envExamplePath = path.resolve(SRC_ROOT, "..", ".env.example");
   const content = readFileSync(envExamplePath, "utf8");
-  const line = content.split("\n").find((l) => l.startsWith("SUPABASE_SERVICE_ROLE_KEY="));
+  const line = content.split(/\r?\n/).find((l) => l.startsWith("SUPABASE_SERVICE_ROLE_KEY="));
 
   assert.ok(line, "SUPABASE_SERVICE_ROLE_KEY debe estar documentado en .env.example");
   const [, value] = line!.split("=");

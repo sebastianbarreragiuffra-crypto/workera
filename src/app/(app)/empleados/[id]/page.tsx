@@ -3,7 +3,7 @@ import Link from "next/link";
 import { createClient } from "../../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../../lib/auth/session";
 import { getEmployeeDetail } from "../../../../lib/view-models/employee-detail-view";
-import { todayInSantiago, formatDateLong } from "../../../../lib/view-models/date-utils";
+import { formatCalendarDate, formatDateLong, todayInSantiago } from "../../../../lib/view-models/date-utils";
 import { AreaAccessError } from "../../../../lib/access/scope";
 import { ErrorState, EmptyState } from "../../../../components/shell/StateMessages";
 import { PageHeader } from "../../../../components/shell/PageHeader";
@@ -25,7 +25,7 @@ const DOCUMENT_TYPE_LABEL: Record<string, string> = {
 };
 
 function formatShortDate(date: string): string {
-  return new Date(`${date}T00:00:00`).toLocaleDateString("es-CL", { day: "2-digit", month: "short" });
+  return formatCalendarDate(date, { day: "2-digit", month: "short" });
 }
 
 export default async function EmployeeDetailPage({ params }: { params: Promise<{ id: string }> }) {

@@ -4,6 +4,7 @@ import type { Database } from "../supabase/database.types";
 import { getDailyReview, type DailyReviewCategory, type CallerRole, type DailyReviewResult } from "../business-rules/daily-review";
 import { resolveEffectiveSchedule, resolveTimeControlPolicy } from "../business-rules/schedule";
 import { assertEmployeeAccessAllowed, type AreaCode } from "../access/scope";
+import { formatTimeInSantiago } from "./date-utils";
 
 /**
  * Capa de vista de Revisión Diaria (Fase 8, ampliada en Fase 8B.2). Envuelve
@@ -89,7 +90,7 @@ export interface CaseCardContent {
 
 /** Contenido compacto de card por categoría (Fase 8B.2, PASO 6) -- pura, sin acceso a datos, solo formatea lo que ya trae el card. */
 export function buildCaseCardContent(card: DailyReviewCardViewModel): CaseCardContent {
-  const clockInLabel = card.clockIn ? new Date(card.clockIn).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" }) : "—";
+  const clockInLabel = card.clockIn ? formatTimeInSantiago(card.clockIn) : "—";
 
   switch (card.primaryCategory) {
     case "LATE":

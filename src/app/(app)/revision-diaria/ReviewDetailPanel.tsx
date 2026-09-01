@@ -1,5 +1,6 @@
 import type { DailyReviewDetailViewModel } from "../../../lib/view-models/daily-review-view";
 import type { AreaCode } from "../../../lib/access/scope";
+import { formatCalendarDate, formatInstantInSantiago, formatTimeInSantiago } from "../../../lib/view-models/date-utils";
 import Link from "next/link";
 import { DayTimeline } from "./DayTimeline";
 import { DecisionBadge } from "./StatusBadge";
@@ -17,11 +18,11 @@ import {
 
 function formatTime(value: string | null): string {
   if (!value) return "—";
-  return new Date(value).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+  return formatTimeInSantiago(value);
 }
 
 function formatDecidedAt(value: string): string {
-  return new Date(value).toLocaleString("es-CL", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  return formatInstantInSantiago(value, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 }
 
 function HiddenContext({ employeeId, date, area }: { employeeId: string; date: string; area: AreaCode }) {
@@ -246,7 +247,7 @@ export function ReviewDetailPanel({
             {detail.documents.map((doc) => (
               <li key={doc.id} className="flex items-center justify-between">
                 <span>{doc.originalFilename}</span>
-                <DecisionBadge label={`Adjuntado ${new Date(doc.uploadedAt).toLocaleDateString("es-CL", { day: "2-digit", month: "short" })}`} tone="positive" />
+                <DecisionBadge label={`Adjuntado ${formatInstantInSantiago(doc.uploadedAt, { day: "2-digit", month: "short" })}`} tone="positive" />
               </li>
             ))}
           </ul>
@@ -263,7 +264,7 @@ function EarlyDepartureDecisionSummary({ detail, date, area }: { detail: DailyRe
     return (
       <div className="space-y-2">
         <DecisionBadge label={isOverdue ? "Vencido" : "Comprobante pendiente"} tone={isOverdue ? "negative" : "neutral"} />
-        {decision.documentDeadline && <p className="text-xs text-slate-500">Plazo: {new Date(decision.documentDeadline).toLocaleDateString("es-CL")}</p>}
+        {decision.documentDeadline && <p className="text-xs text-slate-500">Plazo: {formatCalendarDate(decision.documentDeadline)}</p>}
         <p className="text-xs text-slate-500">Debes adjuntar el comprobante médico para cerrar este caso.</p>
         <form action={uploadDocumentAction} className="space-y-1.5">
           <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
@@ -303,7 +304,7 @@ function AbsenceDecisionSummary({ detail, date, area }: { detail: DailyReviewDet
     return (
       <div className="space-y-2">
         <DecisionBadge label={isOverdue ? "Vencido" : "Documento pendiente"} tone={isOverdue ? "negative" : "neutral"} />
-        {decision.documentDeadline && <p className="text-xs text-slate-500">Plazo: {new Date(decision.documentDeadline).toLocaleDateString("es-CL")}</p>}
+        {decision.documentDeadline && <p className="text-xs text-slate-500">Plazo: {formatCalendarDate(decision.documentDeadline)}</p>}
         <p className="text-xs text-slate-500">Debes adjuntar el documento de respaldo para cerrar este caso.</p>
         <form action={uploadDocumentAction} className="space-y-1.5">
           <HiddenContext employeeId={detail.employeeId} date={date} area={area} />

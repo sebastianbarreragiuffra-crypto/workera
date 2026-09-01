@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies (npm ci)
         run: npm ci
 
+      - name: Dependency vulnerability audit
+        run: npm audit --audit-level=high
+
       - name: Lint
         run: npm run lint
 
@@ -41,11 +44,8 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Workera adapter tests (mock only, no network)
-        run: npm run test:workera
-
-      - name: Auth guard tests
-        run: npm run test:auth
+      - name: Full application test suite (mock only, no external network)
+        run: npm test
 
       - name: Build
         run: npm run build
@@ -66,7 +66,7 @@ jobs:
       - name: Set up Supabase CLI (pinned)
         uses: supabase/setup-cli@46f7f98c7f948ad727d22c1e67fab04c223a0520 # v3.0.0
         with:
-          version: "2.115.0"
+          version: "2.116.0"
 
       - name: Start local Supabase stack
         run: supabase start

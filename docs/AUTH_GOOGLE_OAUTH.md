@@ -40,6 +40,24 @@ empleado ya tiene una cuenta de email+password con su email corporativo
 verificado, iniciar sesión luego con Google usando el mismo email se vincula
 a esa MISMA fila de `auth.users`/`profiles` — no crea un segundo profile.
 
+## Separación de configuración local
+
+- `supabase/config.toml` se versiona y es igual en todos los computadores. Sus
+  puertos `5442x`, el `site_url` y la allowlist de callbacks pertenecen al
+  proyecto Workera, no a una máquina particular.
+- `.env` en la raíz no se versiona. Supabase CLI lo carga automáticamente para
+  resolver los valores `env(...)` de `config.toml`; aquí van las credenciales
+  locales de Google.
+- `.env.local` tampoco se versiona. Lo usa Next.js para la URL y las claves de
+  la instancia local de Supabase.
+- `.env.staging` es independiente y apunta al proyecto remoto compartido.
+
+Esta separación evita mezclar cambios de puertos con secretos o callbacks de
+OAuth. Los dos PCs pueden reutilizar los mismos puertos porque se ejecutan en
+hosts distintos. Si el rango `5442x` colisiona con otro proyecto en un mismo
+PC, el cambio debe coordinarse y versionarse para todo el equipo; no debe quedar
+como una modificación local permanente.
+
 ## Valores que faltan configurar manualmente
 
 ### 1. Google Cloud Console
@@ -49,25 +67,30 @@ a esa MISMA fila de `auth.users`/`profiles` — no crea un segundo profile.
    externo según la organización; nombre de la app, dominio autorizado.
 3. **APIs & Services → Credentials → Create Credentials → OAuth client ID**,
    tipo "Web application".
-4. **Authorized redirect URIs** — agregar la URL de callback de **Supabase**
-   (no la de esta app):
-   - Local en este proyecto: `http://127.0.0.1:54321/auth/v1/callback`.
-     Si otro equipo usa un override local, confirmar siempre el valor mostrado
-     por `supabase start` antes de registrarlo en Google.
+4. **Authorized JavaScript origins** — agregar las dos formas válidas de abrir
+   la aplicación local:
+   - `http://127.0.0.1:3000`
+   - `http://localhost:3000`
+5. **Authorized redirect URIs** — agregar la URL de callback de **Supabase**
+   (no la ruta `/auth/callback` de esta app):
+   - Local en este proyecto: `http://127.0.0.1:54421/auth/v1/callback`.
    - Producción: `https://<tu-project-ref>.supabase.co/auth/v1/callback`.
-5. Copiar el **Client ID** y el **Client Secret** generados.
+6. Copiar el **Client ID** y el **Client Secret** generados.
 
 ### 2. Supabase
 
 **Local (`supabase/config.toml`, ya preparado):**
-- Definir en `.env.local` (nunca commiteado):
+- Copiar `.env.example` a `.env` si ese archivo aún no existe y definir allí
+  (nunca commiteado):
   ```
   SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID=<client id de Google>
   SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET=<client secret de Google>
   ```
+- Mantener en `.env.local` la URL y las claves que consume Next.js. No duplicar
+  allí los secretos de Google: Supabase CLI resuelve `env(...)` desde `.env`.
 - Confirmar que `enabled = true` en `supabase/config.toml` →
   `[auth.external.google]` (ya está habilitado en la configuración actual).
-- Reiniciar `supabase start` para que tome la config nueva.
+- Reiniciar la pila local para que tome la configuración nueva.
 
 **Producción (Supabase Dashboard, fuera de este repo):**
 - Authentication → Providers → Google → Enabled.
@@ -77,6 +100,10 @@ a esa MISMA fila de `auth.users`/`profiles` — no crea un segundo profile.
 - Confirmar el **Site URL** / **Redirect URLs** del proyecto incluyen el
   dominio real de producción de esta app (para que `redirectTo` en
   `loginWithGoogle()` sea aceptado).
+
+Referencias oficiales: [configuración y secretos de Supabase
+CLI](https://supabase.com/docs/guides/local-development/managing-config) y
+[Google OAuth con Supabase](https://supabase.com/docs/guides/auth/social-login/auth-google).
 
 ## No incluido / no inventado
 

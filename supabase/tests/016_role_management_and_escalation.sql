@@ -89,11 +89,22 @@ select lives_ok(
   'ADMIN_RRHH puede asignar un rol a un usuario sin configuración administrativa'
 );
 
--- 6) ADMIN_RRHH puede ver todos los perfiles; un supervisor solo el propio
+-- 6) ADMIN_RRHH puede ver todos los perfiles fixture; cualquier perfil real
+-- ya presente en la base queda fuera del conteo para mantener la prueba
+-- hermética en desarrollo local y CI.
 select is(
-  (select count(*)::int from public.profiles),
+  (
+    select count(*)::int
+    from public.profiles
+    where id in (
+      '30000000-0000-0000-0000-000000000001',
+      '30000000-0000-0000-0000-000000000002',
+      '30000000-0000-0000-0000-000000000003',
+      '30000000-0000-0000-0000-000000000004'
+    )
+  ),
   4,
-  'ADMIN_RRHH ve los 4 perfiles (SELECT amplio)'
+  'ADMIN_RRHH ve los 4 perfiles fixture (SELECT amplio, independiente de cuentas locales)'
 );
 
 reset role;

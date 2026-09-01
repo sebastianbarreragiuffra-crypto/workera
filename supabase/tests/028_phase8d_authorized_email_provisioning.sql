@@ -63,27 +63,35 @@ select is(has_table_privilege('anon', 'public.authorized_email_roles', 'SELECT')
 -- ---------------------------------------------------------------------------
 -- 3) Provisioning real vía el trigger: cada email aprobado, al aparecer en
 --    auth.users (mismo camino para email+password y OAuth), obtiene el rol
---    correcto de inmediato -- sin intervención manual.
+--    correcto de inmediato -- sin intervención manual. Los emails de las
+--    cuentas creadas son fixtures exclusivos de esta prueba: reutilizar los
+--    7 emails reales haría colisión cuando una cuenta local ya existe.
+insert into public.authorized_email_roles (email, role) values
+  ('fixture-super-admin-028@example.test', 'SUPER_ADMIN'),
+  ('fixture-admin-028@example.test', 'ADMIN_RRHH'),
+  ('fixture-production-028@example.test', 'SUPERVISOR_PRODUCTION'),
+  ('fixture-admin-metadata-028@example.test', 'ADMIN_RRHH');
+
 insert into auth.users (id, email) values
-  ('80000000-0000-0000-0000-000000000001', 's.barrera@arcotex.cl');
+  ('80000000-0000-0000-0000-000000000001', 'fixture-super-admin-028@example.test');
 select is(
   (select role::text from public.profiles where id = '80000000-0000-0000-0000-000000000001'),
   'SUPER_ADMIN',
-  'trigger: s.barrera@arcotex.cl recibe SUPER_ADMIN (máxima autoridad) al crear su cuenta'
+  'trigger: email fixture aprobado recibe SUPER_ADMIN al crear su cuenta'
 );
 
 insert into auth.users (id, email) values
-  ('80000000-0000-0000-0000-000000000002', 'a.caceres@arcotex.cl');
+  ('80000000-0000-0000-0000-000000000002', 'fixture-admin-028@example.test');
 select is(
   (select role::text from public.profiles where id = '80000000-0000-0000-0000-000000000002'),
   'ADMIN_RRHH',
-  'trigger: a.caceres@arcotex.cl recibe ADMIN_RRHH al crear su cuenta'
+  'trigger: email fixture aprobado recibe ADMIN_RRHH al crear su cuenta'
 );
 
 -- Normalización de mayúsculas/minúsculas: un email de Google con distinta
 -- capitalización sigue matcheando el mapeo aprobado.
 insert into auth.users (id, email) values
-  ('80000000-0000-0000-0000-000000000003', 'I.Gonzalez@Arcotex.CL');
+  ('80000000-0000-0000-0000-000000000003', 'Fixture-Production-028@Example.Test');
 select is(
   (select role::text from public.profiles where id = '80000000-0000-0000-0000-000000000003'),
   'SUPERVISOR_PRODUCTION',
@@ -113,11 +121,11 @@ select is(
 );
 
 insert into auth.users (id, email, raw_user_meta_data) values
-  ('80000000-0000-0000-0000-000000000006', 'a.valencia@arcotex.cl', '{"role": "SUPER_ADMIN"}'::jsonb);
+  ('80000000-0000-0000-0000-000000000006', 'fixture-admin-metadata-028@example.test', '{"role": "SUPER_ADMIN"}'::jsonb);
 select is(
   (select role::text from public.profiles where id = '80000000-0000-0000-0000-000000000006'),
   'ADMIN_RRHH',
-  'metadata de OAuth con role="SUPER_ADMIN" inyectado NO sobrescribe el rol real (a.valencia sigue ADMIN_RRHH, no SUPER_ADMIN)'
+  'metadata de OAuth con role="SUPER_ADMIN" inyectado NO sobrescribe el rol real (fixture sigue ADMIN_RRHH)'
 );
 
 -- ---------------------------------------------------------------------------
@@ -156,10 +164,10 @@ select is(
 
 -- ---------------------------------------------------------------------------
 -- 7) Auto-promoción sigue bloqueada para cuentas recién provisionadas por
---    Fase 8D -- ADMIN_RRHH (a.caceres, recién creada arriba) no logra
+--    Fase 8D -- ADMIN_RRHH fixture recién creada arriba no logra
 --    escalar a SUPER_ADMIN ni tocar la cuenta SUPER_ADMIN existente.
 set local role authenticated;
-set local request.jwt.claim.sub = '80000000-0000-0000-0000-000000000002'; -- a.caceres, ADMIN_RRHH
+set local request.jwt.claim.sub = '80000000-0000-0000-0000-000000000002'; -- fixture ADMIN_RRHH
 select throws_ok(
   $$ update public.profiles set role = 'SUPER_ADMIN'
        where id = '80000000-0000-0000-0000-000000000002' $$,
@@ -171,11 +179,11 @@ reset role;
 select is(
   (select role::text from public.profiles where id = '80000000-0000-0000-0000-000000000002'),
   'ADMIN_RRHH',
-  'a.caceres permanece ADMIN_RRHH tras el intento de auto-promoción rechazado'
+  'el fixture permanece ADMIN_RRHH tras el intento de auto-promoción rechazado'
 );
 
 set local role authenticated;
-set local request.jwt.claim.sub = '80000000-0000-0000-0000-000000000002'; -- a.caceres, ADMIN_RRHH
+set local request.jwt.claim.sub = '80000000-0000-0000-0000-000000000002'; -- fixture ADMIN_RRHH
 select lives_ok(
   $$ update public.profiles set active = false
        where id = '80000000-0000-0000-0000-000000000001' $$,
@@ -185,7 +193,7 @@ reset role;
 select is(
   (select active from public.profiles where id = '80000000-0000-0000-0000-000000000001'),
   true,
-  'ADMIN_RRHH (Fase 8D) no logra desactivar la cuenta SUPER_ADMIN (s.barrera) recién provisionada'
+  'ADMIN_RRHH (Fase 8D) no logra desactivar la cuenta SUPER_ADMIN fixture recién provisionada'
 );
 
 select * from finish();

@@ -1,11 +1,12 @@
 import { logout } from "../../app/login/actions";
+import { formatInstantInSantiago } from "../../lib/view-models/date-utils";
 
 /** Fase 8, restilizado en Fase 8B.1 (azul oscuro). Nombre/rol/área ahora viven en el bloque de usuario del Sidebar -- el topbar solo da contexto de fecha y logout. */
 export function Topbar() {
   return (
     <header className="flex h-14 shrink-0 items-center justify-between bg-arcotex-navy-dark px-6">
       <div className="text-sm font-medium text-slate-200 capitalize">
-        {new Date().toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long" })}
+        {formatInstantInSantiago(new Date(), { weekday: "long", day: "numeric", month: "long" })}
       </div>
       <form action={logout}>
         <button

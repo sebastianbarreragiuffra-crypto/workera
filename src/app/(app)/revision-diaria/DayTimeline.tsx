@@ -1,3 +1,5 @@
+import { formatTimeInSantiago } from "../../../lib/view-models/date-utils";
+
 /**
  * Fase 8B.2, PASO 9 -- cronología compacta de marcaciones del día. Lee
  * `workera_attendance_events` ya normalizados (`attendance_type_label`,
@@ -21,7 +23,7 @@ export function DayTimeline({ events, scheduledStart, scheduledEnd }: { events: 
         {events.map((event, i) => (
           <li key={i} className="flex items-center gap-2 text-sm">
             <span className="w-14 shrink-0 font-mono text-xs text-slate-500">
-              {new Date(event.timestamp).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })}
+              {formatTimeInSantiago(event.timestamp)}
             </span>
             <span className="text-slate-700">{event.label}</span>
             {event.origin && <span className="text-xs text-slate-400">({event.origin})</span>}

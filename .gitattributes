@@ -1,0 +1,6 @@
+# Un mismo contenido textual en Windows, Linux y CI/Vercel.
+* text=auto eol=lf
+
+# Los launchers nativos de cmd.exe son la única excepción prevista.
+*.bat text eol=crlf
+*.cmd text eol=crlf

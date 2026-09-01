@@ -63,6 +63,7 @@ function mockSupabase(opts: {
       from(bucket: string) {
         return {
           upload(path: string, _bytes: Uint8Array) {
+            void _bytes;
             calls.push(`storage.upload:${bucket}:${path}`);
             if (opts.uploadError) return Promise.resolve({ error: opts.uploadError });
             return Promise.resolve({ error: null });

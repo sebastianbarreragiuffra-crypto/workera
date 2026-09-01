@@ -32,6 +32,21 @@ insert into public.profiles (id, display_name, role) values
   ('90000000-0000-0000-0000-000000000005', 'Fixture Supervisor Install', 'SUPERVISOR_INSTALLATION'),
   ('90000000-0000-0000-0000-000000000006', 'Fixture Sin Rol', null);
 
+-- La protección del "último SUPER_ADMIN" consulta toda la tabla. Una base
+-- local puede contener cuentas reales además de estos fixtures, mientras CI
+-- parte vacía. Para que ambos entornos prueben exactamente el mismo estado,
+-- cualquier SUPER_ADMIN externo se degrada SOLO dentro de esta transacción;
+-- el ROLLBACK final garantiza que ninguna cuenta real cambia. Los dos
+-- SUPER_ADMIN fixture ya existen, por lo que el trigger permite este UPDATE.
+update public.profiles
+set role = 'ADMIN_RRHH'
+where role = 'SUPER_ADMIN'
+  and active
+  and id not in (
+    '90000000-0000-0000-0000-000000000001',
+    '90000000-0000-0000-0000-000000000002'
+  );
+
 insert into public.employees (id, external_workera_id, first_name, last_name, display_name, employee_group_id)
 values
   ('90000000-0000-0000-0000-00000000a001', 'S5D-PROD-001', 'Fixture', 'ProdS5D', 'Fixture ProdS5D',
@@ -272,7 +287,8 @@ select is(
   'el segundo SUPER_ADMIN quedó degradado correctamente'
 );
 
--- Ahora solo queda 1 SUPER_ADMIN activo (id ...0001). Intentar degradarlo
+-- Ahora solo queda 1 SUPER_ADMIN activo dentro del estado transaccional
+-- aislado (id ...0001). Intentar degradarlo
 -- (incluso por sí mismo) debe ser rechazado explícitamente.
 set local role authenticated;
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';

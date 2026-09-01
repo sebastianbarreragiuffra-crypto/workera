@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "tsx --conditions=react-server --test \"src/**/*.test.ts\" \"next.config.test.ts\"",
     "test:workera": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/workera/**/*.test.ts\"",
     "test:auth": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/supabase/*.test.ts\"",
     "test:admin": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/admin/**/*.test.ts\"",
@@ -20,11 +21,11 @@
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.3",
-    "next": "16.3.1",
+    "next": "16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1",
-    "xlsx": "^0.18.5",
+    "xlsx": "file:vendor/xlsx-0.20.3.tgz",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -33,7 +34,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.3.1",
+    "eslint-config-next": "16.3.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.12",
     "typescript": "^5"

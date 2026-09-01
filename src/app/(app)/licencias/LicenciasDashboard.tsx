@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { formatCalendarDate } from "../../../lib/view-models/date-utils";
 import { SectionCard } from "../../../components/shell/SectionCard";
 import { Badge } from "../../../components/shell/Badge";
 import {
@@ -31,7 +32,7 @@ function daysBetween(start: string, end: string): number {
 }
 
 function formatDate(date: string): string {
-  return new Date(`${date}T00:00:00`).toLocaleDateString("es-CL");
+  return formatCalendarDate(date);
 }
 
 /**
