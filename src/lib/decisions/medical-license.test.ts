@@ -169,8 +169,9 @@ test("rejectMedicalLicense: llama exactamente a la función atómica reject_medi
 });
 
 test("canApproveMedicalLicense: true SOLO cuando el flag del profile es exactamente true", () => {
-  assert.equal(canApproveMedicalLicense({ medical_license_approver: true }), true);
-  assert.equal(canApproveMedicalLicense({ medical_license_approver: false }), false);
+  assert.equal(canApproveMedicalLicense({ active: true, medical_license_approver: true }), true);
+  assert.equal(canApproveMedicalLicense({ active: true, medical_license_approver: false }), false);
+  assert.equal(canApproveMedicalLicense({ active: false, medical_license_approver: true }), false);
   assert.equal(canApproveMedicalLicense(null), false);
   assert.equal(canApproveMedicalLicense(undefined), false);
 });

@@ -31,6 +31,12 @@ import type { AreaCode } from "../../../lib/access/scope";
  * queda ninguno, redirige a la lista (vacía -> empty state positivo).
  */
 
+async function requireActiveProfile() {
+  const profile = await getCurrentProfile();
+  if (!profile?.role) redirect("/login");
+  return profile;
+}
+
 async function goToNextPending(area: AreaCode, date: string, decidedEmployeeId: string, feedback: string): Promise<never> {
   revalidatePath(`/revision-diaria`);
 
@@ -48,6 +54,7 @@ async function goToNextPending(area: AreaCode, date: string, decidedEmployeeId: 
 }
 
 export async function decideLateArrivalAction(formData: FormData) {
+  await requireActiveProfile();
   const supabase = await createClient();
   const lateArrivalRecordId = String(formData.get("lateArrivalRecordId"));
   const employeeId = String(formData.get("employeeId"));
@@ -61,6 +68,7 @@ export async function decideLateArrivalAction(formData: FormData) {
 }
 
 export async function decideOvertimeAction(formData: FormData) {
+  await requireActiveProfile();
   const supabase = await createClient();
   const overtimeRecordId = String(formData.get("overtimeRecordId"));
   const employeeId = String(formData.get("employeeId"));
@@ -74,6 +82,7 @@ export async function decideOvertimeAction(formData: FormData) {
 }
 
 export async function markEarlyDepartureMedicalAction(formData: FormData) {
+  await requireActiveProfile();
   const supabase = await createClient();
   const earlyDepartureRecordId = String(formData.get("earlyDepartureRecordId"));
   const employeeId = String(formData.get("employeeId"));
@@ -87,6 +96,7 @@ export async function markEarlyDepartureMedicalAction(formData: FormData) {
 }
 
 export async function confirmEarlyDepartureMedicalDocumentAction(formData: FormData) {
+  await requireActiveProfile();
   const supabase = await createClient();
   const earlyDepartureRecordId = String(formData.get("earlyDepartureRecordId"));
   const employeeId = String(formData.get("employeeId"));
@@ -99,6 +109,7 @@ export async function confirmEarlyDepartureMedicalDocumentAction(formData: FormD
 }
 
 export async function decideEarlyDepartureOtherAction(formData: FormData) {
+  await requireActiveProfile();
   const supabase = await createClient();
   const earlyDepartureRecordId = String(formData.get("earlyDepartureRecordId"));
   const employeeId = String(formData.get("employeeId"));
@@ -112,6 +123,7 @@ export async function decideEarlyDepartureOtherAction(formData: FormData) {
 }
 
 export async function markAbsencePendingDocumentAction(formData: FormData) {
+  await requireActiveProfile();
   const supabase = await createClient();
   const absenceRecordId = String(formData.get("absenceRecordId"));
   const employeeId = String(formData.get("employeeId"));
@@ -126,6 +138,7 @@ export async function markAbsencePendingDocumentAction(formData: FormData) {
 }
 
 export async function confirmAbsenceDocumentAction(formData: FormData) {
+  await requireActiveProfile();
   const supabase = await createClient();
   const absenceRecordId = String(formData.get("absenceRecordId"));
   const employeeId = String(formData.get("employeeId"));
@@ -139,6 +152,7 @@ export async function confirmAbsenceDocumentAction(formData: FormData) {
 }
 
 export async function disputeAbsenceAction(formData: FormData) {
+  await requireActiveProfile();
   const supabase = await createClient();
   const absenceRecordId = String(formData.get("absenceRecordId"));
   const employeeId = String(formData.get("employeeId"));
@@ -151,6 +165,7 @@ export async function disputeAbsenceAction(formData: FormData) {
 }
 
 export async function uploadDocumentAction(formData: FormData) {
+  await requireActiveProfile();
   const supabase = await createClient();
   const employeeId = String(formData.get("employeeId"));
   const date = String(formData.get("date"));

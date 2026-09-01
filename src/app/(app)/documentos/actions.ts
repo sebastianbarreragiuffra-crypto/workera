@@ -3,9 +3,17 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "../../../lib/supabase/server";
+import { getCurrentProfile } from "../../../lib/auth/session";
 import { uploadSupportingDocument, getSignedDocumentUrl, type SupportingDocumentType, type SupportingDocumentRelation } from "../../../lib/decisions/documents";
 
+async function requireActiveProfile() {
+  const profile = await getCurrentProfile();
+  if (!profile?.role) redirect("/login");
+  return profile;
+}
+
 export async function uploadGeneralDocumentAction(formData: FormData) {
+  await requireActiveProfile();
   const supabase = await createClient();
   const employeeId = String(formData.get("employeeId"));
   const documentType = String(formData.get("documentType")) as SupportingDocumentType;
@@ -42,6 +50,7 @@ export async function uploadGeneralDocumentAction(formData: FormData) {
 }
 
 export async function viewDocumentAction(formData: FormData) {
+  await requireActiveProfile();
   const supabase = await createClient();
   const documentId = String(formData.get("documentId"));
   const signedUrl = await getSignedDocumentUrl(supabase, documentId);
