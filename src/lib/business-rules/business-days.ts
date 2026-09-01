@@ -1,15 +1,13 @@
 /**
- * Días hábiles (Fase 7, PASO 18): lunes-viernes. SIN calendario de feriados
- * legales chilenos todavía -- limitación documentada explícitamente (PASO
- * 18/74 del encargo: "no inventar feriados legales si no tenemos calendario
- * de feriados implementado"). El esquema ya tiene una tabla `holidays`
- * (Gate D, motor de horas extra) -- conectar `addBusinessDays` a ella queda
- * para una fase futura sin necesitar cambiar esta firma.
+ * Días hábiles: lunes-viernes, descontando además los feriados legales que se
+ * le pasen explícitamente (MB-6).
  *
- * Pura, sin `new Date()` interno más allá de aritmética de calendario sobre
- * el parámetro recibido -- mismo patrón "dominio UTC sintético" que
- * src/lib/sync/target-date.ts, para que sumar días calendario nunca dependa
- * de la hora de pared real ni de DST.
+ * El calendario de feriados NO se lee acá -- estas funciones siguen siendo
+ * puras y sin I/O (mismo patrón "dominio UTC sintético" que
+ * src/lib/sync/target-date.ts). El llamador carga los feriados del rango que
+ * necesita (ver `src/lib/business-rules/holidays.ts`) y los inyecta como un
+ * `Set<string>` de fechas `yyyy-MM-dd`. Sin ese set, el comportamiento es el
+ * histórico: solo se descuentan sábados y domingos.
  */
 
 function parseDate(date: string): { year: number; month: number; day: number } {
@@ -25,19 +23,26 @@ function dayOfWeekUtc(year: number, month: number, day: number): number {
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay(); // 0=domingo .. 6=sábado
 }
 
-export function isBusinessDay(date: string): boolean {
+export type HolidaySet = ReadonlySet<string>;
+
+const EMPTY_HOLIDAYS: HolidaySet = new Set<string>();
+
+export function isBusinessDay(date: string, holidays: HolidaySet = EMPTY_HOLIDAYS): boolean {
   const { year, month, day } = parseDate(date);
   const dow = dayOfWeekUtc(year, month, day);
-  return dow !== 0 && dow !== 6;
+  if (dow === 0 || dow === 6) return false;
+  return !holidays.has(date);
 }
 
 /**
- * Suma `days` días HÁBILES (lunes-viernes) a `date` (yyyy-MM-dd). El día de
- * inicio nunca cuenta como uno de los días sumados, aunque sea hábil --
- * ejemplo confirmado por el encargo: viernes + 3 días hábiles = miércoles
- * (lunes, martes, miércoles).
+ * Suma `days` días HÁBILES a `date` (yyyy-MM-dd). El día de inicio nunca cuenta
+ * como uno de los días sumados, aunque sea hábil -- ejemplo confirmado por el
+ * encargo: viernes + 3 días hábiles = miércoles (lunes, martes, miércoles).
+ *
+ * Un feriado en `holidays` que cae entre medio también se salta: viernes + 3
+ * días hábiles, con el lunes feriado, cae el jueves.
  */
-export function addBusinessDays(date: string, days: number): string {
+export function addBusinessDays(date: string, days: number, holidays: HolidaySet = EMPTY_HOLIDAYS): string {
   if (days < 0) {
     throw new Error(`addBusinessDays: days debe ser >= 0, recibido: ${days}`);
   }
@@ -47,8 +52,10 @@ export function addBusinessDays(date: string, days: number): string {
 
   while (remaining > 0) {
     current += 86_400_000;
-    const dow = new Date(current).getUTCDay();
-    if (dow !== 0 && dow !== 6) remaining -= 1;
+    const d = new Date(current);
+    const iso = formatDate({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() });
+    const dow = d.getUTCDay();
+    if (dow !== 0 && dow !== 6 && !holidays.has(iso)) remaining -= 1;
   }
 
   const result = new Date(current);

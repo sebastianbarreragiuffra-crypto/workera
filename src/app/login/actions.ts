@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { acceptCurrentUserInvitations } from "@/lib/platform/invitations";
 
 export type LoginState = { error: string | null };
 
@@ -26,6 +27,8 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
   if (error) {
     return { error: "No pudimos iniciar sesión con esas credenciales." };
   }
+
+  await acceptCurrentUserInvitations(supabase);
 
   revalidatePath("/", "layout");
   redirect("/");

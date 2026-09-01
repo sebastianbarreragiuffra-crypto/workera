@@ -34,7 +34,9 @@ export type DeriveDailyAttendanceStatus =
   | "UNCHANGED"
   | "EXEMPT"
   | "DAY_OFF"
-  | "NO_SCHEDULE_ASSIGNED";
+  | "NO_SCHEDULE_ASSIGNED"
+  /** Feriado legal SIN marcaciones: no se crea registro ni bandera de tarjeta no marcada. Si el trabajador SÍ marcó (trabajó el feriado), se deriva normal y las horas quedan HH100 vía `classify_overtime_type_id`. */
+  | "HOLIDAY";
 
 export interface DeriveDailyAttendanceResult {
   status: DeriveDailyAttendanceStatus;
@@ -51,7 +53,9 @@ function computeSourceHash(fingerprints: string[]): string {
 export async function deriveDailyAttendanceRecord(
   supabase: SupabaseClient<Database>,
   employeeId: string,
-  workDate: string
+  workDate: string,
+  /** El día es feriado legal. Lo resuelve el orquestador con una sola consulta a `holidays` para toda la fecha, en vez de 44 veces desde acá. */
+  isHoliday = false
 ): Promise<DeriveDailyAttendanceResult> {
   const schedule = await resolveEffectiveSchedule(supabase, employeeId, workDate);
 
@@ -78,6 +82,15 @@ export async function deriveDailyAttendanceRecord(
   }
 
   const allEvents = events ?? [];
+
+  // Feriado sin ninguna marcación: es un día de descanso pagado, no una
+  // ausencia. No se crea `attendance_record` (así el trigger de tarjeta no
+  // marcada no dispara) ni se marca "?". Si el trabajador SÍ marcó, se sigue
+  // de largo y se deriva normal -- las horas del feriado se pagan HH100.
+  if (isHoliday && allEvents.length === 0) {
+    return { status: "HOLIDAY", attendanceRecordId: null, clockIn: null, clockOut: null };
+  }
+
   const entradaEvents = allEvents.filter((e) => ENTRADA_TYPE_CODES.has(e.attendance_type_code));
   const salidaEvents = allEvents.filter((e) => SALIDA_TYPE_CODES.has(e.attendance_type_code));
 

@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 import { addBusinessDays } from "../business-rules/business-days";
+import { loadHolidaySet, holidayWindow } from "../business-rules/holidays";
 
 /**
  * Servicio de escritura para `absence_decisions` (Fase 8, PASO 6). Cubre el
@@ -30,7 +31,9 @@ export async function markAbsencePendingDocument(
   supabase: SupabaseClient<Database>,
   input: MarkAbsencePendingDocumentInput
 ): Promise<{ decisionId: string }> {
-  const deadline = addBusinessDays(input.startDate, ABSENCE_DOCUMENT_DEADLINE_BUSINESS_DAYS);
+  const { from, to } = holidayWindow(input.startDate);
+  const holidays = await loadHolidaySet(supabase, from, to);
+  const deadline = addBusinessDays(input.startDate, ABSENCE_DOCUMENT_DEADLINE_BUSINESS_DAYS, holidays);
   const { data, error } = await supabase
     .from("absence_decisions")
     .insert({
@@ -59,7 +62,9 @@ export async function confirmAbsenceDocument(
   supabase: SupabaseClient<Database>,
   input: ConfirmAbsenceDocumentInput
 ): Promise<{ decisionId: string }> {
-  const deadline = addBusinessDays(input.startDate, ABSENCE_DOCUMENT_DEADLINE_BUSINESS_DAYS);
+  const { from, to } = holidayWindow(input.startDate);
+  const holidays = await loadHolidaySet(supabase, from, to);
+  const deadline = addBusinessDays(input.startDate, ABSENCE_DOCUMENT_DEADLINE_BUSINESS_DAYS, holidays);
   const { data, error } = await supabase
     .from("absence_decisions")
     .insert({

@@ -1,14 +1,23 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "../../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../../lib/auth/session";
-import { resolveWeeklyPeriod, resolveFortnightPeriod, resolveMonthlyPeriod, type AttendanceExportPeriod } from "../../../../lib/business-rules/attendance-export-periods";
-import { buildAttendanceExportRows, buildAttendanceExportWorkbook } from "../../../../lib/business-rules/attendance-export";
+import {
+  resolveWeeklyPeriod,
+  resolveFortnightPeriod,
+  resolveMonthlyPeriod,
+  resolvePayrollPeriod,
+  type AttendanceExportPeriod,
+} from "../../../../lib/business-rules/attendance-export-periods";
+import { buildAttendanceExportData, buildAttendanceExportWorkbook } from "../../../../lib/business-rules/attendance-export";
 
 /**
- * Descarga del Excel de asistencia -- SOLO tres modos (semanal/quincenal/
- * mensual, ver DescargarAsistenciaCard.tsx), siempre generado en el momento
- * de la descarga a partir de `attendance_status_records` actual -- nunca un
- * archivo pre-generado ni cacheado (backend siempre fuente de verdad, Fase 9).
+ * Descarga del Excel de asistencia, siempre generado en el momento de la
+ * descarga a partir de los datos actuales -- nunca un archivo pre-generado ni
+ * cacheado (backend siempre fuente de verdad, Fase 9).
+ *
+ * `pago` es el modo que replica la planilla real de remuneraciones (16 del mes
+ * anterior al 15). Los otros tres se conservan porque son útiles para revisar
+ * ventanas más cortas durante la marcha blanca.
  */
 export async function GET(request: NextRequest) {
   const profile = await getCurrentProfile();
@@ -34,22 +43,26 @@ export async function GET(request: NextRequest) {
       const mes = searchParams.get("mes");
       if (!mes) throw new Error("Falta el parámetro 'mes' para el modo mensual.");
       period = resolveMonthlyPeriod(mes);
+    } else if (tipo === "pago") {
+      const mes = searchParams.get("mes");
+      if (!mes) throw new Error("Falta el parámetro 'mes' para el modo período de pago.");
+      period = resolvePayrollPeriod(mes);
     } else {
-      throw new Error("El parámetro 'tipo' debe ser semanal, quincenal o mensual.");
+      throw new Error("El parámetro 'tipo' debe ser pago, semanal, quincenal o mensual.");
     }
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Parámetros de período inválidos." }, { status: 400 });
   }
 
   const supabase = await createClient();
-  let rows;
+  let data;
   try {
-    rows = await buildAttendanceExportRows(supabase, profile.role, period);
+    data = await buildAttendanceExportData(supabase, profile.role, period);
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "No pudimos generar el archivo." }, { status: 500 });
   }
 
-  const workbook = buildAttendanceExportWorkbook(rows, period);
+  const workbook = buildAttendanceExportWorkbook(data);
   const filename = `asistencia-${period.type.toLowerCase()}-${period.startDate}-al-${period.endDate}.xlsx`;
 
   return new NextResponse(Buffer.from(workbook), {

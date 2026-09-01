@@ -60,6 +60,8 @@ export interface PlatformInvitationItem {
   createdAt: string;
   roleId: string;
   roleName: string;
+  deliveryStatus: "PENDING" | "SENT" | "ACCOUNT_EXISTS" | "FAILED";
+  deliveryAttempts: number;
 }
 
 export interface PlatformOnboardingStepItem {
@@ -247,6 +249,8 @@ interface RawInvitation {
   expires_at: string;
   created_at: string;
   role_id: string;
+  delivery_status: "PENDING" | "SENT" | "ACCOUNT_EXISTS" | "FAILED";
+  delivery_attempts: number;
 }
 
 interface RawOnboardingStep {
@@ -347,6 +351,8 @@ export function mapPortfolioRows(
     name: row.name,
     slug: row.slug,
     status: row.status,
+    workspaceEnabled: row.workspace_enabled,
+    planCode: row.plan_code,
     onboarding: deriveOnboardingSummary({
       completedSteps: toCount(row.completed_steps),
       totalSteps: toCount(row.total_steps),
@@ -540,6 +546,8 @@ export function mapInvitationItems(invitations: RawInvitation[], roles: RawRole[
       createdAt: invitation.created_at,
       roleId: invitation.role_id,
       roleName: rolesById.get(invitation.role_id)?.name ?? "Rol no disponible",
+      deliveryStatus: invitation.delivery_status,
+      deliveryAttempts: invitation.delivery_attempts,
     }));
 }
 
@@ -786,7 +794,7 @@ export async function getPlatformCompanyDetail(
         .eq("company_id", company.id),
       supabase
         .from("company_invitations")
-        .select("id, email, status, expires_at, created_at, role_id", { count: "exact" })
+        .select("id, email, status, expires_at, created_at, role_id, delivery_status, delivery_attempts", { count: "exact" })
         .eq("company_id", company.id)
         .order("created_at", { ascending: false })
         .range((invitationPage - 1) * invitationPageSize, invitationPage * invitationPageSize - 1),

@@ -5,14 +5,14 @@ import { useMemo, useState } from "react";
 /**
  * Fase 9 -- exportador real, backed por `attendance_status_records`
  * (`/dashboard/export-asistencia`, ver attendance-export.ts). Exactamente
- * tres modos (semanal/quincenal/mensual, sección 25 del encargo) -- nunca
+ * cuatro modos -- nunca
  * diario, rango arbitrario, ni anual. El archivo se genera en el momento de
  * la descarga a partir del estado actual del backend, nunca de un snapshot
  * cacheado -- por eso el botón es un link GET directo al Route Handler, no
  * un fetch con blob intermedio.
  */
 
-type ExportType = "SEMANAL" | "QUINCENAL" | "MENSUAL";
+type ExportType = "PAGO" | "SEMANAL" | "QUINCENAL" | "MENSUAL";
 
 function todayIsoInSantiago(now: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
@@ -27,7 +27,11 @@ export function DescargarAsistenciaCard({ now = new Date() }: { now?: Date }) {
   const currentMonth = today.slice(0, 7);
   const currentDay = Number(today.slice(8, 10));
 
-  const [tipo, setTipo] = useState<ExportType>("SEMANAL");
+  // "Período de pago" es el modo por defecto: es el que replica la planilla
+  // real de remuneraciones (16 del mes anterior al 15) y el único que se
+  // compara 1 a 1 contra el archivo que RRHH usa hoy.
+  const [tipo, setTipo] = useState<ExportType>("PAGO");
+  const [pagoMes, setPagoMes] = useState(currentMonth);
   const [semanaFecha, setSemanaFecha] = useState(today);
   const [quincenaMes, setQuincenaMes] = useState(currentMonth);
   const [quincena, setQuincena] = useState<"1" | "2">(currentDay <= 15 ? "1" : "2");
@@ -35,7 +39,10 @@ export function DescargarAsistenciaCard({ now = new Date() }: { now?: Date }) {
 
   const href = useMemo(() => {
     const params = new URLSearchParams();
-    if (tipo === "SEMANAL") {
+    if (tipo === "PAGO") {
+      params.set("tipo", "pago");
+      params.set("mes", pagoMes);
+    } else if (tipo === "SEMANAL") {
       params.set("tipo", "semanal");
       params.set("fecha", semanaFecha);
     } else if (tipo === "QUINCENAL") {
@@ -47,7 +54,7 @@ export function DescargarAsistenciaCard({ now = new Date() }: { now?: Date }) {
       params.set("mes", mensualMes);
     }
     return `/dashboard/export-asistencia?${params.toString()}`;
-  }, [tipo, semanaFecha, quincenaMes, quincena, mensualMes]);
+  }, [tipo, pagoMes, semanaFecha, quincenaMes, quincena, mensualMes]);
 
   return (
     <section aria-labelledby="descargar-asistencia-heading" className="rounded-lg border border-border bg-card p-4 shadow-sm">
@@ -64,6 +71,7 @@ export function DescargarAsistenciaCard({ now = new Date() }: { now?: Date }) {
         onChange={(event) => setTipo(event.target.value as ExportType)}
         className="mt-1 w-full rounded-md border border-border bg-white px-2.5 py-1.5 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
       >
+        <option value="PAGO">Período de pago (16 al 15)</option>
         <option value="SEMANAL">Semanal</option>
         <option value="QUINCENAL">Quincenal</option>
         <option value="MENSUAL">Mensual</option>
@@ -72,6 +80,15 @@ export function DescargarAsistenciaCard({ now = new Date() }: { now?: Date }) {
       <label htmlFor="descargar-asistencia-periodo" className="mt-3 block text-xs font-medium text-slate-500">
         Período
       </label>
+      {tipo === "PAGO" && (
+        <input
+          id="descargar-asistencia-periodo"
+          type="month"
+          value={pagoMes}
+          onChange={(event) => setPagoMes(event.target.value)}
+          className="mt-1 w-full rounded-md border border-border bg-white px-2.5 py-1.5 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+        />
+      )}
       {tipo === "SEMANAL" && (
         <input
           id="descargar-asistencia-periodo"

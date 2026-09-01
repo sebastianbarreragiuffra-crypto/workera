@@ -7,6 +7,7 @@ import {
   createCompanyAction,
   createOrganizationUnitAction,
   inviteCompanyMemberAction,
+  resendCompanyInvitationAction,
   setCompanyModuleStatusAction,
   setOnboardingStepStatusAction,
   type PlatformActionState,
@@ -35,7 +36,7 @@ function ActionFeedback({ state }: { state: PlatformActionState }) {
   return (
     <p
       role={state.status === "error" ? "alert" : "status"}
-      className={`mt-3 rounded-md px-3 py-2 text-sm ${state.status === "error" ? "bg-critical-bg text-critical" : "bg-success-bg text-success"}`}
+      className={`mt-3 rounded-md px-3 py-2 text-sm ${state.status === "error" ? "bg-critical-bg text-critical" : state.status === "warning" ? "bg-amber-50 text-amber-800" : "bg-success-bg text-success"}`}
     >
       {state.message}
     </p>
@@ -133,9 +134,21 @@ export function InviteMemberForm({ companyId, roles, canManage }: { companyId: s
             {roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
           </select>
         </label>
-        <SubmitButton>Registrar invitación</SubmitButton>
+        <SubmitButton>Enviar invitación</SubmitButton>
       </div>
-      <p className="mt-2 text-xs text-slate-500">La invitación queda registrada; el envío de correo se conectará en una fase posterior.</p>
+      <p className="mt-2 text-xs text-slate-500">Si la persona ya tiene cuenta, podrá ingresar directamente. Si es nueva, recibirá un correo para confirmar su acceso.</p>
+      <ActionFeedback state={state} />
+    </form>
+  );
+}
+
+export function ResendInvitationForm({ companyId, invitationId }: { companyId: string; invitationId: string }) {
+  const [state, action] = useActionState(resendCompanyInvitationAction, INITIAL_STATE);
+  return (
+    <form action={action} className="mt-2">
+      <input type="hidden" name="companyId" value={companyId} />
+      <input type="hidden" name="invitationId" value={invitationId} />
+      <SubmitButton compact>Reintentar correo</SubmitButton>
       <ActionFeedback state={state} />
     </form>
   );

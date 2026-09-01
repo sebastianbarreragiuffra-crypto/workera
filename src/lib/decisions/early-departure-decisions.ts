@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 import { addBusinessDays } from "../business-rules/business-days";
+import { loadHolidaySet, holidayWindow } from "../business-rules/holidays";
 
 /**
  * Servicio de escritura para `early_departure_decisions` (Fase 8, PASO 6).
@@ -34,7 +35,9 @@ export async function markEarlyDepartureMedical(
   supabase: SupabaseClient<Database>,
   input: MarkEarlyDepartureMedicalInput
 ): Promise<{ decisionId: string }> {
-  const deadline = addBusinessDays(input.workDate, MEDICAL_DOCUMENT_DEADLINE_BUSINESS_DAYS);
+  const { from, to } = holidayWindow(input.workDate);
+  const holidays = await loadHolidaySet(supabase, from, to);
+  const deadline = addBusinessDays(input.workDate, MEDICAL_DOCUMENT_DEADLINE_BUSINESS_DAYS, holidays);
   const { data, error } = await supabase
     .from("early_departure_decisions")
     .insert({
@@ -65,7 +68,9 @@ export async function confirmEarlyDepartureMedicalDocument(
   supabase: SupabaseClient<Database>,
   input: ConfirmEarlyDepartureMedicalDocumentInput
 ): Promise<{ decisionId: string }> {
-  const deadline = addBusinessDays(input.workDate, MEDICAL_DOCUMENT_DEADLINE_BUSINESS_DAYS);
+  const { from, to } = holidayWindow(input.workDate);
+  const holidays = await loadHolidaySet(supabase, from, to);
+  const deadline = addBusinessDays(input.workDate, MEDICAL_DOCUMENT_DEADLINE_BUSINESS_DAYS, holidays);
   const { data, error } = await supabase
     .from("early_departure_decisions")
     .insert({

@@ -11,7 +11,7 @@
  */
 import { currentWeekRange } from "../view-models/dashboard-view";
 
-export type AttendanceExportType = "SEMANAL" | "QUINCENAL" | "MENSUAL";
+export type AttendanceExportType = "SEMANAL" | "QUINCENAL" | "MENSUAL" | "PAGO";
 
 export interface AttendanceExportPeriod {
   type: AttendanceExportType;
@@ -51,6 +51,35 @@ export function resolveFortnightPeriod(yearMonth: string, half: 1 | 2): Attendan
   }
   const lastDay = lastDayOfMonth(year, month);
   return { type: "QUINCENAL", startDate: fmt(year, month, 16), endDate: fmt(year, month, lastDay), label: `2ª quincena de ${monthLabel(year, month)} (16 al ${lastDay})` };
+}
+
+/**
+ * PAGO: el ciclo real de remuneraciones de la empresa -- del 16 del mes
+ * ANTERIOR al 15 del mes indicado (`yearMonth` = el mes que se paga).
+ *
+ * Confirmado contra la planilla real: las cinco hojas del libro vigente
+ * (NOV25, DIC25, ENERO, FEBRERO, MARZO) empiezan TODAS el día 16 del mes
+ * anterior. Sus fechas de término varían (30-nov, 31-ene, 5-abr, 16-mar), lo
+ * que corresponde a columnas de holgura que quedaron en una planilla hecha a
+ * mano, no a ciclos de distinta duración.
+ *
+ * Resuelve el pendiente "Ciclo exacto de cierre mensual" de
+ * docs/DECISIONS_PENDING.md.
+ */
+export function resolvePayrollPeriod(yearMonth: string): AttendanceExportPeriod {
+  const [yearStr, monthStr] = yearMonth.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+
+  const startMonth = month === 1 ? 12 : month - 1;
+  const startYear = month === 1 ? year - 1 : year;
+
+  return {
+    type: "PAGO",
+    startDate: fmt(startYear, startMonth, 16),
+    endDate: fmt(year, month, 15),
+    label: `Remuneraciones ${monthLabel(year, month)} · 16 de ${monthLabel(startYear, startMonth).toLowerCase().replace(/ de \d{4}$/, "")} al 15 de ${monthLabel(year, month).toLowerCase()}`,
+  };
 }
 
 /** MENSUAL: mes (YYYY-MM) completo, 1º al último día calendario. */

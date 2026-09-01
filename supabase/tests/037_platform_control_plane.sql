@@ -3,7 +3,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(37);
+select plan(39);
 
 select has_table('public', 'platform_memberships', 'existe administración de plataforma separada');
 select has_table('public', 'company_roles', 'existen roles configurables por empresa');
@@ -17,6 +17,16 @@ select col_type_is('public', 'companies', 'status', 'public.company_lifecycle_st
 select ok(
   (select workspace_enabled and status = 'ACTIVE' from public.companies where slug = 'arcotex'),
   'ARCOTEX conserva su workspace actual habilitado'
+);
+
+select ok(
+  (select status = 'ONBOARDING' and not workspace_enabled from public.companies where slug = 'gisba'),
+  'GISBA existe como segundo cliente y parte con el workspace protegido'
+);
+select is(
+  (select count(*)::int from public.company_modules where company_id = (select id from public.companies where slug = 'gisba')),
+  (select count(*)::int from public.module_catalog where active),
+  'GISBA recibe su catálogo de módulos independiente'
 );
 
 insert into public.companies (
@@ -76,7 +86,7 @@ where cm.id = '91000000-0000-0000-0000-000000000201'
 set local role authenticated;
 set local request.jwt.claim.sub = '91000000-0000-0000-0000-000000000101';
 select ok(public.is_platform_admin(), 'la membresía de plataforma autoriza el control plane sin profiles.role');
-select is((select count(*)::int from public.companies), 2, 'el owner de plataforma ve toda la cartera');
+select is((select count(*)::int from public.companies), 3, 'el owner de plataforma ve toda la cartera');
 reset role;
 
 set local role authenticated;
@@ -237,7 +247,7 @@ reset role;
 
 set local role authenticated;
 set local request.jwt.claim.sub = '91000000-0000-0000-0000-000000000101';
-select is((select count(*)::int from public.platform_company_portfolio()), 2, 'el portafolio agregado contiene exactamente los dos clientes');
+select is((select count(*)::int from public.platform_company_portfolio()), 3, 'el portafolio agregado contiene los tres clientes presentes durante la prueba');
 select is((select count(*)::int from public.employees), 0, 'ser admin de plataforma no concede lectura automática de empleados');
 reset role;
 

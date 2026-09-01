@@ -13,6 +13,8 @@ import {
   type NonMedicalEarlyDepartureReason,
 } from "../../../lib/decisions/early-departure-decisions";
 import { markAbsencePendingDocument, confirmAbsenceDocument, disputeAbsence } from "../../../lib/decisions/absence-decisions";
+import { submitAttendanceCorrection } from "../../../lib/decisions/attendance-corrections";
+import { reprocessEmployeeDay } from "../../../lib/rule-engine/service";
 import { uploadSupportingDocument, type SupportingDocumentType, type SupportingDocumentRelation } from "../../../lib/decisions/documents";
 import { getDailyReviewBoard, sortPendingCards, findNextPendingEmployeeId } from "../../../lib/view-models/daily-review-view";
 import type { AreaCode } from "../../../lib/access/scope";
@@ -162,6 +164,49 @@ export async function disputeAbsenceAction(formData: FormData) {
 
   await disputeAbsence(supabase, { absenceRecordId, reason });
   await goToNextPending(area, date, employeeId, "licencia-disputada");
+}
+
+/**
+ * Corrección de marcación (MB-3). El caso real que motiva esto: un trabajador
+ * olvida marcar la salida, el motor no puede calcular ni horas extra ni salida
+ * anticipada, y hasta ahora la UI solo mostraba un aviso sin acción posible.
+ *
+ * Dos pasos, en este orden:
+ *  1. La corrección se inserta con el cliente de SESIÓN, para que la RLS
+ *     (`corrected_by = auth.uid() AND can_manage_employee`) sea el gate real
+ *     de área. Todas las validaciones (mismo día, orden de horas, período
+ *     cerrado, conflicto con una decisión de horas extra) las aplica la base.
+ *  2. Recién entonces se re-deriva ese trabajador/día bajo service_role, para
+ *     que atraso, salida anticipada y horas extra se recalculen sobre la hora
+ *     corregida. Sin este segundo paso la corrección resolvería la bandera
+ *     pero no produciría ningún candidato -- el trabajo quedaría a medias.
+ */
+export async function submitAttendanceCorrectionAction(formData: FormData) {
+  const profile = await requireActiveProfile();
+  const supabase = await createClient();
+
+  const attendanceRecordId = String(formData.get("attendanceRecordId"));
+  const employeeId = String(formData.get("employeeId"));
+  const date = String(formData.get("date"));
+  const area = String(formData.get("area")) as AreaCode;
+  const correctedClockIn = (formData.get("correctedClockIn") as string)?.trim() || null;
+  const correctedClockOut = (formData.get("correctedClockOut") as string)?.trim() || null;
+  const reason = String(formData.get("reason") ?? "");
+
+  await submitAttendanceCorrection(supabase, {
+    attendanceRecordId,
+    employeeId,
+    workDate: date,
+    correctedClockIn,
+    correctedClockOut,
+    reason,
+    correctedBy: profile.id,
+  });
+
+  await reprocessEmployeeDay(employeeId, date);
+
+  revalidatePath(`/revision-diaria`);
+  redirect(`/revision-diaria?fecha=${date}&area=${area}&filtro=pendientes&empleado=${employeeId}&hecho=marcacion-corregida`);
 }
 
 export async function uploadDocumentAction(formData: FormData) {

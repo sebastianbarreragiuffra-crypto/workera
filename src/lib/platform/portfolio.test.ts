@@ -41,6 +41,8 @@ test("mapPortfolioRows entrega DTO mínimo, conteos y href estable", () => {
     name: "Cliente Uno",
     slug: "cliente-uno",
     status: "ONBOARDING",
+    workspaceEnabled: false,
+    planCode: "CUSTOM",
     onboarding: {
       status: "IN_PROGRESS",
       completedSteps: 2,

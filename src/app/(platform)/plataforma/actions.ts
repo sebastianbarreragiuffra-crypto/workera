@@ -1,12 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { z } from "zod";
 import { PlatformAuthorizationError, requirePlatformManager } from "@/lib/platform/authorization";
+import { deliverCompanyInvitation, type InvitationDeliveryResult } from "@/lib/platform/invitations";
 import { createClient } from "@/lib/supabase/server";
 
 export interface PlatformActionState {
-  status: "idle" | "success" | "error";
+  status: "idle" | "success" | "warning" | "error";
   message: string;
 }
 
@@ -32,6 +34,7 @@ const invitationInput = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
   roleId: uuid,
 });
+const resendInvitationInput = z.object({ companyId: uuid, invitationId: uuid });
 const organizationInput = z.object({
   companyId: uuid,
   parentId: uuid,
@@ -76,6 +79,53 @@ function slugify(value: string): string {
 
 function failedValidation(): PlatformActionState {
   return { status: "error", message: "Revisa los campos e intenta nuevamente." };
+}
+
+function failedInvitationValidation(error: z.ZodError): PlatformActionState {
+  const field = error.issues[0]?.path[0];
+  if (field === "email") return { status: "error", message: "Ingresa un correo válido." };
+  if (field === "roleId") return { status: "error", message: "Selecciona el rol que tendrá la persona." };
+  return { status: "error", message: "No pudimos identificar la empresa. Recarga la página e inténtalo otra vez." };
+}
+
+async function invitationRedirectUrl(): Promise<string> {
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (configured) return `${configured.replace(/\/$/, "")}/auth/confirm?next=%2F`;
+  const requestHeaders = await headers();
+  const origin = requestHeaders.get("origin");
+  if (origin) return `${origin.replace(/\/$/, "")}/auth/confirm?next=%2F`;
+  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+  const protocol = requestHeaders.get("x-forwarded-proto") ?? "https";
+  if (!host) throw new Error("No se pudo resolver el origen público de la aplicación.");
+  return `${protocol}://${host}/auth/confirm?next=%2F`;
+}
+
+function deliveryState(result: InvitationDeliveryResult): PlatformActionState {
+  if (result.status === "SENT") {
+    return { status: "success", message: "Invitación registrada y correo enviado." };
+  }
+  if (result.status === "ACCOUNT_EXISTS") {
+    return { status: "success", message: "Invitación registrada. La persona ya tiene una cuenta y puede ingresar con Google o con sus credenciales." };
+  }
+  return {
+    status: "warning",
+    message: "La invitación quedó registrada, pero el correo no pudo enviarse. Puedes reintentar desde la lista; en producción debes configurar el servicio SMTP.",
+  };
+}
+
+async function deliverAndRecord(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  invitationId: string,
+  email: string
+): Promise<PlatformActionState> {
+  const result = await deliverCompanyInvitation(email, await invitationRedirectUrl());
+  const { error } = await supabase.rpc("platform_mark_company_invitation_delivery", {
+    p_invitation_id: invitationId,
+    p_delivery_status: result.status,
+    ...(result.status === "FAILED" ? { p_error_code: result.errorCode } : {}),
+  });
+  if (error) console.error("[platform] invitation delivery status failed", error.code ?? "unknown");
+  return deliveryState(result);
 }
 
 function failure(operation: string, error: unknown): PlatformActionState {
@@ -132,20 +182,63 @@ export async function inviteCompanyMemberAction(
   formData: FormData
 ): Promise<PlatformActionState> {
   const parsed = invitationInput.safeParse(fields(formData));
-  if (!parsed.success) return failedValidation();
+  if (!parsed.success) return failedInvitationValidation(parsed.error);
   try {
     await requirePlatformManager();
     const supabase = await createClient();
-    const { error } = await supabase.rpc("platform_create_company_invitation", {
+    const { data, error } = await supabase.rpc("platform_create_company_invitation", {
       p_company_id: parsed.data.companyId,
       p_email: parsed.data.email,
       p_role_id: parsed.data.roleId,
     });
-    if (error) throw error;
+    let invitationId = data;
+    if (error?.code === "23505") {
+      const existing = await supabase
+        .from("company_invitations")
+        .select("id")
+        .eq("company_id", parsed.data.companyId)
+        .eq("email", parsed.data.email)
+        .eq("status", "PENDING")
+        .gt("expires_at", new Date().toISOString())
+        .maybeSingle();
+      if (existing.error) throw existing.error;
+      invitationId = existing.data?.id ?? null;
+    } else if (error) {
+      throw error;
+    }
+    if (!invitationId) throw new Error("No se obtuvo el identificador de la invitación.");
+    const result = await deliverAndRecord(supabase, invitationId, parsed.data.email);
     revalidatePlatformCompanyPages();
-    return { status: "success", message: "Invitación registrada. El envío de correo aún no está conectado." };
+    return result;
   } catch (error) {
     return failure("create invitation", error);
+  }
+}
+
+export async function resendCompanyInvitationAction(
+  _previousState: PlatformActionState,
+  formData: FormData
+): Promise<PlatformActionState> {
+  const parsed = resendInvitationInput.safeParse(fields(formData));
+  if (!parsed.success) return failedValidation();
+  try {
+    await requirePlatformManager();
+    const supabase = await createClient();
+    const { data: invitation, error } = await supabase
+      .from("company_invitations")
+      .select("id, email")
+      .eq("id", parsed.data.invitationId)
+      .eq("company_id", parsed.data.companyId)
+      .eq("status", "PENDING")
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+    if (error) throw error;
+    if (!invitation) return { status: "error", message: "La invitación ya no está pendiente o venció." };
+    const result = await deliverAndRecord(supabase, invitation.id, invitation.email);
+    revalidatePlatformCompanyPages();
+    return result;
+  } catch (error) {
+    return failure("resend invitation", error);
   }
 }
 

@@ -58,18 +58,26 @@ test("admin-client.ts y user-management.ts declaran server-only", () => {
   }
 });
 
-test("createAdminClient nunca se importa desde un archivo fuera de src/lib/supabase, src/lib/admin o src/lib/sync", () => {
+test("createAdminClient nunca se importa desde un archivo fuera de src/lib/supabase, src/lib/admin, src/lib/sync o src/lib/rule-engine", () => {
   // src/lib/sync se agregó en Fase 6A: el servicio de ingesta controlada
   // Workera -> Supabase (workera-attendance-sync.ts) es un segundo
   // consumidor legítimo, server-only, de service_role -- misma categoría
   // que src/lib/admin, no una relajación del criterio (sigue siendo una
   // allowlist cerrada de directorios server-only conocidos, no "cualquier
   // archivo").
+  //
+  // src/lib/rule-engine se agregó en MB-2 con el mismo criterio: el motor de
+  // reglas corre desde el cron (sin sesión de usuario) y escribe
+  // `rule_engine_runs`, tabla que deliberadamente no tiene policy de
+  // escritura para `authenticated`. Ese directorio contiene EXCLUSIVAMENTE el
+  // punto de entrada service_role, para que ningún Route Handler ni Server
+  // Action bajo src/app/** tenga que obtener el cliente admin por su cuenta.
   const files = listFilesRecursively(SRC_ROOT).filter(
     (f) =>
       !f.includes(`${path.sep}lib${path.sep}supabase${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}admin${path.sep}`) &&
-      !f.includes(`${path.sep}lib${path.sep}sync${path.sep}`)
+      !f.includes(`${path.sep}lib${path.sep}sync${path.sep}`) &&
+      !f.includes(`${path.sep}lib${path.sep}rule-engine${path.sep}`)
   );
   const offenders: string[] = [];
 
@@ -95,4 +103,20 @@ test(".env.example no contiene un valor real para SUPABASE_SERVICE_ROLE_KEY", ()
   assert.ok(line, "SUPABASE_SERVICE_ROLE_KEY debe estar documentado en .env.example");
   const [, value] = line!.split("=");
   assert.equal(value ?? "", "", "SUPABASE_SERVICE_ROLE_KEY en .env.example debería estar vacío, no un valor real");
+});
+
+test("src/lib/rule-engine solo contiene el punto de entrada service_role, nunca lógica de negocio", () => {
+  // El valor de la allowlist depende de que este directorio se mantenga
+  // mínimo y auditable. Si crece, deja de ser una excepción justificable.
+  const ruleEngineDir = path.join(SRC_ROOT, "lib", "rule-engine");
+  const files = listFilesRecursively(ruleEngineDir).filter((f) => !f.endsWith(".test.ts"));
+
+  assert.deepEqual(
+    files.map((f) => path.basename(f)).sort(),
+    ["service.ts"],
+    "src/lib/rule-engine debe contener únicamente service.ts (el wrapper de service_role)"
+  );
+
+  const content = readFileSync(path.join(ruleEngineDir, "service.ts"), "utf8");
+  assert.match(content, /import\s+["']server-only["']/, "service.ts debe importar server-only");
 });

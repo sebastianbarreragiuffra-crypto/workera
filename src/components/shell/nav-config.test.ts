@@ -18,6 +18,16 @@ test("ADMIN_RRHH ve gestión de RRHH pero NO gestión de SUPER_ADMIN", () => {
   assert.ok(!items.some((i) => i.label === "Configuración"));
 });
 
+test("Horarios es visible para RRHH/SUPER_ADMIN y nunca para supervisores (escribe tablas con RLS is_privileged_admin())", () => {
+  for (const role of ["SUPER_ADMIN", "ADMIN_RRHH"] as const) {
+    assert.ok(getNavItemsForRole(role).some((i) => i.label === "Horarios" && i.href === "/configuracion/horarios"));
+  }
+  for (const role of ["SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"] as const) {
+    const sections = getNavSectionsForRole(role);
+    assert.ok(!sections.flatMap((s) => s.items).some((i) => i.label === "Horarios"));
+  }
+});
+
 test("SUPERVISOR_PRODUCTION/INSTALLATION nunca ven Nómina de Pago (datos financieros/bancarios, ni siquiera como 'Próximamente')", () => {
   for (const role of ["SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"] as const) {
     const sections = getNavSectionsForRole(role);

@@ -1,6 +1,7 @@
 export { GestoraBrand } from "./GestoraBrand";
 export { PortfolioKpis } from "./PortfolioKpis";
 export { CompanyPortfolioList } from "./CompanyPortfolioList";
+export { ClientWorkspaceGrid } from "./ClientWorkspaceGrid";
 export { CompanyHeader } from "./CompanyHeader";
 export { CompanyTabs } from "./CompanyTabs";
 export { CompanyModuleMatrix } from "./CompanyModuleMatrix";
@@ -9,6 +10,7 @@ export { PlatformShell } from "./PlatformShell";
 export {
   CreateCompanyForm,
   InviteMemberForm,
+  ResendInvitationForm,
   MemberRoleForm,
   ModuleStatusForm,
   OnboardingStepForm,

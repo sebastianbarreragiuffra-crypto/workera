@@ -31,6 +31,7 @@ const FEEDBACK_LABEL: Record<string, string> = {
   "licencia-confirmada": "✓ Licencia confirmada",
   "licencia-disputada": "✓ Caso enviado a revisión de RRHH",
   "documento-adjuntado": "✓ Documento adjuntado",
+  "marcacion-corregida": "✓ Marcación corregida — atraso y horas extra recalculados",
 };
 
 /** Fase 8B.2, PASO 4: "Pendientes" es el filtro por defecto -- esta pantalla es una work queue, no un listado general. */

@@ -329,8 +329,20 @@ export interface DailyReviewDetailViewModel {
     | { kind: "NO_SCHEDULE_ASSIGNED" }
     | { kind: "EXEMPT" };
 
+  /**
+   * Marcación EFECTIVA (cruda + corrección vigente), no la cruda. Desde MB-3
+   * el supervisor puede corregir una marcación olvidada: si el panel siguiera
+   * mostrando el crudo, vería `--` justo después de haber ingresado la hora.
+   * `rawClockIn/Out` conserva lo que entregó Workera, para poder distinguir
+   * qué fue corregido a mano.
+   */
   clockIn: string | null;
   clockOut: string | null;
+  rawClockIn: string | null;
+  rawClockOut: string | null;
+  /** Necesario para registrar una corrección; null si el día todavía no se procesó. */
+  attendanceRecordId: string | null;
+  hasCorrection: boolean;
 
   timeline: { label: string; timestamp: string; origin: string | null }[];
 
@@ -368,7 +380,8 @@ export interface DailyReviewDetailViewModel {
     decision: { status: string; documentRequired: boolean; documentDeadline: string | null; decidedAt: string } | null;
   } | null;
 
-  missingPunch: boolean;
+  /** Qué falta exactamente, para pedir solo esa hora en el formulario de corrección. `null` = marcación completa. */
+  missingPunch: "MISSING_CLOCK_IN" | "MISSING_CLOCK_OUT" | "MISSING_BOTH" | null;
   /** Real (`employee_birthdays`), puramente informativo -- nunca se usa aquí para recalcular la regla de las 12:00 (esa decisión ya la tomó el motor al generar o no un candidato). */
   isBirthdayToday: boolean;
   documents: { id: string; documentType: string; originalFilename: string; uploadedAt: string }[];
@@ -391,13 +404,29 @@ export async function getDailyReviewDetail(
     throw new Error(`getDailyReviewDetail: empleado no encontrado (${employeeId}).`);
   }
 
-  const [policy, effectiveSchedule, attendanceRes, lateRes, earlyRes, overtimeRes, absenceRes, missingPunchRes, documentsRes, birthdayRes, timelineRes] =
-    await Promise.all([
+  const [
+    policy,
+    effectiveSchedule,
+    attendanceRes,
+    lateRes,
+    earlyRes,
+    overtimeRes,
+    absenceRes,
+    missingPunchRes,
+    documentsRes,
+    birthdayRes,
+    correctionRes,
+    timelineRes,
+  ] = await Promise.all([
       resolveTimeControlPolicy(supabase, employeeId, date),
       resolveEffectiveSchedule(supabase, employeeId, date),
+      // No se usa `attendance_effective_punches` acá: esa vista NO filtra
+      // `attendance_records.is_current`, así que devuelve una fila por cada
+      // versión del registro y `.maybeSingle()` fallaría en cuanto un día se
+      // re-derive. Se piden las dos piezas por separado y se componen abajo.
       supabase
         .from("attendance_records")
-        .select("actual_clock_in, actual_clock_out")
+        .select("id, actual_clock_in, actual_clock_out")
         .eq("employee_id", employeeId)
         .eq("work_date", date)
         .eq("is_current", true)
@@ -437,7 +466,7 @@ export async function getDailyReviewDetail(
         .maybeSingle(),
       supabase
         .from("attendance_missing_punch_flags")
-        .select("status")
+        .select("status, missing_type")
         .eq("employee_id", employeeId)
         .eq("work_date", date)
         .in("status", ["PENDING_CONTACT", "CONTACTED"])
@@ -448,6 +477,13 @@ export async function getDailyReviewDetail(
         .eq("employee_id", employeeId),
       supabase.from("employee_birthdays").select("birth_month, birth_day").eq("employee_id", employeeId).maybeSingle(),
       supabase
+        .from("attendance_corrections")
+        .select("corrected_clock_in, corrected_clock_out")
+        .eq("employee_id", employeeId)
+        .eq("work_date", date)
+        .eq("is_current", true)
+        .maybeSingle(),
+      supabase
         .from("workera_attendance_events")
         .select("attendance_type_label, attendance_timestamp_interpreted, origin")
         .eq("employee_id", employeeId)
@@ -456,7 +492,7 @@ export async function getDailyReviewDetail(
         .order("attendance_timestamp_interpreted", { ascending: true }),
     ]);
 
-  for (const res of [attendanceRes, lateRes, earlyRes, overtimeRes, absenceRes, missingPunchRes, documentsRes, birthdayRes, timelineRes]) {
+  for (const res of [attendanceRes, lateRes, earlyRes, overtimeRes, absenceRes, missingPunchRes, documentsRes, birthdayRes, correctionRes, timelineRes]) {
     if (res.error) throw new Error(`getDailyReviewDetail: fallo leyendo datos del día: ${res.error.message}`);
   }
 
@@ -508,8 +544,15 @@ export async function getDailyReviewDetail(
     date,
     timeControl,
     schedule,
-    clockIn: attendanceRes.data?.actual_clock_in ?? null,
-    clockOut: attendanceRes.data?.actual_clock_out ?? null,
+    // Mismo COALESCE que `attendance_effective_punches`: la corrección
+    // autorizada manda sobre el crudo. El crudo se conserva aparte para poder
+    // mostrar qué se corrigió a mano.
+    clockIn: correctionRes.data?.corrected_clock_in ?? attendanceRes.data?.actual_clock_in ?? null,
+    clockOut: correctionRes.data?.corrected_clock_out ?? attendanceRes.data?.actual_clock_out ?? null,
+    rawClockIn: attendanceRes.data?.actual_clock_in ?? null,
+    rawClockOut: attendanceRes.data?.actual_clock_out ?? null,
+    attendanceRecordId: attendanceRes.data?.id ?? null,
+    hasCorrection: Boolean(correctionRes.data),
     timeline: (timelineRes.data ?? [])
       .filter((e) => e.attendance_timestamp_interpreted)
       .map((e) => ({ label: e.attendance_type_label, timestamp: e.attendance_timestamp_interpreted as string, origin: e.origin })),
@@ -575,7 +618,7 @@ export async function getDailyReviewDetail(
             : null,
         }
       : null,
-    missingPunch: Boolean(missingPunchRes.data),
+    missingPunch: (missingPunchRes.data?.missing_type as DailyReviewDetailViewModel["missingPunch"]) ?? null,
     isBirthdayToday: isBirthdayMatch(birthdayRes.data, date),
     documents: (documentsRes.data ?? []).map((d) => ({
       id: d.id,

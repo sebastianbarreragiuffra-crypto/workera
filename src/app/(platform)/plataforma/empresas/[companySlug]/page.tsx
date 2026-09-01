@@ -5,6 +5,7 @@ import {
   CompanyModuleMatrix,
   CompanyTabs,
   InviteMemberForm,
+  ResendInvitationForm,
   MemberRoleForm,
   ModuleStatusForm,
   OnboardingStepForm,
@@ -174,7 +175,18 @@ function UsersTab({ detail, canManage }: { detail: PlatformCompanyDetail; canMan
             <ul className="divide-y divide-slate-100">
               {detail.invitations.map((invitation) => (
                 <li key={invitation.id} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
-                  <div className="min-w-0"><div className="truncate text-sm font-medium text-slate-900">{invitation.email}</div><div className="text-xs text-slate-500">{invitation.roleName} · expira {formatDate(invitation.expiresAt, detail.timezone)}</div></div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-slate-900">{invitation.email}</div>
+                    <div className="text-xs text-slate-500">{invitation.roleName} · expira {formatDate(invitation.expiresAt, detail.timezone)}</div>
+                    {invitation.status === "PENDING" && (
+                      <div className="mt-1 text-xs text-slate-500">
+                        {{ PENDING: "Correo aún no procesado", SENT: "Correo enviado", ACCOUNT_EXISTS: "Cuenta existente: debe iniciar sesión", FAILED: "No se pudo enviar el correo" }[invitation.deliveryStatus]}
+                      </div>
+                    )}
+                    {invitation.status === "PENDING" && invitation.deliveryStatus === "FAILED" && canManage && (
+                      <ResendInvitationForm companyId={detail.header.id} invitationId={invitation.id} />
+                    )}
+                  </div>
                   <Badge label={{ PENDING: "Pendiente", ACCEPTED: "Aceptada", REVOKED: "Revocada", EXPIRED: "Vencida" }[invitation.status]} tone={invitation.status === "PENDING" ? "warning" : invitation.status === "ACCEPTED" ? "positive" : "neutral"} />
                 </li>
               ))}

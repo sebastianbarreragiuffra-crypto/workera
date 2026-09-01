@@ -14,6 +14,7 @@ import {
   confirmAbsenceDocumentAction,
   disputeAbsenceAction,
   uploadDocumentAction,
+  submitAttendanceCorrectionAction,
 } from "./actions";
 
 function formatTime(value: string | null): string {
@@ -31,6 +32,115 @@ function HiddenContext({ employeeId, date, area }: { employeeId: string; date: s
       <input type="hidden" name="employeeId" value={employeeId} />
       <input type="hidden" name="date" value={date} />
       <input type="hidden" name="area" value={area} />
+    </>
+  );
+}
+
+const MISSING_PUNCH_LABEL: Record<NonNullable<DailyReviewDetailViewModel["missingPunch"]>, string> = {
+  MISSING_CLOCK_IN: "No quedó registrada la entrada.",
+  MISSING_CLOCK_OUT: "No quedó registrada la salida.",
+  MISSING_BOTH: "No quedó registrada ninguna marcación del día.",
+};
+
+/**
+ * MB-3: el jefe ingresa la marcación que el trabajador olvidó registrar.
+ *
+ * Solo se pide la hora que efectivamente falta -- pedir ambas cuando solo
+ * falta la salida invita a sobrescribir un dato real de Workera sin motivo.
+ * El dato crudo nunca se modifica: la corrección se guarda aparte y se
+ * superpone, así que siempre se puede ver qué marcó el reloj y qué ingresó
+ * una persona.
+ */
+function AttendanceCorrectionForm({
+  detail,
+  date,
+  area,
+  attendanceRecordId,
+}: {
+  detail: DailyReviewDetailViewModel;
+  date: string;
+  area: AreaCode;
+  attendanceRecordId: string;
+}) {
+  const missing = detail.missingPunch!;
+  const needsClockIn = missing === "MISSING_CLOCK_IN" || missing === "MISSING_BOTH";
+  const needsClockOut = missing === "MISSING_CLOCK_OUT" || missing === "MISSING_BOTH";
+  const scheduledStart = detail.schedule.kind === "SCHEDULED" ? detail.schedule.scheduledStart.slice(0, 5) : "";
+  const scheduledEnd = detail.schedule.kind === "SCHEDULED" ? detail.schedule.scheduledEnd.slice(0, 5) : "";
+
+  return (
+    <>
+      <p className="text-sm text-slate-700">
+        Entrada: {formatTime(detail.clockIn)} · Salida: {formatTime(detail.clockOut)}
+      </p>
+      <p className="text-sm text-slate-700">
+        Horario: {scheduledStart || "—"} a {scheduledEnd || "—"}
+      </p>
+      <p className="text-sm font-medium text-amber-700">⚠ {MISSING_PUNCH_LABEL[missing]}</p>
+      <p className="text-xs text-slate-500">
+        Verifica con el trabajador e ingresa la hora real. El sistema no asume ninguna hora: mientras falte, no se calculan atrasos ni horas
+        extra para ese día.
+      </p>
+
+      <form action={submitAttendanceCorrectionAction} className="space-y-2 pt-1">
+        <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
+        <input type="hidden" name="attendanceRecordId" value={attendanceRecordId} />
+
+        <div className="flex flex-wrap gap-3">
+          {needsClockIn && (
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">Hora de entrada</span>
+              <input
+                type="time"
+                name="correctedClockIn"
+                required
+                defaultValue={scheduledStart}
+                className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              />
+            </label>
+          )}
+          {needsClockOut && (
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">Hora de salida</span>
+              <input
+                type="time"
+                name="correctedClockOut"
+                required
+                defaultValue={scheduledEnd}
+                className="mt-1 block rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              />
+            </label>
+          )}
+        </div>
+
+        <label className="block">
+          <span className="text-xs font-medium text-slate-600">Motivo</span>
+          <input
+            type="text"
+            name="reason"
+            required
+            maxLength={300}
+            placeholder="Ej: olvidó marcar, confirmado con portería"
+            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+          />
+        </label>
+
+        <button type="submit" className={PRIMARY_BTN}>
+          Guardar marcación
+        </button>
+      </form>
+
+      {detail.hasCorrection && (
+        <p className="text-xs text-slate-500">
+          Ya hay una corrección registrada para este día. Guardar otra la reemplaza y deja la anterior como historial.
+          {(detail.rawClockIn || detail.rawClockOut) && (
+            <>
+              {" "}
+              Marcación original del reloj: {formatTime(detail.rawClockIn)} a {formatTime(detail.rawClockOut)}.
+            </>
+          )}
+        </p>
+      )}
     </>
   );
 }
@@ -171,16 +281,9 @@ export function ReviewDetailPanel({
         </Section>
       )}
 
-      {detail.missingPunch && !detail.overtime && !detail.lateArrival && (
-        <Section title="Clock out pendiente">
-          <p className="text-sm text-slate-700">Entrada: {formatTime(detail.clockIn)}</p>
-          <p className="text-sm text-slate-700">
-            Salida esperada: {detail.schedule.kind === "SCHEDULED" ? detail.schedule.scheduledEnd.slice(0, 5) : "—"}
-          </p>
-          <p className="text-sm font-medium text-amber-700">Sin marcación de salida.</p>
-          <p className="text-xs text-slate-500">
-            Requiere revisión — no existe todavía un flujo de corrección de marcación en el sistema. No se asume ninguna hora de salida.
-          </p>
+      {detail.missingPunch && detail.attendanceRecordId && (
+        <Section title="Marcación faltante">
+          <AttendanceCorrectionForm detail={detail} date={date} area={area} attendanceRecordId={detail.attendanceRecordId} />
         </Section>
       )}
 

@@ -5,6 +5,14 @@ import { markEarlyDepartureMedical, confirmEarlyDepartureMedicalDocument, decide
 function mockSupabase(detectedMinutes: number, insertedRows: Record<string, unknown>[]) {
   return {
     from(table: string) {
+      if (table === "holidays") {
+        const result = { data: [] as { holiday_date: string }[], error: null };
+        const chain: Record<string, unknown> = {};
+        for (const m of ["select", "eq", "gte", "lte"]) chain[m] = () => chain;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (chain as any).then = (resolve: (v: unknown) => void) => resolve(result);
+        return chain;
+      }
       if (table === "early_departure_records") {
         return {
           select() {

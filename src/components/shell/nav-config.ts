@@ -71,6 +71,11 @@ const SUPERVISOR_FUTURE_MODULES: NavItem[] = [
 const REPORTS_SECTION_SUPERVISOR: NavItem[] = [{ label: "Historial de Decisiones", href: "", comingSoon: true }];
 
 const REPORTS_SECTION_RRHH: NavItem[] = [
+  // "Horarios" es administración de datos maestros, no un reporte -- vive en
+  // esta sección porque es donde RRHH ya busca lo administrativo, y porque su
+  // RLS es la misma `is_privileged_admin()` que el resto del bloque.
+  { label: "Horarios", href: "/configuracion/horarios" },
+  { label: "Motor de reglas", href: "/configuracion/motor-de-reglas" },
   { label: "Períodos", href: "/periodos" },
   { label: "Exportaciones", href: "/exportaciones" },
   { label: "Reportes", href: "", comingSoon: true },

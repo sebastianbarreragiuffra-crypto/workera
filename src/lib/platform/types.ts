@@ -26,6 +26,8 @@ export interface CompanyPortfolioItem {
   name: string;
   slug: string;
   status: CompanyLifecycleStatus;
+  workspaceEnabled: boolean;
+  planCode: string;
   onboarding: CompanyOnboardingSummary;
   users: CompanyUserSummary;
   modules: CompanyModuleSummary;

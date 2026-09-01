@@ -2,9 +2,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { markAbsencePendingDocument, confirmAbsenceDocument, disputeAbsence } from "./absence-decisions";
 
-function mockSupabase(insertedRows: Record<string, unknown>[]) {
+function mockSupabase(insertedRows: Record<string, unknown>[], holidays: string[] = []) {
   return {
-    from() {
+    from(table: string) {
+      if (table === "holidays") {
+        // Cadena select().eq().gte().lte() que resuelve como promesa.
+        const result = { data: holidays.map((d) => ({ holiday_date: d })), error: null };
+        const chain: Record<string, unknown> = {};
+        for (const m of ["select", "eq", "gte", "lte"]) chain[m] = () => chain;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (chain as any).then = (resolve: (v: unknown) => void) => resolve(result);
+        return chain;
+      }
       return {
         insert(row: Record<string, unknown>) {
           insertedRows.push(row);

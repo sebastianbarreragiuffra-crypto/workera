@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "../../../lib/supabase/server";
+import { acceptCurrentUserInvitations } from "../../../lib/platform/invitations";
 
 /**
  * Destino de vuelta de OAuth (Google, u otro proveedor que se habilite a
@@ -22,6 +23,7 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
+      await acceptCurrentUserInvitations(supabase);
       return NextResponse.redirect(`${origin}/`);
     }
   }

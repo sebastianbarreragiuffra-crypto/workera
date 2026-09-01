@@ -7,6 +7,7 @@ import {
   RerunAuthorizationError,
   MAX_MANUAL_SYNC_DAYS,
 } from "@/lib/sync/scheduler";
+import { runRuleEngineWithServiceRole } from "@/lib/rule-engine/service";
 
 /**
  * Route Handler server-only del scheduler (Fase 6B). Dos métodos HTTP, dos
@@ -54,6 +55,58 @@ export function worstHttpStatus(statuses: string[]): number {
   return 200;
 }
 
+/**
+ * Fechas sobre las que tiene sentido correr el motor de reglas: solo aquellas
+ * cuya sincronización terminó SUCCEEDED. Un DRY_RUN no escribió eventos, un
+ * FAILED no dejó datos confiables, y un ALREADY_RUNNING significa que otro
+ * proceso está ocupándose de esa fecha.
+ */
+export function datesReadyForRuleEngine(results: Record<string, { status: string }>): string[] {
+  return Object.entries(results)
+    .filter(([, r]) => r.status === "SUCCEEDED")
+    .map(([date]) => date);
+}
+
+/**
+ * MB-2: la ingesta por sí sola no produce nada visible para un supervisor --
+ * `syncWorkeraAttendance` deja los eventos crudos en
+ * `workera_attendance_events` y explícitamente NO calcula atrasos, horas
+ * extra ni colapsa marcaciones. Este paso ejecuta el motor de Fase 7 sobre
+ * cada fecha recién sincronizada, que es lo que finalmente puebla
+ * `attendance_records` y las tablas de candidatos que lee `/revision-diaria`.
+ *
+ * Corre bajo service_role igual que la ingesta: el camino del cron no tiene
+ * sesión de usuario, y `rule_engine_runs` no tiene policy de escritura para
+ * `authenticated` a propósito.
+ */
+async function runRuleEngineForSyncedDates(
+  results: Record<string, { status: string }>,
+  triggeredBy: "CRON" | "MANUAL"
+): Promise<Record<string, { status: string; lateCandidates: number; overtimeCandidates: number; withoutSchedule: number }>> {
+  const dates = datesReadyForRuleEngine(results);
+  if (dates.length === 0) return {};
+
+  const summary: Record<string, { status: string; lateCandidates: number; overtimeCandidates: number; withoutSchedule: number }> = {};
+
+  for (const date of dates) {
+    try {
+      const outcome = await runRuleEngineWithServiceRole(date, { triggeredBy });
+      summary[date] = {
+        status: outcome.status,
+        lateCandidates: outcome.result?.lateCandidates ?? 0,
+        overtimeCandidates: outcome.result?.overtimeCandidates ?? 0,
+        withoutSchedule: outcome.result?.withoutSchedule ?? 0,
+      };
+    } catch {
+      // Nunca se propaga el mensaje crudo al cuerpo HTTP (mismo criterio que
+      // el resto de este handler). El detalle queda en `rule_engine_runs`.
+      summary[date] = { status: "FAILED", lateCandidates: 0, overtimeCandidates: 0, withoutSchedule: 0 };
+    }
+  }
+
+  return summary;
+}
+
 function summarizeResults(results: Record<string, { status: string; attempts: number; inserted: number; versioned: number; unchanged: number }>) {
   return Object.fromEntries(
     Object.entries(results).map(([date, r]) => [
@@ -77,13 +130,19 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const statuses = Object.values(summary.results).map((r) => r.status);
+  const ruleEngine = await runRuleEngineForSyncedDates(summary.results, "CRON");
+
+  const statuses = [
+    ...Object.values(summary.results).map((r) => r.status),
+    ...Object.values(ruleEngine).map((r) => r.status),
+  ];
   return NextResponse.json(
     {
       enabled: true,
       targetDate: summary.targetDate,
       reconciliationDates: summary.reconciliationDates,
       results: summarizeResults(summary.results),
+      ruleEngine,
     },
     { status: worstHttpStatus(statuses) }
   );
@@ -103,9 +162,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await rerunWorkeraSync({ startDate: body.startDate, endDate: body.endDate });
-    const statuses = Object.values(result.results).map((r) => r.status);
+    const ruleEngine = await runRuleEngineForSyncedDates(result.results, "MANUAL");
+
+    const statuses = [
+      ...Object.values(result.results).map((r) => r.status),
+      ...Object.values(ruleEngine).map((r) => r.status),
+    ];
     return NextResponse.json(
-      { dates: result.dates, results: summarizeResults(result.results) },
+      { dates: result.dates, results: summarizeResults(result.results), ruleEngine },
       { status: worstHttpStatus(statuses) }
     );
   } catch (err) {

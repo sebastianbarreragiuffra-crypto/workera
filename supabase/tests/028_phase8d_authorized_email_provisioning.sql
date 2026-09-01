@@ -5,7 +5,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(24);
+select plan(27);
 
 -- ---------------------------------------------------------------------------
 -- 1) authorized_email_roles contiene EXACTAMENTE el mapeo de los 7 emails
@@ -14,6 +14,16 @@ select is(
   (select count(*)::int from public.authorized_email_roles),
   7,
   'authorized_email_roles tiene exactamente 7 filas (el mapeo aprobado, ni una más)'
+);
+select is(
+  (select platform_role::text from public.authorized_email_roles where email = 's.barrera@arcotex.cl'),
+  'OWNER',
+  's.barrera@arcotex.cl -> OWNER único del control plane'
+);
+select is(
+  (select count(*)::int from public.authorized_email_roles where email = 'sbarreragiuffra@gmail.com'),
+  0,
+  'sbarreragiuffra@gmail.com no permanece en la lista autorizada'
 );
 select is(
   (select role::text from public.authorized_email_roles where email = 'i.gonzalez@arcotex.cl'),
@@ -66,11 +76,11 @@ select is(has_table_privilege('anon', 'public.authorized_email_roles', 'SELECT')
 --    correcto de inmediato -- sin intervención manual. Los emails de las
 --    cuentas creadas son fixtures exclusivos de esta prueba: reutilizar los
 --    7 emails reales haría colisión cuando una cuenta local ya existe.
-insert into public.authorized_email_roles (email, role) values
-  ('fixture-super-admin-028@example.test', 'SUPER_ADMIN'),
-  ('fixture-admin-028@example.test', 'ADMIN_RRHH'),
-  ('fixture-production-028@example.test', 'SUPERVISOR_PRODUCTION'),
-  ('fixture-admin-metadata-028@example.test', 'ADMIN_RRHH');
+insert into public.authorized_email_roles (email, role, platform_role) values
+  ('fixture-super-admin-028@example.test', 'SUPER_ADMIN', 'OWNER'),
+  ('fixture-admin-028@example.test', 'ADMIN_RRHH', null),
+  ('fixture-production-028@example.test', 'SUPERVISOR_PRODUCTION', null),
+  ('fixture-admin-metadata-028@example.test', 'ADMIN_RRHH', null);
 
 insert into auth.users (id, email) values
   ('80000000-0000-0000-0000-000000000001', 'fixture-super-admin-028@example.test');
@@ -78,6 +88,11 @@ select is(
   (select role::text from public.profiles where id = '80000000-0000-0000-0000-000000000001'),
   'SUPER_ADMIN',
   'trigger: email fixture aprobado recibe SUPER_ADMIN al crear su cuenta'
+);
+select is(
+  (select role::text from public.platform_memberships where user_id = '80000000-0000-0000-0000-000000000001'),
+  'OWNER',
+  'trigger: webadmin aprobado recibe OWNER del control plane al crear su cuenta'
 );
 
 insert into auth.users (id, email) values

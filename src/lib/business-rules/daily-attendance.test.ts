@@ -143,3 +143,53 @@ test("deriveDailyAttendanceRecord: sin schedule_assignment vigente -> NO_SCHEDUL
   const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-17");
   assert.equal(result.status, "NO_SCHEDULE_ASSIGNED");
 });
+
+// --- MB-6: feriados legales ---
+
+test("deriveDailyAttendanceRecord: feriado SIN eventos -> HOLIDAY, nunca crea attendance_record ni bandera de tarjeta no marcada", async () => {
+  let insertCalled = false;
+  const mock = createMockSupabase({
+    ...SCHEDULED_MOCKS,
+    events: () => ({ data: [], error: null }),
+    attendance_records_insert: () => {
+      insertCalled = true;
+      return { data: { id: "ar-x" }, error: null };
+    },
+  });
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-09-18", true);
+  assert.equal(result.status, "HOLIDAY");
+  assert.equal(result.attendanceRecordId, null);
+  assert.equal(insertCalled, false);
+});
+
+test("deriveDailyAttendanceRecord: feriado TRABAJADO (con eventos) -> se deriva normal, para pagar HH100", async () => {
+  const mock = createMockSupabase({
+    ...SCHEDULED_MOCKS,
+    events: () => ({
+      data: [
+        { attendance_type_code: 0, attendance_timestamp_interpreted: "2026-09-18T11:00:00Z", attendance_timestamp_raw: "2026-09-18T07:00:00", external_fingerprint: "fp1" },
+        { attendance_type_code: 1, attendance_timestamp_interpreted: "2026-09-18T21:00:00Z", attendance_timestamp_raw: "2026-09-18T17:00:00", external_fingerprint: "fp2" },
+      ],
+      error: null,
+    }),
+    attendance_records_existing: () => ({ data: null, error: null }),
+    attendance_records_insert: () => ({ data: { id: "ar-holiday" }, error: null }),
+  });
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-09-18", true);
+  assert.equal(result.status, "DERIVED");
+  assert.equal(result.attendanceRecordId, "ar-holiday");
+  assert.ok(result.clockIn);
+  assert.ok(result.clockOut);
+});
+
+test("deriveDailyAttendanceRecord: sin la marca isHoliday, un feriado se procesa como día normal (compatibilidad)", async () => {
+  const mock = createMockSupabase({
+    ...SCHEDULED_MOCKS,
+    events: () => ({ data: [], error: null }),
+    attendance_records_existing: () => ({ data: null, error: null }),
+    attendance_records_insert: () => ({ data: { id: "ar-normal" }, error: null }),
+  });
+  // isHoliday por defecto = false
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-09-18");
+  assert.equal(result.status, "DERIVED");
+});

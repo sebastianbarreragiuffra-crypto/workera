@@ -794,10 +794,14 @@ export type Database = {
           accepted_by: string | null
           company_id: string
           created_at: string
+          delivery_attempts: number
+          delivery_error_code: string | null
+          delivery_status: string
           email: string
           expires_at: string
           id: string
           invited_by: string
+          last_delivery_at: string | null
           role_id: string
           status: Database["public"]["Enums"]["company_invitation_status"]
         }
@@ -806,10 +810,14 @@ export type Database = {
           accepted_by?: string | null
           company_id: string
           created_at?: string
+          delivery_attempts?: number
+          delivery_error_code?: string | null
+          delivery_status?: string
           email: string
           expires_at?: string
           id?: string
           invited_by: string
+          last_delivery_at?: string | null
           role_id: string
           status?: Database["public"]["Enums"]["company_invitation_status"]
         }
@@ -818,10 +826,14 @@ export type Database = {
           accepted_by?: string | null
           company_id?: string
           created_at?: string
+          delivery_attempts?: number
+          delivery_error_code?: string | null
+          delivery_status?: string
           email?: string
           expires_at?: string
           id?: string
           invited_by?: string
+          last_delivery_at?: string | null
           role_id?: string
           status?: Database["public"]["Enums"]["company_invitation_status"]
         }
@@ -2952,6 +2964,68 @@ export type Database = {
           },
         ]
       }
+      rule_engine_runs: {
+        Row: {
+          attendance_derived: number
+          early_departure_candidates: number
+          employees_processed: number
+          error_summary: string | null
+          failure_count: number
+          finished_at: string | null
+          id: string
+          late_candidates: number
+          overtime_candidates: number
+          started_at: string
+          status: string
+          triggered_by: string
+          triggered_by_profile: string | null
+          without_schedule: number
+          work_date: string
+        }
+        Insert: {
+          attendance_derived?: number
+          early_departure_candidates?: number
+          employees_processed?: number
+          error_summary?: string | null
+          failure_count?: number
+          finished_at?: string | null
+          id?: string
+          late_candidates?: number
+          overtime_candidates?: number
+          started_at?: string
+          status: string
+          triggered_by: string
+          triggered_by_profile?: string | null
+          without_schedule?: number
+          work_date: string
+        }
+        Update: {
+          attendance_derived?: number
+          early_departure_candidates?: number
+          employees_processed?: number
+          error_summary?: string | null
+          failure_count?: number
+          finished_at?: string | null
+          id?: string
+          late_candidates?: number
+          overtime_candidates?: number
+          started_at?: string
+          status?: string
+          triggered_by?: string
+          triggered_by_profile?: string | null
+          without_schedule?: number
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rule_engine_runs_triggered_by_profile_fkey"
+            columns: ["triggered_by_profile"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       schedule_assignments: {
         Row: {
           created_at: string
@@ -3731,6 +3805,14 @@ export type Database = {
         }
         Returns: undefined
       }
+      apply_schedule_assignment: {
+        Args: {
+          p_effective_from: string
+          p_employee_id: string
+          p_work_schedule_id: string
+        }
+        Returns: undefined
+      }
       apply_supplier_master_import: {
         Args: {
           p_file_size: number
@@ -3756,6 +3838,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      assign_schedule_to_unassigned: {
+        Args: { p_effective_from: string; p_work_schedule_id: string }
+        Returns: number
+      }
       can_manage_employee: { Args: { p_employee_id: string }; Returns: boolean }
       can_manage_platform: { Args: never; Returns: boolean }
       classify_overtime_type_id: {
@@ -3768,6 +3854,10 @@ export type Database = {
           rows_deleted: number
           table_name: string
         }[]
+      }
+      clear_time_control_exemption: {
+        Args: { p_effective_from: string; p_employee_id: string }
+        Returns: undefined
       }
       company_has_module: {
         Args: { p_company_id: string; p_module_key: string }
@@ -3907,6 +3997,15 @@ export type Database = {
         }
         Returns: string
       }
+      accept_my_company_invitations: { Args: never; Returns: number }
+      platform_mark_company_invitation_delivery: {
+        Args: {
+          p_delivery_status: string
+          p_error_code?: string
+          p_invitation_id: string
+        }
+        Returns: undefined
+      }
       platform_create_organization_unit: {
         Args: {
           p_code: string
@@ -3942,6 +4041,10 @@ export type Database = {
         Args: { p_company_id: string }
         Returns: undefined
       }
+      reclaim_stale_rule_engine_runs: {
+        Args: { p_stale_after_seconds?: number }
+        Returns: number
+      }
       reclaim_stale_workera_sync_runs: {
         Args: { p_stale_after_seconds?: number }
         Returns: number
@@ -3953,6 +4056,20 @@ export type Database = {
       reject_medical_license: {
         Args: { p_approval_id: string; p_reason: string }
         Returns: undefined
+      }
+      set_time_control_exemption: {
+        Args: {
+          p_actor_id: string
+          p_effective_from: string
+          p_employee_id: string
+          p_legal_basis: string
+          p_reason: string
+        }
+        Returns: undefined
+      }
+      upsert_work_schedule: {
+        Args: { p_name: string; p_rules: Json; p_schedule_id: string | null }
+        Returns: string
       }
     }
     Enums: {
