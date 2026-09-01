@@ -309,7 +309,12 @@ export async function upsertWorkSchedule(
   params: { scheduleId: string | null; name: string; rules: WorkScheduleRule[] }
 ): Promise<string> {
   const { data, error } = await supabase.rpc("upsert_work_schedule", {
-    p_schedule_id: params.scheduleId,
+    // La función SQL acepta NULL explícitamente (crea un horario nuevo en
+    // vez de actualizar uno existente -- ver la migración 20260901140000);
+    // el generador de tipos de Supabase no puede inferir esa nulabilidad
+    // desde un parámetro `uuid` plano, así que el tipo generado queda
+    // `string` no-nullable aunque el comportamiento real sí acepte null.
+    p_schedule_id: params.scheduleId as string,
     p_name: params.name,
     p_rules: params.rules.map((r) => ({
       day_of_week: r.dayOfWeek,

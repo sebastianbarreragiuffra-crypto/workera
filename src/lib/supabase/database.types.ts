@@ -587,16 +587,19 @@ export type Database = {
         Row: {
           created_at: string
           email: string
+          platform_role: Database["public"]["Enums"]["platform_role"] | null
           role: Database["public"]["Enums"]["app_role"]
         }
         Insert: {
           created_at?: string
           email: string
+          platform_role?: Database["public"]["Enums"]["platform_role"] | null
           role: Database["public"]["Enums"]["app_role"]
         }
         Update: {
           created_at?: string
           email?: string
+          platform_role?: Database["public"]["Enums"]["platform_role"] | null
           role?: Database["public"]["Enums"]["app_role"]
         }
         Relationships: []
@@ -3767,6 +3770,7 @@ export type Database = {
       }
     }
     Functions: {
+      accept_my_company_invitations: { Args: never; Returns: number }
       activate_colaciones_discount_workbook: {
         Args: {
           p_checksum: string
@@ -3899,6 +3903,18 @@ export type Database = {
         Args: { p_membership_id: string; p_role_id: string }
         Returns: undefined
       }
+      platform_company_organization: {
+        Args: { p_company_id: string }
+        Returns: {
+          direct_member_count: number
+          has_leader: boolean
+          name: string
+          parent_id: string
+          sort_order: number
+          unit_id: string
+          unit_type: Database["public"]["Enums"]["organization_unit_type"]
+        }[]
+      }
       platform_company_portfolio: {
         Args: never
         Returns: {
@@ -3922,11 +3938,11 @@ export type Database = {
       }
       platform_company_portfolio_page: {
         Args: {
-          p_company_id?: string | null
+          p_company_id?: string
           p_limit?: number
           p_offset?: number
-          p_search?: string | null
-          p_status?: Database["public"]["Enums"]["company_lifecycle_status"] | null
+          p_search?: string
+          p_status?: Database["public"]["Enums"]["company_lifecycle_status"]
         }
         Returns: {
           active_members: number
@@ -3947,32 +3963,6 @@ export type Database = {
           total_members: number
           total_steps: number
           workspace_enabled: boolean
-        }[]
-      }
-      platform_company_organization: {
-        Args: { p_company_id: string }
-        Returns: {
-          direct_member_count: number
-          has_leader: boolean
-          name: string
-          parent_id: string
-          sort_order: number
-          unit_id: string
-          unit_type: Database["public"]["Enums"]["organization_unit_type"]
-        }[]
-      }
-      platform_portfolio_summary: {
-        Args: never
-        Returns: {
-          active_companies: number
-          active_members: number
-          blocked_onboarding_companies: number
-          enabled_modules: number
-          onboarding_companies: number
-          pending_invitations: number
-          setup_required_modules: number
-          suspended_companies: number
-          total_companies: number
         }[]
       }
       platform_create_company: {
@@ -3997,15 +3987,6 @@ export type Database = {
         }
         Returns: string
       }
-      accept_my_company_invitations: { Args: never; Returns: number }
-      platform_mark_company_invitation_delivery: {
-        Args: {
-          p_delivery_status: string
-          p_error_code?: string
-          p_invitation_id: string
-        }
-        Returns: undefined
-      }
       platform_create_organization_unit: {
         Args: {
           p_code: string
@@ -4016,6 +3997,28 @@ export type Database = {
           p_unit_type: Database["public"]["Enums"]["organization_unit_type"]
         }
         Returns: string
+      }
+      platform_mark_company_invitation_delivery: {
+        Args: {
+          p_delivery_status: string
+          p_error_code?: string
+          p_invitation_id: string
+        }
+        Returns: undefined
+      }
+      platform_portfolio_summary: {
+        Args: never
+        Returns: {
+          active_companies: number
+          active_members: number
+          blocked_onboarding_companies: number
+          enabled_modules: number
+          onboarding_companies: number
+          pending_invitations: number
+          setup_required_modules: number
+          suspended_companies: number
+          total_companies: number
+        }[]
       }
       platform_set_company_module_status: {
         Args: {
@@ -4068,7 +4071,7 @@ export type Database = {
         Returns: undefined
       }
       upsert_work_schedule: {
-        Args: { p_name: string; p_rules: Json; p_schedule_id: string | null }
+        Args: { p_name: string; p_rules: Json; p_schedule_id: string }
         Returns: string
       }
     }
@@ -4347,3 +4350,4 @@ export const Constants = {
     },
   },
 } as const
+
