@@ -221,7 +221,7 @@ function mapRow(row: MedicalLicenseRow): MedicalLicenseListItem {
 
 const SELECT_COLUMNS =
   "id, status, proposed_start_date, proposed_end_date, extraction_status, confirmed_start_date, confirmed_end_date, uploaded_at, approved_at, rejected_at, rejection_reason, supporting_document_id, " +
-  "absence_records!inner(employee_id, employees(display_name, employee_groups(code))), " +
+  "absence_records!inner(employee_id, employees(display_name, employee_groups!employees_company_group_fkey(code))), " +
   "uploader:uploaded_by(display_name), approver:approved_by(display_name), rejecter:rejected_by(display_name)";
 
 /**

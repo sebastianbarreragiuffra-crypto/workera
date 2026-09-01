@@ -726,29 +726,188 @@ export type Database = {
       companies: {
         Row: {
           active: boolean
+          country_code: string
           created_at: string
+          created_by: string | null
           id: string
+          legal_name: string | null
           name: string
+          onboarded_at: string | null
+          plan_code: string
+          primary_contact_email: string | null
+          primary_contact_name: string | null
           slug: string
+          status: Database["public"]["Enums"]["company_lifecycle_status"]
+          timezone: string
           updated_at: string
+          workspace_enabled: boolean
         }
         Insert: {
           active?: boolean
+          country_code?: string
           created_at?: string
+          created_by?: string | null
           id?: string
+          legal_name?: string | null
           name: string
+          onboarded_at?: string | null
+          plan_code?: string
+          primary_contact_email?: string | null
+          primary_contact_name?: string | null
           slug: string
+          status?: Database["public"]["Enums"]["company_lifecycle_status"]
+          timezone?: string
           updated_at?: string
+          workspace_enabled?: boolean
         }
         Update: {
           active?: boolean
+          country_code?: string
           created_at?: string
+          created_by?: string | null
           id?: string
+          legal_name?: string | null
           name?: string
+          onboarded_at?: string | null
+          plan_code?: string
+          primary_contact_email?: string | null
+          primary_contact_name?: string | null
           slug?: string
+          status?: Database["public"]["Enums"]["company_lifecycle_status"]
+          timezone?: string
           updated_at?: string
+          workspace_enabled?: boolean
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "companies_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_invitations: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          company_id: string
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          invited_by: string
+          role_id: string
+          status: Database["public"]["Enums"]["company_invitation_status"]
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          company_id: string
+          created_at?: string
+          email: string
+          expires_at?: string
+          id?: string
+          invited_by: string
+          role_id: string
+          status?: Database["public"]["Enums"]["company_invitation_status"]
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          company_id?: string
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          invited_by?: string
+          role_id?: string
+          status?: Database["public"]["Enums"]["company_invitation_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_invitations_accepted_by_fkey"
+            columns: ["accepted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_invitations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_invitations_company_id_role_id_fkey"
+            columns: ["company_id", "role_id"]
+            isOneToOne: false
+            referencedRelation: "company_roles"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "company_invitations_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_membership_roles: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          company_id: string
+          membership_id: string
+          role_id: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          company_id: string
+          membership_id: string
+          role_id: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          company_id?: string
+          membership_id?: string
+          role_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_membership_roles_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_membership_roles_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_membership_roles_company_id_membership_id_fkey"
+            columns: ["company_id", "membership_id"]
+            isOneToOne: false
+            referencedRelation: "company_memberships"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "company_membership_roles_company_id_role_id_fkey"
+            columns: ["company_id", "role_id"]
+            isOneToOne: false
+            referencedRelation: "company_roles"
+            referencedColumns: ["company_id", "id"]
+          },
+        ]
       }
       company_memberships: {
         Row: {
@@ -791,6 +950,203 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_modules: {
+        Row: {
+          company_id: string
+          enabled_at: string | null
+          enabled_by: string | null
+          module_key: string
+          settings: Json
+          settings_version: number
+          status: Database["public"]["Enums"]["company_module_status"]
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          enabled_at?: string | null
+          enabled_by?: string | null
+          module_key: string
+          settings?: Json
+          settings_version?: number
+          status?: Database["public"]["Enums"]["company_module_status"]
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          enabled_at?: string | null
+          enabled_by?: string | null
+          module_key?: string
+          settings?: Json
+          settings_version?: number
+          status?: Database["public"]["Enums"]["company_module_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_modules_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_modules_enabled_by_fkey"
+            columns: ["enabled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_modules_module_key_fkey"
+            columns: ["module_key"]
+            isOneToOne: false
+            referencedRelation: "module_catalog"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
+      company_onboarding_steps: {
+        Row: {
+          company_id: string
+          completed_at: string | null
+          completed_by: string | null
+          notes: string | null
+          status: Database["public"]["Enums"]["company_onboarding_status"]
+          step_key: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          completed_at?: string | null
+          completed_by?: string | null
+          notes?: string | null
+          status?: Database["public"]["Enums"]["company_onboarding_status"]
+          step_key: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          completed_at?: string | null
+          completed_by?: string | null
+          notes?: string | null
+          status?: Database["public"]["Enums"]["company_onboarding_status"]
+          step_key?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_onboarding_steps_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_onboarding_steps_completed_by_fkey"
+            columns: ["completed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_onboarding_steps_step_key_fkey"
+            columns: ["step_key"]
+            isOneToOne: false
+            referencedRelation: "onboarding_step_catalog"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
+      company_role_permissions: {
+        Row: {
+          company_id: string
+          created_at: string
+          permission_code: string
+          role_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          permission_code: string
+          role_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          permission_code?: string
+          role_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_role_permissions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_role_permissions_company_id_role_id_fkey"
+            columns: ["company_id", "role_id"]
+            isOneToOne: false
+            referencedRelation: "company_roles"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "company_role_permissions_permission_code_fkey"
+            columns: ["permission_code"]
+            isOneToOne: false
+            referencedRelation: "permission_definitions"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      company_roles: {
+        Row: {
+          active: boolean
+          base_role: Database["public"]["Enums"]["app_role"] | null
+          code: string
+          company_id: string
+          created_at: string
+          description: string | null
+          id: string
+          is_system: boolean
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          base_role?: Database["public"]["Enums"]["app_role"] | null
+          code: string
+          company_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_system?: boolean
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          base_role?: Database["public"]["Enums"]["app_role"] | null
+          code?: string
+          company_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_system?: boolean
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_roles_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
             referencedColumns: ["id"]
           },
         ]
@@ -1126,6 +1482,7 @@ export type Database = {
         Row: {
           active: boolean
           code: string
+          company_id: string
           created_at: string
           id: string
           name: string
@@ -1133,6 +1490,7 @@ export type Database = {
         Insert: {
           active?: boolean
           code: string
+          company_id?: string
           created_at?: string
           id?: string
           name: string
@@ -1140,11 +1498,85 @@ export type Database = {
         Update: {
           active?: boolean
           code?: string
+          company_id?: string
           created_at?: string
           id?: string
           name?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "employee_groups_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employee_org_assignments: {
+        Row: {
+          company_id: string
+          created_at: string
+          effective_from: string
+          effective_to: string | null
+          employee_id: string
+          id: string
+          is_primary: boolean
+          org_unit_id: string
+          position_id: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          effective_from: string
+          effective_to?: string | null
+          employee_id: string
+          id?: string
+          is_primary?: boolean
+          org_unit_id: string
+          position_id?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          effective_from?: string
+          effective_to?: string | null
+          employee_id?: string
+          id?: string
+          is_primary?: boolean
+          org_unit_id?: string
+          position_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_org_assignments_company_id_employee_id_fkey"
+            columns: ["company_id", "employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "employee_org_assignments_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_org_assignments_company_id_org_unit_id_fkey"
+            columns: ["company_id", "org_unit_id"]
+            isOneToOne: false
+            referencedRelation: "organization_units"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "employee_org_assignments_company_id_position_id_fkey"
+            columns: ["company_id", "position_id"]
+            isOneToOne: false
+            referencedRelation: "job_positions"
+            referencedColumns: ["company_id", "id"]
+          },
+        ]
       }
       employee_time_control_policies: {
         Row: {
@@ -1200,6 +1632,7 @@ export type Database = {
       employees: {
         Row: {
           active: boolean
+          company_id: string
           created_at: string
           display_name: string
           employee_group_id: string | null
@@ -1214,6 +1647,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          company_id?: string
           created_at?: string
           display_name: string
           employee_group_id?: string | null
@@ -1228,6 +1662,7 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          company_id?: string
           created_at?: string
           display_name?: string
           employee_group_id?: string | null
@@ -1241,6 +1676,20 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "employees_company_group_fkey"
+            columns: ["company_id", "employee_group_id"]
+            isOneToOne: false
+            referencedRelation: "employee_groups"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "employees_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "employees_employee_group_id_fkey"
             columns: ["employee_group_id"]
@@ -1368,6 +1817,47 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      job_positions: {
+        Row: {
+          active: boolean
+          code: string
+          company_id: string
+          created_at: string
+          description: string | null
+          id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          company_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          company_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_positions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
             referencedColumns: ["id"]
           },
         ]
@@ -1641,6 +2131,232 @@ export type Database = {
           {
             foreignKeyName: "medical_license_approvals_uploaded_by_fkey"
             columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      membership_org_scopes: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          company_id: string
+          include_descendants: boolean
+          membership_id: string
+          org_unit_id: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          company_id: string
+          include_descendants?: boolean
+          membership_id: string
+          org_unit_id: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          company_id?: string
+          include_descendants?: boolean
+          membership_id?: string
+          org_unit_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "membership_org_scopes_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "membership_org_scopes_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "membership_org_scopes_company_id_membership_id_fkey"
+            columns: ["company_id", "membership_id"]
+            isOneToOne: false
+            referencedRelation: "company_memberships"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "membership_org_scopes_company_id_org_unit_id_fkey"
+            columns: ["company_id", "org_unit_id"]
+            isOneToOne: false
+            referencedRelation: "organization_units"
+            referencedColumns: ["company_id", "id"]
+          },
+        ]
+      }
+      module_catalog: {
+        Row: {
+          active: boolean
+          category: string
+          created_at: string
+          description: string
+          key: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          active?: boolean
+          category: string
+          created_at?: string
+          description: string
+          key: string
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          active?: boolean
+          category?: string
+          created_at?: string
+          description?: string
+          key?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
+      onboarding_step_catalog: {
+        Row: {
+          active: boolean
+          description: string
+          key: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          active?: boolean
+          description: string
+          key: string
+          name: string
+          sort_order: number
+        }
+        Update: {
+          active?: boolean
+          description?: string
+          key?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
+      organization_unit_leads: {
+        Row: {
+          company_id: string
+          created_at: string
+          effective_from: string
+          effective_to: string | null
+          employee_id: string
+          id: string
+          org_unit_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          effective_from: string
+          effective_to?: string | null
+          employee_id: string
+          id?: string
+          org_unit_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          effective_from?: string
+          effective_to?: string | null
+          employee_id?: string
+          id?: string
+          org_unit_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_unit_leads_company_id_employee_id_fkey"
+            columns: ["company_id", "employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "organization_unit_leads_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organization_unit_leads_company_id_org_unit_id_fkey"
+            columns: ["company_id", "org_unit_id"]
+            isOneToOne: false
+            referencedRelation: "organization_units"
+            referencedColumns: ["company_id", "id"]
+          },
+        ]
+      }
+      organization_units: {
+        Row: {
+          active: boolean
+          code: string
+          company_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          parent_id: string | null
+          sort_order: number
+          unit_type: Database["public"]["Enums"]["organization_unit_type"]
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          parent_id?: string | null
+          sort_order?: number
+          unit_type: Database["public"]["Enums"]["organization_unit_type"]
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          parent_id?: string | null
+          sort_order?: number
+          unit_type?: Database["public"]["Enums"]["organization_unit_type"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_units_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organization_units_company_id_parent_id_fkey"
+            columns: ["company_id", "parent_id"]
+            isOneToOne: false
+            referencedRelation: "organization_units"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "organization_units_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -1978,6 +2694,125 @@ export type Database = {
           },
         ]
       }
+      permission_definitions: {
+        Row: {
+          code: string
+          created_at: string
+          description: string
+          module_key: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          description: string
+          module_key?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          description?: string
+          module_key?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "permission_definitions_module_key_fkey"
+            columns: ["module_key"]
+            isOneToOne: false
+            referencedRelation: "module_catalog"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
+      platform_audit_log: {
+        Row: {
+          action: string
+          actor_id: string
+          company_id: string | null
+          created_at: string
+          id: number
+          metadata: Json
+          target_id: string | null
+          target_type: string
+        }
+        Insert: {
+          action: string
+          actor_id: string
+          company_id?: string | null
+          created_at?: string
+          id?: never
+          metadata?: Json
+          target_id?: string | null
+          target_type: string
+        }
+        Update: {
+          action?: string
+          actor_id?: string
+          company_id?: string | null
+          created_at?: string
+          id?: never
+          metadata?: Json
+          target_id?: string | null
+          target_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_audit_log_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      platform_memberships: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          role: Database["public"]["Enums"]["platform_role"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          role: Database["public"]["Enums"]["platform_role"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          role?: Database["public"]["Enums"]["platform_role"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_memberships_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_memberships_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           active: boolean
@@ -2004,6 +2839,61 @@ export type Database = {
           role?: Database["public"]["Enums"]["app_role"] | null
         }
         Relationships: []
+      }
+      reporting_lines: {
+        Row: {
+          company_id: string
+          created_at: string
+          effective_from: string
+          effective_to: string | null
+          employee_id: string
+          id: string
+          is_primary: boolean
+          manager_employee_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          effective_from: string
+          effective_to?: string | null
+          employee_id: string
+          id?: string
+          is_primary?: boolean
+          manager_employee_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          effective_from?: string
+          effective_to?: string | null
+          employee_id?: string
+          id?: string
+          is_primary?: boolean
+          manager_employee_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reporting_lines_company_id_employee_id_fkey"
+            columns: ["company_id", "employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "reporting_lines_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reporting_lines_company_id_manager_employee_id_fkey"
+            columns: ["company_id", "manager_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["company_id", "id"]
+          },
+        ]
       }
       reporting_periods: {
         Row: {
@@ -2867,6 +3757,7 @@ export type Database = {
         Returns: undefined
       }
       can_manage_employee: { Args: { p_employee_id: string }; Returns: boolean }
+      can_manage_platform: { Args: never; Returns: boolean }
       classify_overtime_type_id: {
         Args: { p_work_date: string }
         Returns: string
@@ -2878,13 +3769,30 @@ export type Database = {
           table_name: string
         }[]
       }
+      company_has_module: {
+        Args: { p_company_id: string; p_module_key: string }
+        Returns: boolean
+      }
+      current_platform_role: {
+        Args: never
+        Returns: Database["public"]["Enums"]["platform_role"]
+      }
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
       }
+      has_company_permission: {
+        Args: { p_company_id: string; p_permission_code: string }
+        Returns: boolean
+      }
+      is_active_company_member: {
+        Args: { p_company_id: string }
+        Returns: boolean
+      }
       is_admin_rrhh: { Args: never; Returns: boolean }
       is_corporate_user: { Args: never; Returns: boolean }
       is_medical_license_approver: { Args: never; Returns: boolean }
+      is_platform_admin: { Args: never; Returns: boolean }
       is_privileged_admin: { Args: never; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
       is_supervisor_installation: { Args: never; Returns: boolean }
@@ -2897,6 +3805,131 @@ export type Database = {
         }
         Returns: number
       }
+      platform_assign_company_role: {
+        Args: { p_membership_id: string; p_role_id: string }
+        Returns: undefined
+      }
+      platform_company_portfolio: {
+        Args: never
+        Returns: {
+          active_members: number
+          available_modules: number
+          company_id: string
+          completed_steps: number
+          created_at: string
+          employee_count: number
+          enabled_modules: number
+          legal_name: string
+          name: string
+          next_step_label: string
+          plan_code: string
+          slug: string
+          status: Database["public"]["Enums"]["company_lifecycle_status"]
+          total_members: number
+          total_steps: number
+          workspace_enabled: boolean
+        }[]
+      }
+      platform_company_portfolio_page: {
+        Args: {
+          p_company_id?: string | null
+          p_limit?: number
+          p_offset?: number
+          p_search?: string | null
+          p_status?: Database["public"]["Enums"]["company_lifecycle_status"] | null
+        }
+        Returns: {
+          active_members: number
+          available_modules: number
+          company_id: string
+          completed_steps: number
+          created_at: string
+          employee_count: number
+          enabled_modules: number
+          legal_name: string
+          name: string
+          next_step_label: string
+          onboarding_blocked: boolean
+          plan_code: string
+          slug: string
+          status: Database["public"]["Enums"]["company_lifecycle_status"]
+          total_count: number
+          total_members: number
+          total_steps: number
+          workspace_enabled: boolean
+        }[]
+      }
+      platform_company_organization: {
+        Args: { p_company_id: string }
+        Returns: {
+          direct_member_count: number
+          has_leader: boolean
+          name: string
+          parent_id: string
+          sort_order: number
+          unit_id: string
+          unit_type: Database["public"]["Enums"]["organization_unit_type"]
+        }[]
+      }
+      platform_portfolio_summary: {
+        Args: never
+        Returns: {
+          active_companies: number
+          active_members: number
+          blocked_onboarding_companies: number
+          enabled_modules: number
+          onboarding_companies: number
+          pending_invitations: number
+          setup_required_modules: number
+          suspended_companies: number
+          total_companies: number
+        }[]
+      }
+      platform_create_company: {
+        Args: {
+          p_country_code?: string
+          p_legal_name?: string
+          p_name: string
+          p_plan_code?: string
+          p_primary_contact_email?: string
+          p_primary_contact_name?: string
+          p_slug: string
+          p_timezone?: string
+        }
+        Returns: string
+      }
+      platform_create_company_invitation: {
+        Args: {
+          p_company_id: string
+          p_email: string
+          p_expires_at?: string
+          p_role_id: string
+        }
+        Returns: string
+      }
+      platform_create_organization_unit: {
+        Args: {
+          p_code: string
+          p_company_id: string
+          p_name: string
+          p_parent_id: string
+          p_sort_order?: number
+          p_unit_type: Database["public"]["Enums"]["organization_unit_type"]
+        }
+        Returns: string
+      }
+      platform_set_company_module_status: {
+        Args: {
+          p_company_id: string
+          p_module_key: string
+          p_status: Database["public"]["Enums"]["company_module_status"]
+        }
+        Returns: undefined
+      }
+      platform_set_onboarding_step_completed: {
+        Args: { p_company_id: string; p_completed: boolean; p_step_key: string }
+        Returns: undefined
+      }
       production_two_hour_proposal_minutes: {
         Args: { p_candidate_minutes: number }
         Returns: number
@@ -2904,6 +3937,10 @@ export type Database = {
       production_two_hour_requires_manual_review: {
         Args: { p_candidate_minutes: number }
         Returns: boolean
+      }
+      provision_company_control_plane: {
+        Args: { p_company_id: string }
+        Returns: undefined
       }
       reclaim_stale_workera_sync_runs: {
         Args: { p_stale_after_seconds?: number }
@@ -2924,6 +3961,18 @@ export type Database = {
         | "SUPERVISOR_PRODUCTION"
         | "SUPERVISOR_INSTALLATION"
         | "SUPER_ADMIN"
+      company_invitation_status: "PENDING" | "ACCEPTED" | "EXPIRED" | "REVOKED"
+      company_lifecycle_status:
+        | "ACTIVE"
+        | "ONBOARDING"
+        | "SUSPENDED"
+        | "INACTIVE"
+      company_module_status: "ENABLED" | "DISABLED" | "PILOT" | "SETUP_REQUIRED"
+      company_onboarding_status:
+        | "NOT_STARTED"
+        | "IN_PROGRESS"
+        | "BLOCKED"
+        | "COMPLETE"
       daily_review_status:
         | "IMPORTED"
         | "PENDING_REVIEW"
@@ -2945,10 +3994,18 @@ export type Database = {
         | "MISSING_CLOCK_IN"
         | "MISSING_CLOCK_OUT"
         | "MISSING_BOTH"
+      organization_unit_type:
+        | "COMPANY"
+        | "DIVISION"
+        | "AREA"
+        | "DEPARTMENT"
+        | "TEAM"
+        | "OTHER"
       overtime_decision_status:
         | "FULLY_APPROVED"
         | "PARTIALLY_APPROVED"
         | "REJECTED"
+      platform_role: "OWNER" | "ADMIN" | "SUPPORT" | "VIEWER"
       reporting_period_status:
         | "OPEN"
         | "IN_REVIEW"
@@ -3100,6 +4157,20 @@ export const Constants = {
         "SUPERVISOR_INSTALLATION",
         "SUPER_ADMIN",
       ],
+      company_invitation_status: ["PENDING", "ACCEPTED", "EXPIRED", "REVOKED"],
+      company_lifecycle_status: [
+        "ACTIVE",
+        "ONBOARDING",
+        "SUSPENDED",
+        "INACTIVE",
+      ],
+      company_module_status: ["ENABLED", "DISABLED", "PILOT", "SETUP_REQUIRED"],
+      company_onboarding_status: [
+        "NOT_STARTED",
+        "IN_PROGRESS",
+        "BLOCKED",
+        "COMPLETE",
+      ],
       daily_review_status: [
         "IMPORTED",
         "PENDING_REVIEW",
@@ -3125,11 +4196,20 @@ export const Constants = {
         "MISSING_CLOCK_OUT",
         "MISSING_BOTH",
       ],
+      organization_unit_type: [
+        "COMPANY",
+        "DIVISION",
+        "AREA",
+        "DEPARTMENT",
+        "TEAM",
+        "OTHER",
+      ],
       overtime_decision_status: [
         "FULLY_APPROVED",
         "PARTIALLY_APPROVED",
         "REJECTED",
       ],
+      platform_role: ["OWNER", "ADMIN", "SUPPORT", "VIEWER"],
       reporting_period_status: [
         "OPEN",
         "IN_REVIEW",
@@ -3150,4 +4230,3 @@ export const Constants = {
     },
   },
 } as const
-

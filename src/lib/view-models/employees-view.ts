@@ -36,7 +36,10 @@ export async function getEmployeeRoster(
   const allowedAreas = areasVisibleToRole(callerRole);
   if (filter.areaCode) assertAreaAccessAllowed(callerRole, filter.areaCode);
 
-  let query = supabase.from("employees").select("id, display_name, active, employee_groups(code)").order("display_name");
+  let query = supabase
+    .from("employees")
+    .select("id, display_name, active, employee_groups!employees_company_group_fkey(code)")
+    .order("display_name");
 
   if (filter.activeOnly) query = query.eq("active", true);
   if (filter.search) query = query.ilike("display_name", `%${filter.search}%`);

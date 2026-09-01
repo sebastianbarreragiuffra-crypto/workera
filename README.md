@@ -1,36 +1,99 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GESTORA
 
-## Getting Started
+Plataforma multiempresa para administrar clientes, personas y operaciones de
+RRHH. ARCOTEX es el primer workspace operativo; Workera es una integración de
+ese workspace, no la identidad ni el límite arquitectónico del producto.
 
-First, run the development server:
+## Pinned — contexto obligatorio
+
+- **Conservar el trabajo existente.** No reconstruir la aplicación desde cero,
+  no crear una versión paralela y no revertir migraciones o decisiones vigentes.
+- Hay dos contextos separados: el **control plane GESTORA**, que administra la
+  cartera de empresas, y el **workspace de cada empresa**, que ejecuta sus
+  procesos. Los roles globales no conceden acceso automático a datos laborales.
+- MT-3A implementa el control plane, roles y permisos por empresa, módulos,
+  onboarding y organigrama. Una empresa nueva nace en `ONBOARDING` con
+  `workspace_enabled = false`.
+- **Solo ARCOTEX puede operar actualmente.** No habilitar una segunda empresa
+  hasta completar MT-3B–D: `company_id`, claves/relaciones compuestas, RLS y
+  consultas tenant-aware en todas las tablas del dominio laboral, con pruebas
+  negativas de cruce entre empresas.
+- La variación entre clientes se resuelve con catálogo de módulos, entitlements,
+  configuración y permisos por empresa. No crear forks de código por cliente.
+- `platform_memberships` es la autoridad de roles de plataforma
+  (`OWNER`, `ADMIN`, `SUPPORT`, `VIEWER`). `profiles.role` y los cuatro roles
+  históricos continúan solo como compatibilidad temporal del workspace ARCOTEX.
+- `organization_units` representa la jerarquía real de la empresa.
+  `employee_groups` sigue siendo una clasificación para reglas laborales y no
+  debe reutilizarse como organigrama.
+- Ocultar una opción en la UI nunca reemplaza autorización backend, RLS ni el
+  gate del módulo. No exponer `service_role`, credenciales de Supabase o Workera,
+  datos médicos, bancarios ni payloads sensibles.
+- Este proyecto usa Next.js `16.3.3`, con cambios respecto de versiones previas.
+  Antes de escribir código Next, leer la guía aplicable en
+  `node_modules/next/dist/docs/`, tal como exige `AGENTS.md`.
+
+La arquitectura vigente, las decisiones reemplazadas y la secuencia segura de
+continuación están en
+[docs/PLATFORM_MULTI_COMPANY.md](docs/PLATFORM_MULTI_COMPANY.md).
+
+## Estado actual resumido
+
+- Fundación tenant: `companies`, `company_memberships` y resolución de empresa
+  activa.
+- Control plane MT-3A: ciclo de vida de clientes, membresías globales, RBAC
+  configurable por empresa, módulos, invitaciones, onboarding, organigrama y
+  auditoría de plataforma.
+- ARCOTEX conserva sus flujos de asistencia, novedades, documentos, nómina e
+  integración Workera. Esos dominios todavía no están completamente aislados
+  para operar una segunda empresa.
+- El dashboard usa KPIs agregados y la cartera se busca, filtra y pagina en el
+  servidor. El detalle carga solo la pestaña solicitada y pagina membresías;
+  administrar la plataforma no implica leer automáticamente la nómina de cada
+  cliente.
+- Las invariantes principales se prueban en
+  `supabase/tests/035_gestora_tenant_foundation.sql`,
+  `036_future_table_grants_lockdown.sql` y
+  `037_platform_control_plane.sql`, los RPC de gestión en
+  `038_platform_management_rpcs.sql`, la proyección privada del organigrama en
+  `039_platform_organization_projection.sql`, las consultas escalables del
+  portafolio en `040_platform_portfolio_queries.sql` y el bloqueo de escrituras
+  alternativas en `041_platform_security_hardening.sql`.
+
+## Desarrollo local
+
+Requisitos: Node.js, Docker Desktop y Supabase CLI. La configuración completa y
+los puertos canónicos están en [docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md).
 
 ```bash
+npm install
+npx supabase start
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abrir `http://localhost:3000`. Los archivos `.env`, `.env.local` y
+`.env.staging` no se versionan ni se comparten por chat.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Validación
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run lint
+npx tsc --noEmit
+npm test
+npx supabase test db
+npm run build
+```
 
-## Learn More
+Para validar una reconstrucción local completa se puede usar
+`npx supabase db reset`; nunca ejecutar un reset sobre staging o producción.
+Las instrucciones del ambiente compartido están en
+[docs/STAGING_ENVIRONMENT.md](docs/STAGING_ENVIRONMENT.md).
 
-To learn more about Next.js, take a look at the following resources:
+## Referencias principales
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [Arquitectura multiempresa](docs/PLATFORM_MULTI_COMPANY.md)
+- [Modelo de acceso histórico del workspace](docs/ACCESS_MODEL_PHASE5D.md)
+- [Estándar de seguridad de APIs](docs/API_SECURITY_STANDARD.md)
+- [Threat model](docs/THREAT_MODEL.md)
+- [Decisiones pendientes](docs/DECISIONS_PENDING.md)
+- [Sincronización Workera](docs/WORKERA_SYNC_PHASE6B.md)

@@ -26,7 +26,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   const supabase = await createClient();
-  const periodStatus = await getPeriodStatus(supabase, todayInSantiago());
+  const [periodStatus, platformMembership] = await Promise.all([
+    getPeriodStatus(supabase, todayInSantiago()),
+    supabase
+      .from("platform_memberships")
+      .select("user_id")
+      .eq("user_id", profile.id)
+      .eq("active", true)
+      .maybeSingle(),
+  ]);
 
   const sections = getNavSectionsForRole(profile.role);
   const areaLabel =
@@ -41,6 +49,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         displayName={profile.display_name}
         roleLabel={roleLabel(profile.role)}
         areaLabel={areaLabel}
+        platformHref={platformMembership.data ? "/plataforma" : null}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />

@@ -1,11 +1,9 @@
 @import "tailwindcss";
 
 /*
- * Paleta ARCOTEX (Fase 8B.1) -- azul corporativo del logo + navy de sidebar/
- * topbar, colores semánticos estándar para estados (pendiente/ok/crítico).
- * Aplicación empresarial interna con marca fija -- deliberadamente SIN modo
- * oscuro automático por `prefers-color-scheme` (el shell ya usa navy/azul
- * oscuro como parte del diseño, no como "modo oscuro").
+ * Base visual compartida por GESTORA y el workspace ARCOTEX. Los aliases
+ * históricos `arcotex-*` se conservan para no reescribir componentes estables;
+ * el control plane reutiliza la misma familia navy/azul con marca neutral.
  */
 :root {
   --background: #f3f5f8;
@@ -94,5 +92,5 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }

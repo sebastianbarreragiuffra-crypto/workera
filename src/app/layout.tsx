@@ -13,14 +13,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Workera — Plataforma de supervisión",
-  description: "Plataforma administrativa de asistencia y revisión diaria para Arcotex.",
+  title: "GESTORA — Plataforma multiempresa",
+  description: "Administración segura de clientes, personas, roles y módulos empresariales.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
-      lang="en"
+      lang="es"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>

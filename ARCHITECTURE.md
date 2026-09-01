@@ -1,4 +1,12 @@
-# Arquitectura — Workera Supervisor App
+# Documento histórico — no usar como estado actual
+
+Este archivo conserva decisiones de una fase temprana y contiene inventarios y
+diagramas ya reemplazados. Para el estado vigente, leer primero la sección
+**Pinned** de `README.md` y `docs/PLATFORM_MULTI_COMPANY.md`. El producto actual
+evoluciona como GESTORA multiempresa; ARCOTEX es solo el primer workspace
+operativo durante la transición.
+
+# Arquitectura histórica — Workera Supervisor App
 
 Estado: actualizado tras Gate B pre-UI (rama `fix-pre-ui-session-guard`, HEAD `8aa7db2`). Este documento reemplaza la versión "Fase 1" — describe exactamente lo que existe hoy en el código, distinguiendo `IMPLEMENTED` de `PLANNED`/`BLOCKED`. No se afirma nada como implementado sin verificación directa contra el repositorio en el momento de escribir esto.
 

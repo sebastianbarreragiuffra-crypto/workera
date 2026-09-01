@@ -4,7 +4,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(18);
+select plan(19);
 
 -- ---------------------------------------------------------------------------
 -- 1) ARCOTEX bootstrap
@@ -125,7 +125,13 @@ select throws_ok(
        where user_id = '90000000-0000-0000-0000-000000000101' $$,
   '42501',
   null,
-  'un usuario no puede auto-promoverse dentro de su propia membresía (sin policy de UPDATE)'
+  'company_memberships es read-only y rechaza la auto-promocion antes de RLS'
+);
+select is(
+  (select role::text from public.company_memberships
+   where user_id = '90000000-0000-0000-0000-000000000101'),
+  'ADMIN_RRHH',
+  'el rol permanece intacto: el usuario no puede auto-promoverse'
 );
 reset role;
 
@@ -163,7 +169,9 @@ reset role;
 
 -- 10) Desactivar la EMPRESA completa (companies.active=false) revoca acceso
 --     aunque la membresía individual siga marcada active=true.
-update public.companies set active = false where slug = 'demo-co';
+update public.companies
+set active = false, status = 'SUSPENDED'
+where slug = 'demo-co';
 set local role authenticated;
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000102'; -- Demo user, membership.active=true
 select is(

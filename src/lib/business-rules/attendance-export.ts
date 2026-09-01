@@ -67,7 +67,7 @@ export async function buildAttendanceExportRows(
 
   const { data: employees, error: employeesError } = await supabase
     .from("employees")
-    .select("id, display_name, employee_groups!inner(code)")
+    .select("id, display_name, employee_groups!employees_company_group_fkey!inner(code)")
     .eq("active", true)
     .in("employee_groups.code", allowedAreas)
     .order("display_name");

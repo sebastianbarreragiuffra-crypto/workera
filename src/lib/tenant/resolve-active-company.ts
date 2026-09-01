@@ -15,10 +15,10 @@ import type { Database } from "../supabase/database.types";
  * futura (MT-3+) pueda migrar la autorización real sin rediseñar esto de
  * nuevo. Ningún llamador existente importa este archivo.
  *
- * Nunca acepta un `companyId` como parámetro desde el llamador -- el activo
- * se deriva EXCLUSIVAMENTE de la sesión real (RLS de `company_memberships`
- * ya limita a `user_id = auth.uid()`); aceptar un id externo abriría la
- * puerta a que el navegador "elija" una empresa ajena.
+ * Esta versión enumera únicamente las membresías autorizadas. El selector de
+ * workspace de MT-3D podrá recibir una empresa elegida en URL/cookie, pero
+ * tendrá que contrastarla nuevamente contra esta lista y RLS; la selección
+ * nunca será autorización por sí sola.
  */
 
 export interface CompanyMembershipSummary {
@@ -43,16 +43,19 @@ export type ActiveCompanyResolution =
 export async function resolveActiveCompany(supabase: SupabaseClient<Database>): Promise<ActiveCompanyResolution> {
   const { data, error } = await supabase
     .from("company_memberships")
-    .select("company_id, role, companies(name, slug)")
+    .select("company_id, role, companies(name, slug, active, workspace_enabled)")
     .eq("active", true);
 
   if (error) throw new Error(`resolveActiveCompany: fallo leyendo company_memberships: ${error.message}`);
 
   const memberships: CompanyMembershipSummary[] = (data ?? [])
     .map((row) => {
-      const company = row.companies as { name: string; slug: string } | { name: string; slug: string }[] | null;
+      const company = row.companies as
+        | { name: string; slug: string; active: boolean; workspace_enabled: boolean }
+        | { name: string; slug: string; active: boolean; workspace_enabled: boolean }[]
+        | null;
       const resolved = Array.isArray(company) ? company[0] : company;
-      if (!resolved) return null;
+      if (!resolved?.active || !resolved.workspace_enabled) return null;
       return { companyId: row.company_id, companyName: resolved.name, companySlug: resolved.slug, role: row.role };
     })
     .filter((m): m is CompanyMembershipSummary => m !== null);

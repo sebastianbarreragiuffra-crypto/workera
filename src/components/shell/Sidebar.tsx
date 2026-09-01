@@ -52,6 +52,7 @@ export function Sidebar({
   displayName,
   roleLabel,
   areaLabel,
+  platformHref,
 }: {
   sections: NavSection[];
   weeklyReview: PeriodWindow | null;
@@ -59,6 +60,7 @@ export function Sidebar({
   displayName: string;
   roleLabel: string;
   areaLabel: string | null;
+  platformHref?: string | null;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
@@ -143,9 +145,22 @@ export function Sidebar({
         ))}
       </nav>
 
-      <div className={`space-y-3 border-t border-white/10 px-4 py-3 ${expandedContentClass}`}>
-        <PeriodBadge label="Semana actual" window={weeklyReview} />
-        <PeriodBadge label="Período actual" window={reportingPeriod} />
+      <div className="border-t border-white/10 px-2 py-3">
+        {platformHref && (
+          <Link
+            href={platformHref}
+            aria-label="Abrir GESTORA · Empresas"
+            className="mb-3 flex items-center justify-center rounded-md border border-blue-300/20 bg-blue-300/10 px-2 py-2 text-xs font-semibold text-blue-100 hover:bg-blue-300/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            title="Abrir GESTORA"
+          >
+            <span className={expandedContentClass}>GESTORA · Empresas</span>
+            <span className={collapsed ? "" : "md:hidden"}>G</span>
+          </Link>
+        )}
+        <div className={`space-y-3 px-2 ${expandedContentClass}`}>
+          <PeriodBadge label="Semana actual" window={weeklyReview} />
+          <PeriodBadge label="Período actual" window={reportingPeriod} />
+        </div>
       </div>
     </aside>
   );

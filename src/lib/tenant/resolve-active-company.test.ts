@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolveActiveCompany } from "./resolve-active-company";
 
-function mockSupabase(rows: { company_id: string; role: string; companies: { name: string; slug: string } | null }[]) {
+function mockSupabase(rows: { company_id: string; role: string; companies: { name: string; slug: string; active: boolean; workspace_enabled: boolean } | null }[]) {
   return {
     from(table: string) {
       if (table !== "company_memberships") throw new Error(`unexpected table ${table}`);
@@ -26,7 +26,7 @@ test("resolveActiveCompany: 0 membresías -> NONE (nunca se auto-provisiona una 
 });
 
 test("resolveActiveCompany: 1 membresía -> SINGLE, con nombre/slug/rol de ESA empresa únicamente", async () => {
-  const supabase = mockSupabase([{ company_id: "c1", role: "ADMIN_RRHH", companies: { name: "ARCOTEX", slug: "arcotex" } }]);
+  const supabase = mockSupabase([{ company_id: "c1", role: "ADMIN_RRHH", companies: { name: "ARCOTEX", slug: "arcotex", active: true, workspace_enabled: true } }]);
   const result = await resolveActiveCompany(supabase);
   assert.equal(result.kind, "SINGLE");
   if (result.kind === "SINGLE") {
@@ -38,8 +38,8 @@ test("resolveActiveCompany: 1 membresía -> SINGLE, con nombre/slug/rol de ESA e
 
 test("resolveActiveCompany: 2+ membresías -> MULTIPLE con exactamente esas empresas, nunca una lista global", async () => {
   const supabase = mockSupabase([
-    { company_id: "c1", role: "ADMIN_RRHH", companies: { name: "ARCOTEX", slug: "arcotex" } },
-    { company_id: "c2", role: "SUPERVISOR_PRODUCTION", companies: { name: "GESTORA DEMO COMPANY", slug: "demo-co" } },
+    { company_id: "c1", role: "ADMIN_RRHH", companies: { name: "ARCOTEX", slug: "arcotex", active: true, workspace_enabled: true } },
+    { company_id: "c2", role: "SUPERVISOR_PRODUCTION", companies: { name: "GESTORA DEMO COMPANY", slug: "demo-co", active: true, workspace_enabled: true } },
   ]);
   const result = await resolveActiveCompany(supabase);
   assert.equal(result.kind, "MULTIPLE");
@@ -58,6 +58,22 @@ test("resolveActiveCompany: fila sin company relacionada (RLS la filtró) se des
   assert.deepEqual(result, { kind: "NONE" });
 });
 
-test("resolveActiveCompany: nunca acepta un companyId como parámetro (firma de la función no lo permite)", () => {
-  assert.equal(resolveActiveCompany.length, 1, "resolveActiveCompany debe tomar únicamente el cliente de sesión, nunca un company_id externo");
+test("resolveActiveCompany: una empresa inactiva se descarta aunque el actor de plataforma pueda verla", async () => {
+  const supabase = mockSupabase([
+    { company_id: "c1", role: "ADMIN_RRHH", companies: { name: "Empresa suspendida", slug: "suspendida", active: false, workspace_enabled: true } },
+  ]);
+  const result = await resolveActiveCompany(supabase);
+  assert.deepEqual(result, { kind: "NONE" });
+});
+
+test("resolveActiveCompany: un workspace bloqueado no se resuelve como operativo", async () => {
+  const supabase = mockSupabase([
+    { company_id: "c1", role: "ADMIN_RRHH", companies: { name: "En onboarding", slug: "onboarding", active: true, workspace_enabled: false } },
+  ]);
+  const result = await resolveActiveCompany(supabase);
+  assert.deepEqual(result, { kind: "NONE" });
+});
+
+test("resolveActiveCompany: enumera desde el cliente de sesión; la selección de workspace se valida en una capa posterior", () => {
+  assert.equal(resolveActiveCompany.length, 1, "resolveActiveCompany debe tomar únicamente el cliente de sesión");
 });

@@ -2,15 +2,15 @@
 
 import { Suspense, useActionState, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArcotexLogo } from "../../components/shell/ArcotexLogo";
+import { GestoraBrand } from "../../components/platform/GestoraBrand";
 import { login, loginWithGoogle, type LoginState } from "./actions";
 
 const initialState: LoginState = { error: null };
 
 const VALUE_POINTS: { title: string; icon: "shield" | "activity" | "layers" }[] = [
-  { title: "Seguridad de datos", icon: "shield" },
-  { title: "Información en tiempo real", icon: "activity" },
-  { title: "Gestión por áreas y roles", icon: "layers" },
+  { title: "Aislamiento por empresa", icon: "shield" },
+  { title: "Operación y salud de clientes", icon: "activity" },
+  { title: "Roles y módulos configurables", icon: "layers" },
 ];
 
 function ValueIcon({ name }: { name: "shield" | "activity" | "layers" }) {
@@ -83,12 +83,12 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen bg-login-background">
       <div className="hidden w-[42%] shrink-0 flex-col justify-between bg-gradient-to-br from-login-panel-start via-login-panel-middle to-login-panel-end px-10 py-12 text-white lg:flex xl:px-14">
-        <ArcotexLogo inverse className="h-20 w-48" />
+        <GestoraBrand inverse subtitle="Plataforma multiempresa" />
 
         <div className="max-w-md">
-          <h1 className="text-3xl font-semibold leading-tight">Plataforma de Gestión Workera</h1>
+          <h1 className="text-3xl font-semibold leading-tight">Gestión empresarial, cliente por cliente</h1>
           <p className="mt-4 text-sm leading-relaxed text-blue-50/80">
-            Controla, revisa y gestiona la asistencia de tu equipo de forma simple, confiable y eficiente.
+            Administra empresas, personas, accesos y módulos desde una plataforma profesional y escalable.
           </p>
 
           <ul className="mt-8 space-y-4">
@@ -103,18 +103,18 @@ export default function LoginPage() {
           </ul>
         </div>
 
-        <p className="text-xs text-blue-100/50">© 2026 ARCOTEX. Todos los derechos reservados.</p>
+        <p className="text-xs text-blue-100/50">© 2026 GESTORA. Todos los derechos reservados.</p>
       </div>
 
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-12">
         <div className="w-full max-w-sm">
           <div className="mb-6 flex justify-center lg:hidden">
-            <ArcotexLogo className="h-20 w-48" />
+            <GestoraBrand subtitle="Plataforma multiempresa" />
           </div>
 
           <div className="rounded-xl border border-login-border-soft bg-card p-8 shadow-sm">
             <div className="mb-6 hidden justify-center lg:flex">
-              <ArcotexLogo className="h-16 w-40" />
+              <GestoraBrand subtitle="Acceso seguro" />
             </div>
 
             <h2 className="text-center text-xl font-semibold text-foreground">Bienvenido de nuevo</h2>
@@ -195,10 +195,10 @@ export default function LoginPage() {
               </button>
             </form>
 
-            <p className="mt-5 text-center text-xs text-login-muted-light">Acceso exclusivo para colaboradores</p>
+            <p className="mt-5 text-center text-xs text-login-muted-light">Acceso exclusivo para usuarios autorizados</p>
           </div>
 
-          <p className="mt-6 text-center text-xs text-login-muted-light lg:hidden">© 2026 ARCOTEX. Todos los derechos reservados.</p>
+          <p className="mt-6 text-center text-xs text-login-muted-light lg:hidden">© 2026 GESTORA. Todos los derechos reservados.</p>
         </div>
       </div>
     </div>

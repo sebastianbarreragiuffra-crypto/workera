@@ -107,7 +107,7 @@ export async function getDocumentCenter(
 
   const { data: employees, error: employeesError } = await supabase
     .from("employees")
-    .select("id, display_name, employee_groups(code)")
+    .select("id, display_name, employee_groups!employees_company_group_fkey(code)")
     .in("id", employeeIds);
   if (employeesError) throw new Error(`getDocumentCenter: fallo leyendo employees: ${employeesError.message}`);
 

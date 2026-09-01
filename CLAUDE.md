@@ -1,1 +1,3 @@
 @AGENTS.md
+@README.md
+@docs/PLATFORM_MULTI_COMPANY.md

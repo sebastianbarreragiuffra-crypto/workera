@@ -53,7 +53,7 @@ export async function assertEmployeeAccessAllowed(
 ): Promise<AreaCode> {
   const { data, error } = await supabase
     .from("employees")
-    .select("employee_groups(code)")
+    .select("employee_groups!employees_company_group_fkey(code)")
     .eq("id", employeeId)
     .single();
   if (error || !data) {
