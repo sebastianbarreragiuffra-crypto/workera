@@ -82,25 +82,32 @@ const REPORTS_SECTION_RRHH: NavItem[] = [
   { label: "Historial de Decisiones", href: "", comingSoon: true },
 ];
 
-export function getNavSectionsForRole(role: AppRole): NavSection[] {
+export function getNavSectionsForRole(role: AppRole, options?: { expensesHref?: string | null }): NavSection[] {
+  const expenseItems: NavItem[] = options?.expensesHref
+    ? [{ label: "Rendiciones", href: options.expensesHref }]
+    : FUTURE_MODULES;
+  const supervisorModuleItems: NavItem[] = options?.expensesHref
+    ? [{ label: "Colaciones", href: "", comingSoon: true }, ...expenseItems]
+    : SUPERVISOR_FUTURE_MODULES;
+  const moduleHeading = options?.expensesHref ? "Finanzas" : "Próximamente";
   switch (role) {
     case "SUPER_ADMIN":
       return [
         { items: RRHH_MAIN },
-        { items: FUTURE_MODULES, heading: "Próximamente" },
+        { items: expenseItems, heading: moduleHeading },
         { items: [...REPORTS_SECTION_RRHH, { label: "Usuarios", href: "/usuarios" }, { label: "Configuración", href: "/configuracion" }], heading: "Administración" },
       ];
     case "ADMIN_RRHH":
       return [
         { items: RRHH_MAIN },
-        { items: FUTURE_MODULES, heading: "Próximamente" },
+        { items: expenseItems, heading: moduleHeading },
         { items: REPORTS_SECTION_RRHH, heading: "Administración" },
       ];
     case "SUPERVISOR_PRODUCTION":
     case "SUPERVISOR_INSTALLATION":
       return [
         { items: SUPERVISOR_MAIN },
-        { items: SUPERVISOR_FUTURE_MODULES, heading: "Próximamente" },
+        { items: supervisorModuleItems, heading: moduleHeading },
         { items: REPORTS_SECTION_SUPERVISOR, heading: "Reportes" },
       ];
   }

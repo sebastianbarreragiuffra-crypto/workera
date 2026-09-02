@@ -1,0 +1,143 @@
+"use client";
+
+import { useActionState, useEffect, useRef } from "react";
+import { useFormStatus } from "react-dom";
+import {
+  addExpenseItemAction,
+  createExpenseReportAction,
+  submitExpenseReportAction,
+  type ExpenseActionState,
+} from "@/app/(expenses)/empresas/[companySlug]/rendiciones/actions";
+import type { ExpenseCategoryOption } from "@/lib/expenses/data";
+
+const INITIAL_STATE: ExpenseActionState = { status: "idle", message: "" };
+const INPUT = "mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm focus:border-arcotex-blue focus:outline-none focus:ring-2 focus:ring-blue-100";
+
+function Feedback({ state }: { state: ExpenseActionState }) {
+  if (state.status === "idle") return null;
+  return (
+    <p role={state.status === "error" ? "alert" : "status"} className={`rounded-lg px-3 py-2 text-sm ${state.status === "error" ? "bg-critical-bg text-critical" : "bg-success-bg text-success"}`}>
+      {state.message}
+    </p>
+  );
+}
+
+function SubmitButton({ children, tone = "primary" }: { children: React.ReactNode; tone?: "primary" | "success" }) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className={`inline-flex items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm disabled:cursor-wait disabled:opacity-60 ${tone === "success" ? "bg-success hover:bg-green-800" : "bg-arcotex-blue hover:bg-arcotex-blue-dark"}`}
+    >
+      {pending ? "Guardando…" : children}
+    </button>
+  );
+}
+
+export function CreateExpenseReportForm({ companySlug }: { companySlug: string }) {
+  const [state, action] = useActionState(createExpenseReportAction, INITIAL_STATE);
+  return (
+    <form action={action} className="space-y-5">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <div className="grid gap-5 sm:grid-cols-2">
+        <label className="text-sm font-medium text-slate-700 sm:col-span-2">
+          Nombre de la rendición
+          <input name="title" required minLength={2} maxLength={160} className={INPUT} placeholder="Ej. Visita comercial a Antofagasta" autoFocus />
+        </label>
+        <label className="text-sm font-medium text-slate-700">
+          Moneda
+          <select name="currencyCode" defaultValue="CLP" className={INPUT}>
+            <option value="CLP">Peso chileno (CLP)</option>
+            <option value="USD">Dólar estadounidense (USD)</option>
+            <option value="EUR">Euro (EUR)</option>
+          </select>
+        </label>
+        <label className="text-sm font-medium text-slate-700 sm:col-span-2">
+          Motivo o contexto
+          <textarea name="purpose" maxLength={1000} rows={4} className={INPUT} placeholder="Describe brevemente para qué se realizaron estos gastos." />
+        </label>
+      </div>
+      <Feedback state={state} />
+      <div className="flex justify-end"><SubmitButton>Crear borrador</SubmitButton></div>
+    </form>
+  );
+}
+
+export function AddExpenseItemForm({
+  companySlug,
+  reportId,
+  currencyCode,
+  categories,
+  defaultDate,
+}: {
+  companySlug: string;
+  reportId: string;
+  currencyCode: string;
+  categories: ExpenseCategoryOption[];
+  defaultDate: string;
+}) {
+  const [state, action] = useActionState(addExpenseItemAction, INITIAL_STATE);
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (state.status === "success") formRef.current?.reset();
+  }, [state]);
+
+  return (
+    <form ref={formRef} action={action} className="space-y-4">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <input type="hidden" name="reportId" value={reportId} />
+      <input type="hidden" name="currencyCode" value={currencyCode} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="text-sm font-medium text-slate-700">
+          Fecha
+          <input name="expenseDate" type="date" required defaultValue={defaultDate} className={INPUT} />
+        </label>
+        <label className="text-sm font-medium text-slate-700">
+          Categoría
+          <select name="categoryId" defaultValue="" className={INPUT}>
+            <option value="">Sin categoría</option>
+            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+        </label>
+        <label className="text-sm font-medium text-slate-700 sm:col-span-2">
+          Comercio o proveedor
+          <input name="merchantName" maxLength={160} className={INPUT} placeholder="Opcional" />
+        </label>
+        <label className="text-sm font-medium text-slate-700 sm:col-span-2">
+          Descripción
+          <input name="description" required minLength={2} maxLength={240} className={INPUT} placeholder="Ej. Almuerzo con cliente" />
+        </label>
+        <label className="text-sm font-medium text-slate-700">
+          Neto ({currencyCode})
+          <input name="netAmount" type="number" required min="0.01" step="0.01" inputMode="decimal" className={INPUT} placeholder="0" />
+        </label>
+        <label className="text-sm font-medium text-slate-700">
+          Impuesto ({currencyCode})
+          <input name="taxAmount" type="number" min="0" step="0.01" inputMode="decimal" defaultValue="0" className={INPUT} />
+        </label>
+      </div>
+      <Feedback state={state} />
+      <div className="flex justify-end"><SubmitButton>Agregar gasto</SubmitButton></div>
+    </form>
+  );
+}
+
+export function SubmitExpenseReportForm({ companySlug, reportId, disabled }: { companySlug: string; reportId: string; disabled: boolean }) {
+  const [state, action] = useActionState(submitExpenseReportAction, INITIAL_STATE);
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <input type="hidden" name="reportId" value={reportId} />
+      <button
+        type="submit"
+        disabled={disabled}
+        className="inline-flex w-full items-center justify-center rounded-lg bg-success px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+      >
+        Enviar a revisión
+      </button>
+      {disabled && <p className="text-center text-xs text-slate-500">Agrega al menos un gasto antes de enviar.</p>}
+      <Feedback state={state} />
+    </form>
+  );
+}

@@ -6,6 +6,7 @@ import { Topbar } from "../../components/shell/Topbar";
 import { getNavSectionsForRole, roleLabel } from "../../components/shell/nav-config";
 import { getPeriodStatus } from "../../lib/view-models/dashboard-view";
 import { todayInSantiago } from "../../lib/view-models/date-utils";
+import { listExpenseCompaniesFromClient } from "../../lib/expenses/access";
 
 const AREA_LABEL: Record<"SUPERVISOR_PRODUCTION" | "SUPERVISOR_INSTALLATION", string> = {
   SUPERVISOR_PRODUCTION: "Producción",
@@ -26,7 +27,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   const supabase = await createClient();
-  const [periodStatus, platformMembership] = await Promise.all([
+  const [periodStatus, platformMembership, expenseCompanies] = await Promise.all([
     getPeriodStatus(supabase, todayInSantiago()),
     supabase
       .from("platform_memberships")
@@ -34,9 +35,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       .eq("user_id", profile.id)
       .eq("active", true)
       .maybeSingle(),
+    listExpenseCompaniesFromClient(supabase, profile.id),
   ]);
 
-  const sections = getNavSectionsForRole(profile.role);
+  const expenseCompany = expenseCompanies.find((company) => company.slug === "arcotex") ?? expenseCompanies[0];
+  const sections = getNavSectionsForRole(profile.role, {
+    expensesHref: expenseCompany ? `/empresas/${expenseCompany.slug}/rendiciones` : null,
+  });
   const areaLabel =
     profile.role === "SUPERVISOR_PRODUCTION" || profile.role === "SUPERVISOR_INSTALLATION" ? AREA_LABEL[profile.role] : null;
 

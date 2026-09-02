@@ -135,8 +135,9 @@ empresa en onboarding como si ya estuviera operativa.
 
 ## 7. Próximos pasos
 
-1. Continuar Rendiciones con captura web/móvil, políticas versionadas y flujo
-   de aprobación, consumiendo siempre el tenant y entitlement ya implementados.
+1. Continuar Rendiciones EX-3 con comprobantes privados, extracción OCR y
+   decisiones de aprobación, consumiendo siempre el tenant y entitlement ya
+   implementados en EX-1/EX-2.
 2. Ejecutar MT-3B–D por dominio laboral, con migraciones pequeñas, backfill explícito y
    pruebas de cruce tenant antes de avanzar al siguiente dominio.
 3. Hacer tenant-aware los jobs, archivos, exports e integraciones; evitar que un

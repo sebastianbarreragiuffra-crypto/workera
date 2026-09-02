@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getNavItemsForRole, getNavSectionsForRole, roleLabel } from "./nav-config";
 
+const ALL_ROLES = ["SUPER_ADMIN", "ADMIN_RRHH", "SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"] as const;
+
 test("SUPER_ADMIN ve navegación completa incluyendo Usuarios/Configuración", () => {
   const items = getNavItemsForRole("SUPER_ADMIN");
   assert.ok(items.some((i) => i.label === "Usuarios"));
@@ -141,6 +143,15 @@ test("Rendiciones sigue como 'Próximamente' inmediatamente después del menú p
     const sections = getNavSectionsForRole(role);
     assert.equal(sections[1].heading, "Próximamente");
     assert.ok(sections[1].items.some((i) => i.label === "Rendiciones" && i.comingSoon === true));
+  }
+});
+
+test("Rendiciones se vuelve navegable para todos los roles solo cuando la empresa tiene el módulo habilitado", () => {
+  for (const role of ALL_ROLES) {
+    const sections = getNavSectionsForRole(role, { expensesHref: "/empresas/cliente-demo/rendiciones" });
+    const expenseItems = sections.flatMap((section) => section.items).filter((item) => item.label === "Rendiciones");
+    assert.deepEqual(expenseItems, [{ label: "Rendiciones", href: "/empresas/cliente-demo/rendiciones" }]);
+    assert.equal(sections[1].heading, "Finanzas");
   }
 });
 

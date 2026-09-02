@@ -7,31 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       absence_decisions: {
@@ -1794,6 +1769,396 @@ export type Database = {
             columns: ["weekly_review_id"]
             isOneToOne: false
             referencedRelation: "weekly_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_approval_decisions: {
+        Row: {
+          comment: string | null
+          company_id: string
+          decided_at: string
+          decided_by: string
+          decision: Database["public"]["Enums"]["expense_approval_decision"]
+          id: string
+          report_id: string
+          step_number: number
+        }
+        Insert: {
+          comment?: string | null
+          company_id: string
+          decided_at?: string
+          decided_by: string
+          decision: Database["public"]["Enums"]["expense_approval_decision"]
+          id?: string
+          report_id: string
+          step_number: number
+        }
+        Update: {
+          comment?: string | null
+          company_id?: string
+          decided_at?: string
+          decided_by?: string
+          decision?: Database["public"]["Enums"]["expense_approval_decision"]
+          id?: string
+          report_id?: string
+          step_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_approval_decisions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_approval_decisions_company_id_report_id_fkey"
+            columns: ["company_id", "report_id"]
+            isOneToOne: false
+            referencedRelation: "expense_reports"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "expense_approval_decisions_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_audit_events: {
+        Row: {
+          actor_id: string | null
+          company_id: string
+          event_type: string
+          id: number
+          metadata: Json
+          occurred_at: string
+          report_id: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          company_id: string
+          event_type: string
+          id?: never
+          metadata?: Json
+          occurred_at?: string
+          report_id?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          company_id?: string
+          event_type?: string
+          id?: never
+          metadata?: Json
+          occurred_at?: string
+          report_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_audit_events_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_audit_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_audit_events_company_id_report_id_fkey"
+            columns: ["company_id", "report_id"]
+            isOneToOne: false
+            referencedRelation: "expense_reports"
+            referencedColumns: ["company_id", "id"]
+          },
+        ]
+      }
+      expense_categories: {
+        Row: {
+          active: boolean
+          code: string
+          company_id: string
+          created_at: string
+          id: string
+          name: string
+          requires_receipt: boolean
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          company_id: string
+          created_at?: string
+          id?: string
+          name: string
+          requires_receipt?: boolean
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          name?: string
+          requires_receipt?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_categories_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_items: {
+        Row: {
+          category_id: string | null
+          company_id: string
+          created_at: string
+          currency_code: string
+          description: string
+          duplicate_fingerprint: string | null
+          expense_date: string
+          extraction: Json
+          id: string
+          merchant_name: string | null
+          net_amount: number
+          receipt_status: Database["public"]["Enums"]["expense_receipt_status"]
+          receipt_storage_path: string | null
+          report_id: string
+          tax_amount: number
+          total_amount: number | null
+          updated_at: string
+        }
+        Insert: {
+          category_id?: string | null
+          company_id: string
+          created_at?: string
+          currency_code?: string
+          description: string
+          duplicate_fingerprint?: string | null
+          expense_date: string
+          extraction?: Json
+          id?: string
+          merchant_name?: string | null
+          net_amount?: number
+          receipt_status?: Database["public"]["Enums"]["expense_receipt_status"]
+          receipt_storage_path?: string | null
+          report_id: string
+          tax_amount?: number
+          total_amount?: number | null
+          updated_at?: string
+        }
+        Update: {
+          category_id?: string | null
+          company_id?: string
+          created_at?: string
+          currency_code?: string
+          description?: string
+          duplicate_fingerprint?: string | null
+          expense_date?: string
+          extraction?: Json
+          id?: string
+          merchant_name?: string | null
+          net_amount?: number
+          receipt_status?: Database["public"]["Enums"]["expense_receipt_status"]
+          receipt_storage_path?: string | null
+          report_id?: string
+          tax_amount?: number
+          total_amount?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_items_company_id_category_id_fkey"
+            columns: ["company_id", "category_id"]
+            isOneToOne: false
+            referencedRelation: "expense_categories"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "expense_items_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_items_company_id_report_id_fkey"
+            columns: ["company_id", "report_id"]
+            isOneToOne: false
+            referencedRelation: "expense_reports"
+            referencedColumns: ["company_id", "id"]
+          },
+        ]
+      }
+      expense_policies: {
+        Row: {
+          active: boolean
+          company_id: string
+          created_at: string
+          created_by: string
+          currency_code: string
+          id: string
+          name: string
+          rules: Json
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          active?: boolean
+          company_id: string
+          created_at?: string
+          created_by: string
+          currency_code?: string
+          id?: string
+          name: string
+          rules?: Json
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          active?: boolean
+          company_id?: string
+          created_at?: string
+          created_by?: string
+          currency_code?: string
+          id?: string
+          name?: string
+          rules?: Json
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_policies_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_policies_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_report_sequences: {
+        Row: {
+          company_id: string
+          next_value: number
+        }
+        Insert: {
+          company_id: string
+          next_value?: number
+        }
+        Update: {
+          company_id?: string
+          next_value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_report_sequences_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_reports: {
+        Row: {
+          company_id: string
+          created_at: string
+          currency_code: string
+          id: string
+          organization_unit_id: string | null
+          policy_id: string | null
+          purpose: string | null
+          reference_number: string
+          resolved_at: string | null
+          status: Database["public"]["Enums"]["expense_report_status"]
+          submitted_at: string | null
+          submitted_by: string
+          title: string
+          total_amount: number
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          currency_code?: string
+          id?: string
+          organization_unit_id?: string | null
+          policy_id?: string | null
+          purpose?: string | null
+          reference_number?: string
+          resolved_at?: string | null
+          status?: Database["public"]["Enums"]["expense_report_status"]
+          submitted_at?: string | null
+          submitted_by: string
+          title: string
+          total_amount?: number
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          currency_code?: string
+          id?: string
+          organization_unit_id?: string | null
+          policy_id?: string | null
+          purpose?: string | null
+          reference_number?: string
+          resolved_at?: string | null
+          status?: Database["public"]["Enums"]["expense_report_status"]
+          submitted_at?: string | null
+          submitted_by?: string
+          title?: string
+          total_amount?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_reports_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_reports_company_id_organization_unit_id_fkey"
+            columns: ["company_id", "organization_unit_id"]
+            isOneToOne: false
+            referencedRelation: "organization_units"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "expense_reports_company_id_policy_id_fkey"
+            columns: ["company_id", "policy_id"]
+            isOneToOne: false
+            referencedRelation: "expense_policies"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "expense_reports_submitted_by_fkey"
+            columns: ["submitted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -3875,6 +4240,15 @@ export type Database = {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
       }
+      expense_dashboard_summary: {
+        Args: { p_company_id: string }
+        Returns: {
+          approved_count: number
+          draft_count: number
+          review_count: number
+          visible_total: number
+        }[]
+      }
       has_company_permission: {
         Args: { p_company_id: string; p_permission_code: string }
         Returns: boolean
@@ -4044,6 +4418,10 @@ export type Database = {
         Args: { p_company_id: string }
         Returns: undefined
       }
+      provision_expense_defaults: {
+        Args: { p_actor_id: string; p_company_id: string }
+        Returns: undefined
+      }
       reclaim_stale_rule_engine_runs: {
         Args: { p_stale_after_seconds?: number }
         Returns: number
@@ -4068,6 +4446,10 @@ export type Database = {
           p_legal_basis: string
           p_reason: string
         }
+        Returns: undefined
+      }
+      submit_expense_report: {
+        Args: { p_report_id: string }
         Returns: undefined
       }
       upsert_work_schedule: {
@@ -4101,6 +4483,21 @@ export type Database = {
         | "SYNC_CONFLICT"
         | "CORRECTED_AFTER_REVIEW"
         | "READY_FOR_WEEKLY_CLOSE"
+      expense_approval_decision: "APPROVED" | "REJECTED" | "RETURNED"
+      expense_receipt_status:
+        | "NOT_PROVIDED"
+        | "UPLOADED"
+        | "PROCESSING"
+        | "PROCESSED"
+        | "FAILED"
+      expense_report_status:
+        | "DRAFT"
+        | "SUBMITTED"
+        | "IN_REVIEW"
+        | "APPROVED"
+        | "REJECTED"
+        | "PAID"
+        | "CANCELLED"
       medical_license_approval_status:
         | "PENDING_RRHH_APPROVAL"
         | "APPROVED"
@@ -4266,9 +4663,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       app_role: [
@@ -4299,6 +4693,23 @@ export const Constants = {
         "SYNC_CONFLICT",
         "CORRECTED_AFTER_REVIEW",
         "READY_FOR_WEEKLY_CLOSE",
+      ],
+      expense_approval_decision: ["APPROVED", "REJECTED", "RETURNED"],
+      expense_receipt_status: [
+        "NOT_PROVIDED",
+        "UPLOADED",
+        "PROCESSING",
+        "PROCESSED",
+        "FAILED",
+      ],
+      expense_report_status: [
+        "DRAFT",
+        "SUBMITTED",
+        "IN_REVIEW",
+        "APPROVED",
+        "REJECTED",
+        "PAID",
+        "CANCELLED",
       ],
       medical_license_approval_status: [
         "PENDING_RRHH_APPROVAL",

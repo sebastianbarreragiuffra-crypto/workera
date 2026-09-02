@@ -47,9 +47,10 @@ continuación están en
 - ARCOTEX conserva sus flujos de asistencia, novedades, documentos, nómina e
   integración Workera. Esos dominios todavía no están completamente aislados
   para operar una segunda empresa.
-- Rendiciones EX-1 ya tiene fundación multiempresa independiente y un botón
-  **Agregar Rendiciones** en el detalle de cualquier cliente. La captura,
-  aprobación y conciliación operacionales se construirán en las fases siguientes.
+- Rendiciones EX-1/EX-2 ya tiene fundación multiempresa independiente, botón
+  **Agregar Rendiciones**, selector de empresa, dashboard, borradores, ítems,
+  folios correlativos y envío seguro a revisión. Comprobantes/OCR, decisiones
+  de aprobación y conciliación se construirán en las fases siguientes.
 - El dashboard usa KPIs agregados y la cartera se busca, filtra y pagina en el
   servidor. El detalle carga solo la pestaña solicitada y pagina membresías;
   administrar la plataforma no implica leer automáticamente la nómina de cada
@@ -62,7 +63,8 @@ continuación están en
   `039_platform_organization_projection.sql`, las consultas escalables del
   portafolio en `040_platform_portfolio_queries.sql` y el bloqueo de escrituras
   alternativas en `041_platform_security_hardening.sql`. El aislamiento del
-  add-on de Rendiciones se prueba en `042_expenses_multi_company_foundation.sql`.
+  add-on de Rendiciones se prueba en `042_expenses_multi_company_foundation.sql`
+  y su flujo operativo en `043_expenses_operational_workflow.sql`.
 
 ## Desarrollo local
 

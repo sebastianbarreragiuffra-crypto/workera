@@ -1,0 +1,65 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { AddExpenseItemForm, SubmitExpenseReportForm } from "@/components/expenses/ExpenseForms";
+import { ExpenseStatusBadge } from "@/components/expenses/ExpenseStatusBadge";
+import { deleteExpenseItemAction } from "../actions";
+import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
+import { getExpenseReportDetail } from "@/lib/expenses/data";
+import { formatExpenseMoney } from "@/lib/expenses/presentation";
+import { createClient } from "@/lib/supabase/server";
+import { todayInSantiago } from "@/lib/view-models/date-utils";
+
+function shortDate(value: string): string {
+  return new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
+}
+
+export default async function ExpenseReportPage({ params }: { params: Promise<{ companySlug: string; reportId: string }> }) {
+  const { companySlug, reportId } = await params;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(reportId)) notFound();
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, companySlug);
+  if (!context) notFound();
+  const report = await getExpenseReportDetail(supabase, context, reportId);
+  if (!report) notFound();
+  const editable = report.status === "DRAFT" && (report.isOwn || context.canManage);
+  const categoryNames = new Map(report.categories.map((category) => [category.id, category.name]));
+  const base = `/empresas/${context.slug}/rendiciones`;
+
+  return (
+    <div className="space-y-6">
+      <div><Link href={base} className="text-sm font-medium text-arcotex-blue-dark hover:underline">← Volver a Rendiciones</Link></div>
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs text-slate-500">{report.referenceNumber}</span><ExpenseStatusBadge status={report.status} /></div><h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">{report.title}</h1>{report.purpose && <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">{report.purpose}</p>}</div>
+        <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-right shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total</p><p className="mt-1 text-2xl font-semibold tabular-nums text-slate-950">{formatExpenseMoney(report.totalAmount, report.currencyCode)}</p></div>
+      </header>
+
+      {editable && (
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4"><h2 className="font-semibold text-slate-900">Agregar gasto</h2><p className="mt-1 text-xs text-slate-500">Los comprobantes y lectura automática se incorporarán en la siguiente fase.</p></div>
+          <AddExpenseItemForm companySlug={context.slug} reportId={report.id} currencyCode={report.currencyCode} categories={report.categories} defaultDate={todayInSantiago()} />
+        </section>
+      )}
+
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-4"><h2 className="font-semibold text-slate-900">Gastos ({report.items.length})</h2></div>
+          {report.items.length === 0 ? <div className="px-5 py-10 text-center text-sm text-slate-500">Todavía no agregas gastos.</div> : (
+            <ul className="divide-y divide-slate-100">
+              {report.items.map((item) => (
+                <li key={item.id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-medium text-slate-900">{item.description}</span>{item.categoryId && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{categoryNames.get(item.categoryId)}</span>}</div><p className="mt-1 text-xs text-slate-500">{shortDate(item.expenseDate)}{item.merchantName ? ` · ${item.merchantName}` : ""}</p></div>
+                  <div className="flex items-center justify-between gap-4 sm:justify-end"><span className="font-semibold tabular-nums text-slate-900">{formatExpenseMoney(item.totalAmount, report.currencyCode)}</span>{editable && <form action={deleteExpenseItemAction}><input type="hidden" name="companySlug" value={context.slug} /><input type="hidden" name="reportId" value={report.id} /><input type="hidden" name="itemId" value={item.id} /><button type="submit" className="text-xs font-medium text-critical hover:underline">Quitar</button></form>}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <aside className="space-y-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-900">Siguiente paso</h2>{editable ? <><p className="mt-2 text-sm leading-6 text-slate-500">Al enviar, el borrador quedará bloqueado y pasará a revisión.</p><div className="mt-4"><SubmitExpenseReportForm companySlug={context.slug} reportId={report.id} disabled={report.items.length === 0 || report.totalAmount <= 0} /></div></> : <p className="mt-2 text-sm leading-6 text-slate-500">Esta rendición ya fue enviada y no admite nuevos gastos.</p>}</div>
+          <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-xs leading-5 text-blue-900"><strong>Aislamiento activo.</strong> Esta información pertenece únicamente a {context.name} y respeta tus permisos dentro de la empresa.</div>
+        </aside>
+      </div>
+    </div>
+  );
+}
