@@ -71,8 +71,10 @@ queda en `ONBOARDING` con `workspace_enabled = false`.
   por empresa. Todo módulo debe validarse en servidor y RLS; la navegación es
   solo una representación visual del permiso.
 - Mientras MT-3D no conecte esos entitlements con rutas, acciones y RLS, los
-  módulos de un workspace ya operativo son de solo lectura. Se pueden preparar
-  estados para clientes cuyo workspace continúa bloqueado.
+  módulos laborales de un workspace ya operativo son de solo lectura.
+  `expenses` es una excepción explícita desde EX-1: su dominio posee
+  `company_id`, FKs compuestas, permisos y RLS propios, por lo que puede
+  activarse por cliente sin habilitar el workspace laboral.
 - `organization_units` es el árbol organizacional. `employee_groups` conserva su
   responsabilidad independiente de clasificación para políticas laborales.
 - Workera es un módulo/integración opcional. No debe condicionar la arquitectura
@@ -82,7 +84,9 @@ queda en `ONBOARDING` con `workspace_enabled = false`.
 
 MT-3A permite crear y configurar clientes, pero **no autoriza** operar sus datos
 laborales. El dominio histórico aún contiene tablas, claves únicas, relaciones,
-policies y consultas concebidas para ARCOTEX.
+policies y consultas concebidas para ARCOTEX. Esta restricción no impide operar
+módulos nuevos que nazcan completamente tenant-aware, como Rendiciones; activar
+uno de ellos nunca debe cambiar `workspace_enabled`.
 
 Antes de cambiar `workspace_enabled` a `true` para otra empresa, MT-3B–D debe:
 
@@ -131,15 +135,17 @@ empresa en onboarding como si ya estuviera operativa.
 
 ## 7. Próximos pasos
 
-1. Ejecutar MT-3B–D por dominio, con migraciones pequeñas, backfill explícito y
+1. Continuar Rendiciones con captura web/móvil, políticas versionadas y flujo
+   de aprobación, consumiendo siempre el tenant y entitlement ya implementados.
+2. Ejecutar MT-3B–D por dominio laboral, con migraciones pequeñas, backfill explícito y
    pruebas de cruce tenant antes de avanzar al siguiente dominio.
-2. Hacer tenant-aware los jobs, archivos, exports e integraciones; evitar que un
+3. Hacer tenant-aware los jobs, archivos, exports e integraciones; evitar que un
    proceso server-side dependa de un tenant implícito.
-3. Añadir observabilidad de plataforma con métricas agregadas y auditoría
+4. Añadir observabilidad de plataforma con métricas agregadas y auditoría
    sanitizada, sin convertir el control plane en acceso silencioso a PII.
-4. Conectar aceptación y envío de invitaciones, MFA para cuentas privilegiadas
+5. Conectar aceptación y envío de invitaciones, MFA para cuentas privilegiadas
    y administración avanzada de permisos sin relajar los gates existentes.
-5. Solo después del gate de aislamiento, activar el primer cliente distinto de
+6. Solo después del gate de aislamiento, activar el primer cliente distinto de
    ARCOTEX y validar su onboarding extremo a extremo.
 
 ## 8. Regla para futuros agentes

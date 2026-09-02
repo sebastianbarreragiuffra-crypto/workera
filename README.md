@@ -14,10 +14,10 @@ ese workspace, no la identidad ni el límite arquitectónico del producto.
 - MT-3A implementa el control plane, roles y permisos por empresa, módulos,
   onboarding y organigrama. Una empresa nueva nace en `ONBOARDING` con
   `workspace_enabled = false`.
-- **Solo ARCOTEX puede operar actualmente.** No habilitar una segunda empresa
-  hasta completar MT-3B–D: `company_id`, claves/relaciones compuestas, RLS y
-  consultas tenant-aware en todas las tablas del dominio laboral, con pruebas
-  negativas de cruce entre empresas.
+- **Solo ARCOTEX puede operar actualmente el dominio laboral.** No habilitar el
+  workspace laboral de una segunda empresa hasta completar MT-3B–D. Rendiciones
+  es la primera excepción modular: posee tablas, relaciones, permisos y RLS
+  tenant-aware propios y puede activarse sin cambiar `workspace_enabled`.
 - La variación entre clientes se resuelve con catálogo de módulos, entitlements,
   configuración y permisos por empresa. No crear forks de código por cliente.
 - `platform_memberships` es la autoridad de roles de plataforma
@@ -47,6 +47,9 @@ continuación están en
 - ARCOTEX conserva sus flujos de asistencia, novedades, documentos, nómina e
   integración Workera. Esos dominios todavía no están completamente aislados
   para operar una segunda empresa.
+- Rendiciones EX-1 ya tiene fundación multiempresa independiente y un botón
+  **Agregar Rendiciones** en el detalle de cualquier cliente. La captura,
+  aprobación y conciliación operacionales se construirán en las fases siguientes.
 - El dashboard usa KPIs agregados y la cartera se busca, filtra y pagina en el
   servidor. El detalle carga solo la pestaña solicitada y pagina membresías;
   administrar la plataforma no implica leer automáticamente la nómina de cada
@@ -58,7 +61,8 @@ continuación están en
   `038_platform_management_rpcs.sql`, la proyección privada del organigrama en
   `039_platform_organization_projection.sql`, las consultas escalables del
   portafolio en `040_platform_portfolio_queries.sql` y el bloqueo de escrituras
-  alternativas en `041_platform_security_hardening.sql`.
+  alternativas en `041_platform_security_hardening.sql`. El aislamiento del
+  add-on de Rendiciones se prueba en `042_expenses_multi_company_foundation.sql`.
 
 ## Desarrollo local
 

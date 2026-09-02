@@ -279,6 +279,9 @@ export async function setCompanyModuleStatusAction(
     });
     if (error) throw error;
     revalidatePlatformCompanyPages();
+    if (parsed.data.moduleKey === "expenses" && parsed.data.status === "PILOT") {
+      return { status: "success", message: "Rendiciones quedó agregado a esta empresa en modo piloto." };
+    }
     return { status: "success", message: "Estado del módulo actualizado." };
   } catch (error) {
     return failure("set module status", error);

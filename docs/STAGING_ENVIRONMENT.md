@@ -8,7 +8,9 @@ Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base d
 - **Organización**: Arcotex DEV
 - **Región**: `sa-east-1` (São Paulo)
 - **Ref**: ver tu `.env.staging` local (nunca en este doc — este archivo se sube a Git)
-- **Migraciones remotas verificadas**: 40 aplicadas durante la creación del ambiente. El repositorio contiene actualmente 59; las posteriores deben inspeccionarse y aplicarse con `supabase db push` cuando la CLI esté enlazada al proyecto correcto.
+- **Migraciones remotas verificadas**: 59 aplicadas hasta `20260901180000`. La
+  migración local EX-1 de Rendiciones (`20260901190000`) todavía no se despliega;
+  debe revisarse y aplicarse con `supabase db push`, nunca con un reset remoto.
 - **Datos maestros**: pendiente de importar (ver Fase 5 abajo)
 
 ## Cómo trabaja PC1 (o cualquiera, día a día)
@@ -36,8 +38,8 @@ Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base d
 
 ## Checklist de verificación estructural (ya ejecutada en la creación)
 
-- [x] Línea base inicial de 40 migraciones aplicada (`supabase db push` limpio, cero errores en la creación)
-- [ ] Conciliar y aplicar en staging las migraciones posteriores hasta el head actual del repositorio (59 migraciones al 2026-09-01)
+- [x] Línea base y migraciones posteriores conciliadas hasta `20260901180000` (59 migraciones)
+- [ ] Aplicar EX-1 Rendiciones (`20260901190000`) después de revisión
 - [x] 47 tablas en `public`, RLS activo en las 47 (0 con RLS deshabilitado)
 - [x] 94 policies RLS — mismo número que el Docker local
 - [x] 44 triggers, mismas 6 extensiones que local

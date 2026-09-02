@@ -221,14 +221,15 @@ function UsersTab({ detail, canManage }: { detail: PlatformCompanyDetail; canMan
 }
 
 function ModulesTab({ detail, canManage }: { detail: PlatformCompanyDetail; canManage: boolean }) {
-  const actionsByModule = canManage && !detail.workspaceEnabled
-    ? Object.fromEntries(detail.modules.map((module) => [module.key, <ModuleStatusForm key={module.key} companyId={detail.header.id} moduleKey={module.key} status={module.status} canManage />]))
+  const manageableModules = detail.modules.filter((module) => !detail.workspaceEnabled || module.key === "expenses");
+  const actionsByModule = canManage
+    ? Object.fromEntries(manageableModules.map((module) => [module.key, <ModuleStatusForm key={module.key} companyId={detail.header.id} moduleKey={module.key} status={module.status} canManage />]))
     : undefined;
   return (
     <div className="space-y-4">
       {detail.workspaceEnabled && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-950">
-          Los módulos del workspace operativo están en modo lectura. Sus estados podrán modificarse cuando las rutas, acciones y políticas RLS apliquen los entitlements de forma integral en MT-3D.
+          Rendiciones ya puede agregarse de forma independiente a esta empresa. Los módulos laborales existentes continúan en modo lectura hasta completar su aislamiento multiempresa.
         </div>
       )}
       <CompanyModuleMatrix modules={detail.modules} actionsByModule={actionsByModule} />

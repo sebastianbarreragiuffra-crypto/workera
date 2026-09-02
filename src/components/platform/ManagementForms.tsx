@@ -200,6 +200,21 @@ export function ModuleStatusForm({ companyId, moduleKey, status, canManage }: { 
   const [state, action] = useActionState(setCompanyModuleStatusAction, INITIAL_STATE);
   if (!canManage) return null;
 
+  if (moduleKey === "expenses" && (status === "DISABLED" || status === "SETUP_REQUIRED")) {
+    return (
+      <form action={action} className="mt-3">
+        <input type="hidden" name="companyId" value={companyId} />
+        <input type="hidden" name="moduleKey" value={moduleKey} />
+        <input type="hidden" name="status" value="PILOT" />
+        <SubmitButton compact>Agregar Rendiciones</SubmitButton>
+        <p className="mt-2 max-w-56 text-xs leading-5 text-slate-500">
+          Lo activa en modo piloto solo para esta empresa. No habilita asistencia ni otros módulos.
+        </p>
+        <ActionFeedback state={state} />
+      </form>
+    );
+  }
+
   return (
     <form action={action} className="mt-3 flex flex-wrap items-center gap-2">
       <input type="hidden" name="companyId" value={companyId} />
