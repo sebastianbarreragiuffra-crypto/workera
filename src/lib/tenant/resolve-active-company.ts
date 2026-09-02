@@ -43,7 +43,7 @@ export type ActiveCompanyResolution =
 export async function resolveActiveCompany(supabase: SupabaseClient<Database>): Promise<ActiveCompanyResolution> {
   const { data, error } = await supabase
     .from("company_memberships")
-    .select("company_id, role, companies(name, slug, active, workspace_enabled)")
+    .select("company_id, role, companies!company_memberships_company_id_fkey(name, slug, active, workspace_enabled)")
     .eq("active", true);
 
   if (error) throw new Error(`resolveActiveCompany: fallo leyendo company_memberships: ${error.message}`);

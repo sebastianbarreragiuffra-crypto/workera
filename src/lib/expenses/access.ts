@@ -41,7 +41,7 @@ export async function listExpenseCompaniesFromClient(
 ): Promise<ExpenseCompanyOption[]> {
   const { data: memberships, error: membershipError } = await supabase
     .from("company_memberships")
-    .select("company_id, companies(id, name, slug, active, status)")
+    .select("company_id, companies!company_memberships_company_id_fkey(id, name, slug, active, status)")
     .eq("user_id", userId)
     .eq("active", true);
 
