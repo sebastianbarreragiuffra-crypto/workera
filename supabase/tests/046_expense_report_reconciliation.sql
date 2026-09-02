@@ -65,15 +65,18 @@ select '99000000-0000-0000-0000-000000000401', '99000000-0000-0000-0000-00000000
 from public.expense_categories ec
 where ec.company_id = '99000000-0000-0000-0000-000000000001' and ec.code = 'OTROS';
 select lives_ok($$select public.submit_expense_report('99000000-0000-0000-0000-000000000301')$$, 'se envía la rendición a revisión');
+reset role;
+
+set local role authenticated;
+set local request.jwt.claim.sub = '99000000-0000-0000-0000-000000000103';
+-- El chequeo de estado se prueba con quien SÍ tiene expenses.reconcile --
+-- de lo contrario el rechazo por permiso llega antes y nunca se ejercita
+-- la validación de estado.
 select throws_ok(
   $$select public.reconcile_expense_report('99000000-0000-0000-0000-000000000301', 'TRANSF-001')$$,
   '23514', 'Solo se puede conciliar una rendición aprobada.',
   'no se puede conciliar una rendición todavía en revisión'
 );
-reset role;
-
-set local role authenticated;
-set local request.jwt.claim.sub = '99000000-0000-0000-0000-000000000103';
 select lives_ok(
   $$select public.decide_expense_report('99000000-0000-0000-0000-000000000301', 'APPROVED', null)$$,
   'finanzas aprueba la rendición'
