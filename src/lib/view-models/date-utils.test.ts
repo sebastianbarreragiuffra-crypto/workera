@@ -8,6 +8,7 @@ import {
   formatTimeInSantiago,
   nextDate,
   previousDate,
+  santiagoDayStartIso,
   todayInSantiago,
 } from "./date-utils";
 
@@ -59,4 +60,18 @@ test("formatDateLong: formatea en español sin desplazar el día", () => {
   const formatted = formatDateLong("2026-08-19");
   assert.match(formatted, /19/);
   assert.match(formatted, /agosto/);
+});
+
+test("santiagoDayStartIso: usa -04:00 en invierno y -03:00 en verano", () => {
+  assert.equal(santiagoDayStartIso("2026-08-19"), "2026-08-19T00:00:00-04:00");
+  assert.equal(santiagoDayStartIso("2026-01-15"), "2026-01-15T00:00:00-03:00");
+});
+
+test("santiagoDayStartIso: el instante producido cae en el día calendario correcto de Santiago", () => {
+  const iso = santiagoDayStartIso("2026-08-19");
+  assert.equal(todayInSantiago(new Date(iso)), "2026-08-19");
+});
+
+test("santiagoDayStartIso: rechaza formato inválido", () => {
+  assert.throws(() => santiagoDayStartIso("19-08-2026"), RangeError);
 });

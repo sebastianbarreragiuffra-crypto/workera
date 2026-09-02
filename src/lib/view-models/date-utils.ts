@@ -64,6 +64,22 @@ function shiftDate(date: string, deltaDays: number): string {
   return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-${String(shifted.getUTCDate()).padStart(2, "0")}`;
 }
 
+/**
+ * Instante exacto en que comienza un día calendario de Santiago, para comparar
+ * contra columnas `timestamptz`. Filtrar un timestamptz con la fecha "pelada"
+ * (`created_at >= '2026-09-01'`) la interpreta como medianoche UTC, que en
+ * Chile son las 20:00 o 21:00 del día anterior -- el filtro se corre entre 3 y
+ * 4 horas. El offset se resuelve al MEDIODÍA del día pedido para no caer justo
+ * sobre el salto de horario de verano, así que vale tanto en -03 como en -04.
+ */
+export function santiagoDayStartIso(date: string): string {
+  formatCalendarDate(date); // valida el formato con la misma regla del resto del módulo
+  const offset = new Intl.DateTimeFormat("en-US", { timeZone: SANTIAGO_TIME_ZONE, timeZoneName: "longOffset" })
+    .formatToParts(new Date(`${date}T12:00:00Z`))
+    .find((part) => part.type === "timeZoneName")!.value;
+  return `${date}T00:00:00${offset.replace("GMT", "") || "+00:00"}`;
+}
+
 export function previousDate(date: string): string {
   return shiftDate(date, -1);
 }

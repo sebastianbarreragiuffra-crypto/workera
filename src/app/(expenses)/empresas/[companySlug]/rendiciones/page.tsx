@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ExpenseStatusBadge } from "@/components/expenses/ExpenseStatusBadge";
+import { ExpenseListFiltersForm, ExpensePaginationNav } from "@/components/expenses/ExpenseListControls";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
-import { getExpenseDashboard } from "@/lib/expenses/data";
+import { EXPENSE_REPORT_STATUSES, getExpenseDashboard, parseExpenseListFilters } from "@/lib/expenses/data";
 import { formatExpenseMoney } from "@/lib/expenses/presentation";
 import { createClient } from "@/lib/supabase/server";
 
@@ -15,13 +16,14 @@ export default async function ExpensesDashboardPage({
   searchParams,
 }: {
   params: Promise<{ companySlug: string }>;
-  searchParams: Promise<{ enviada?: string }>;
+  searchParams: Promise<{ enviada?: string; pagina?: string; estado?: string; desde?: string; hasta?: string }>;
 }) {
   const [{ companySlug }, query] = await Promise.all([params, searchParams]);
   const supabase = await createClient();
   const context = await getExpenseCompanyContextFromClient(supabase, companySlug);
   if (!context) notFound();
-  const dashboard = await getExpenseDashboard(supabase, context);
+  const filters = parseExpenseListFilters(query);
+  const dashboard = await getExpenseDashboard(supabase, context, filters);
   const base = `/empresas/${context.slug}/rendiciones`;
 
   return (
@@ -64,13 +66,18 @@ export default async function ExpensesDashboardPage({
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <div><h2 className="font-semibold text-slate-900">Rendiciones recientes</h2><p className="mt-0.5 text-xs text-slate-500">Últimos 100 registros visibles.</p></div>
+          <div><h2 className="font-semibold text-slate-900">Historial de rendiciones</h2><p className="mt-0.5 text-xs text-slate-500">{dashboard.pagination.totalCount} registros visibles según tu acceso.</p></div>
         </div>
+        <ExpenseListFiltersForm filters={filters} statuses={EXPENSE_REPORT_STATUSES} legend="Filtrar el historial de rendiciones" />
         {dashboard.reports.length === 0 ? (
           <div className="px-6 py-14 text-center">
             <div className="text-3xl" aria-hidden="true">◇</div>
-            <h3 className="mt-3 font-medium text-slate-900">Aún no hay rendiciones</h3>
-            <p className="mt-1 text-sm text-slate-500">Crea el primer borrador para comenzar.</p>
+            <h3 className="mt-3 font-medium text-slate-900">
+              {filters.status || filters.from || filters.to ? "Ninguna rendición calza con el filtro" : "Aún no hay rendiciones"}
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {filters.status || filters.from || filters.to ? "Ajusta el estado o el rango de fechas." : "Crea el primer borrador para comenzar."}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -92,6 +99,7 @@ export default async function ExpensesDashboardPage({
             </table>
           </div>
         )}
+        <ExpensePaginationNav basePath={base} filters={filters} pagination={dashboard.pagination} />
       </section>
     </div>
   );

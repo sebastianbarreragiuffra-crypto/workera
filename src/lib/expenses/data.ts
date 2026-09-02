@@ -3,8 +3,84 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ExpenseCompanyContext } from "./access";
 import type { Database } from "@/lib/supabase/database.types";
+import { nextDate, santiagoDayStartIso } from "@/lib/view-models/date-utils";
 
 export type ExpenseReportStatus = Database["public"]["Enums"]["expense_report_status"];
+
+export const EXPENSE_PAGE_SIZE = 25;
+
+export const EXPENSE_REPORT_STATUSES: readonly ExpenseReportStatus[] = [
+  "DRAFT", "SUBMITTED", "IN_REVIEW", "APPROVED", "REJECTED", "PAID", "CANCELLED",
+];
+
+/** Estados que realmente esperan una decisión -- el resto no pertenece a la bandeja. */
+export const EXPENSE_PENDING_STATUSES: readonly ExpenseReportStatus[] = ["SUBMITTED", "IN_REVIEW"];
+
+export interface ExpensePagination {
+  page: number;
+  pageSize: number;
+  totalCount: number;
+}
+
+/**
+ * Filtros del historial y de la bandeja. Se resuelven SIEMPRE en la base
+ * (`range` + `count: exact`): traer el historial completo para recortarlo en
+ * memoria deja de funcionar apenas la empresa acumula meses de rendiciones.
+ */
+export interface ExpenseListFilters {
+  page?: number;
+  status?: ExpenseReportStatus | null;
+  from?: string | null;
+  to?: string | null;
+}
+
+function resolvePage(page: number | undefined): number {
+  return Math.max(1, Math.trunc(page ?? 1));
+}
+
+function parseCalendarDate(value: string | undefined): string | null {
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+/**
+ * Traduce la query string a filtros ya validados. Todo valor que no calce con
+ * el enum o con `YYYY-MM-DD` se descarta en silencio: la URL la escribe
+ * cualquiera, así que nunca puede llegar cruda a la consulta.
+ */
+export function parseExpenseListFilters(query: {
+  pagina?: string;
+  estado?: string;
+  desde?: string;
+  hasta?: string;
+}): ExpenseListFilters {
+  const page = Number.parseInt(query.pagina ?? "1", 10);
+  const status = EXPENSE_REPORT_STATUSES.find((candidate) => candidate === query.estado) ?? null;
+  const from = parseCalendarDate(query.desde);
+  const to = parseCalendarDate(query.hasta);
+  return {
+    page: Number.isFinite(page) ? page : 1,
+    status,
+    // Un rango invertido no devuelve nada y confunde; se ignora el extremo malo.
+    from,
+    to: from && to && to < from ? null : to,
+  };
+}
+
+function rangeFor(page: number): [number, number] {
+  return [(page - 1) * EXPENSE_PAGE_SIZE, page * EXPENSE_PAGE_SIZE - 1];
+}
+
+/** Ventana `[desde, hasta]` como intervalo semiabierto en hora de Santiago. */
+function applyDateWindow<T extends { gte: (c: string, v: string) => T; lt: (c: string, v: string) => T }>(
+  query: T,
+  column: string,
+  filters: ExpenseListFilters
+): T {
+  let next = query;
+  if (filters.from) next = next.gte(column, santiagoDayStartIso(filters.from));
+  if (filters.to) next = next.lt(column, santiagoDayStartIso(nextDate(filters.to)));
+  return next;
+}
 
 export interface ExpenseReportSummary {
   id: string;
@@ -20,6 +96,7 @@ export interface ExpenseReportSummary {
 
 export interface ExpenseDashboardData {
   reports: ExpenseReportSummary[];
+  pagination: ExpensePagination;
   draftCount: number;
   reviewCount: number;
   approvedCount: number;
@@ -72,15 +149,26 @@ export interface ExpenseApprovalQueueItem extends ExpenseReportSummary {
 
 export async function getExpenseDashboard(
   supabase: SupabaseClient<Database>,
-  context: ExpenseCompanyContext
+  context: ExpenseCompanyContext,
+  filters: ExpenseListFilters = {}
 ): Promise<ExpenseDashboardData> {
+  const page = resolvePage(filters.page);
+  const [start, end] = rangeFor(page);
+
+  let reportsQuery = supabase
+    .from("expense_reports")
+    .select(
+      "id, reference_number, title, status, currency_code, total_amount, created_at, submitted_at, submitted_by",
+      { count: "exact" }
+    )
+    .eq("company_id", context.id);
+  if (filters.status) reportsQuery = reportsQuery.eq("status", filters.status);
+  reportsQuery = applyDateWindow(reportsQuery, "created_at", filters);
+
   const [reportsResult, summaryResult] = await Promise.all([
-    supabase
-      .from("expense_reports")
-      .select("id, reference_number, title, status, currency_code, total_amount, created_at, submitted_at, submitted_by")
-      .eq("company_id", context.id)
-      .order("created_at", { ascending: false })
-      .limit(100),
+    reportsQuery.order("created_at", { ascending: false }).range(start, end),
+    // Los KPI siguen resolviéndose en la base sobre TODO el historial visible:
+    // son el total de la empresa, no el de la página que se está mirando.
     supabase.rpc("expense_dashboard_summary", { p_company_id: context.id }).single(),
   ]);
   if (reportsResult.error || summaryResult.error) throw new Error("No se pudieron cargar las rendiciones.");
@@ -99,6 +187,7 @@ export async function getExpenseDashboard(
 
   return {
     reports,
+    pagination: { page, pageSize: EXPENSE_PAGE_SIZE, totalCount: reportsResult.count ?? reports.length },
     draftCount: Number(summaryResult.data.draft_count),
     reviewCount: Number(summaryResult.data.review_count),
     approvedCount: Number(summaryResult.data.approved_count),
@@ -202,18 +291,34 @@ export async function getExpenseReportDetail(
 
 export async function getExpenseApprovalQueue(
   supabase: SupabaseClient<Database>,
-  context: ExpenseCompanyContext
-): Promise<ExpenseApprovalQueueItem[]> {
-  if (!context.canApprove && !context.canManage) return [];
-  const { data, error } = await supabase
+  context: ExpenseCompanyContext,
+  filters: ExpenseListFilters = {}
+): Promise<{ reports: ExpenseApprovalQueueItem[]; pagination: ExpensePagination }> {
+  const page = resolvePage(filters.page);
+  const emptyPagination = { page, pageSize: EXPENSE_PAGE_SIZE, totalCount: 0 };
+  if (!context.canApprove && !context.canManage) return { reports: [], pagination: emptyPagination };
+  const [start, end] = rangeFor(page);
+
+  // El filtro de estado solo puede acotar la bandeja, nunca ampliarla a
+  // rendiciones que no esperan decisión.
+  const statuses = filters.status && EXPENSE_PENDING_STATUSES.includes(filters.status)
+    ? [filters.status]
+    : [...EXPENSE_PENDING_STATUSES];
+
+  let queueQuery = supabase
     .from("expense_reports")
-    .select("id, reference_number, title, status, currency_code, total_amount, created_at, submitted_at, submitted_by, profiles!expense_reports_submitted_by_fkey(display_name)")
+    .select(
+      "id, reference_number, title, status, currency_code, total_amount, created_at, submitted_at, submitted_by, profiles!expense_reports_submitted_by_fkey(display_name)",
+      { count: "exact" }
+    )
     .eq("company_id", context.id)
-    .in("status", ["SUBMITTED", "IN_REVIEW"])
-    .order("submitted_at", { ascending: true });
+    .in("status", statuses);
+  queueQuery = applyDateWindow(queueQuery, "submitted_at", filters);
+
+  const { data, error, count } = await queueQuery.order("submitted_at", { ascending: true }).range(start, end);
   if (error) throw new Error("No se pudo cargar la bandeja de aprobación.");
 
-  return (data ?? []).map((report) => {
+  const reports = (data ?? []).map((report) => {
     const profile = Array.isArray(report.profiles) ? report.profiles[0] : report.profiles;
     return {
       id: report.id,
@@ -228,4 +333,6 @@ export async function getExpenseApprovalQueue(
       submitterName: profile?.display_name ?? "Persona de la empresa",
     };
   });
+
+  return { reports, pagination: { page, pageSize: EXPENSE_PAGE_SIZE, totalCount: count ?? reports.length } };
 }

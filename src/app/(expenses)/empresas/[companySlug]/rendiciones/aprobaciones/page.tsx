@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ExpenseStatusBadge } from "@/components/expenses/ExpenseStatusBadge";
+import { ExpenseListFiltersForm, ExpensePaginationNav } from "@/components/expenses/ExpenseListControls";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
-import { getExpenseApprovalQueue } from "@/lib/expenses/data";
+import { EXPENSE_PENDING_STATUSES, getExpenseApprovalQueue, parseExpenseListFilters } from "@/lib/expenses/data";
 import { formatExpenseMoney } from "@/lib/expenses/presentation";
 import { createClient } from "@/lib/supabase/server";
 
@@ -16,13 +17,14 @@ export default async function ExpenseApprovalsPage({
   searchParams,
 }: {
   params: Promise<{ companySlug: string }>;
-  searchParams: Promise<{ decidida?: string }>;
+  searchParams: Promise<{ decidida?: string; pagina?: string; estado?: string; desde?: string; hasta?: string }>;
 }) {
   const [{ companySlug }, query] = await Promise.all([params, searchParams]);
   const supabase = await createClient();
   const context = await getExpenseCompanyContextFromClient(supabase, companySlug);
   if (!context || (!context.canApprove && !context.canManage)) notFound();
-  const reports = await getExpenseApprovalQueue(supabase, context);
+  const filters = parseExpenseListFilters(query);
+  const { reports, pagination } = await getExpenseApprovalQueue(supabase, context, filters);
   const base = `/empresas/${context.slug}/rendiciones`;
 
   return (
@@ -35,6 +37,7 @@ export default async function ExpenseApprovalsPage({
       </header>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <ExpenseListFiltersForm filters={filters} statuses={EXPENSE_PENDING_STATUSES} legend="Filtrar la bandeja de aprobación" />
         {reports.length === 0 ? (
           <div className="px-6 py-14 text-center"><div className="text-3xl" aria-hidden="true">✓</div><h2 className="mt-3 font-medium text-slate-900">Bandeja al día</h2><p className="mt-1 text-sm text-slate-500">No hay rendiciones esperando una decisión.</p></div>
         ) : (
@@ -56,6 +59,7 @@ export default async function ExpenseApprovalsPage({
             </table>
           </div>
         )}
+        <ExpensePaginationNav basePath={`${base}/aprobaciones`} filters={filters} pagination={pagination} />
       </section>
     </div>
   );
