@@ -159,6 +159,27 @@ export async function submitExpenseReportAction(
   redirect(`/empresas/${context.slug}/rendiciones?enviada=1`);
 }
 
+export async function withdrawExpenseReportAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = reportActionInput.safeParse(entries(formData));
+  if (!parsed.success) return failed();
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context) return failed("No tienes acceso a esta rendición.");
+
+  const { error } = await supabase.rpc("withdraw_expense_report", { p_report_id: parsed.data.reportId });
+  if (error?.code === "23514") return failed("Solo se puede retirar una rendición pendiente de revisión.");
+  if (error?.code === "42501") return failed("No puedes retirar esta rendición.");
+  if (error) return failed("No pudimos retirar la rendición.");
+
+  revalidatePath(reportPath(context.slug, parsed.data.reportId));
+  revalidatePath(`/empresas/${context.slug}/rendiciones`);
+  return { status: "success", message: "Rendición retirada -- vuelve a estar en borrador para que la corrijas." };
+}
+
 export async function uploadExpenseReceiptAction(
   _previousState: ExpenseActionState,
   formData: FormData

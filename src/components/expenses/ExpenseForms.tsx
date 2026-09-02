@@ -9,6 +9,7 @@ import {
   reviewExpenseReceiptOcrAction,
   submitExpenseReportAction,
   uploadExpenseReceiptAction,
+  withdrawExpenseReportAction,
   type ExpenseActionState,
 } from "@/app/(expenses)/empresas/[companySlug]/rendiciones/actions";
 import type { ExpenseCategoryOption } from "@/lib/expenses/data";
@@ -146,6 +147,23 @@ export function SubmitExpenseReportForm({ companySlug, reportId, disabled }: { c
         Enviar a revisión
       </button>
       {disabled && <p className="text-center text-xs text-slate-500">Agrega al menos un gasto antes de enviar.</p>}
+      <Feedback state={state} />
+    </form>
+  );
+}
+
+export function WithdrawExpenseReportForm({ companySlug, reportId }: { companySlug: string; reportId: string }) {
+  const [state, action] = useActionState(withdrawExpenseReportAction, INITIAL_STATE);
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <input type="hidden" name="reportId" value={reportId} />
+      <button
+        type="submit"
+        className="inline-flex w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+      >
+        Retirar y corregir
+      </button>
       <Feedback state={state} />
     </form>
   );

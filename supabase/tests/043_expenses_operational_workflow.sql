@@ -2,7 +2,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(27);
+select plan(31);
 
 select has_table('public', 'expense_report_sequences', 'existe secuencia tenant-aware de folios');
 select has_column('public', 'expense_reports', 'reference_number', 'cada rendición tiene folio visible');
@@ -159,6 +159,36 @@ select isnt(
   )),
   (select id from public.expense_reports where client_request_id = 'aaaaaaaa-0000-0000-0000-000000000001'),
   'un client_request_id distinto sí crea un borrador nuevo'
+);
+reset role;
+
+-- withdraw_expense_report() (EX-5): el propio rendidor retira su rendición
+-- SUBMITTED sin esperar a que un aprobador la devuelva. El informe 301
+-- sigue SUBMITTED desde el bloque de arriba en este mismo archivo.
+set local role authenticated;
+set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000103';
+select throws_ok(
+  $$select public.withdraw_expense_report('96000000-0000-0000-0000-000000000301')$$,
+  '42501', 'Rendiciones no está habilitado para esta membresía.',
+  'otro tenant no puede retirar un ID conocido'
+);
+reset role;
+
+set local role authenticated;
+set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000102';
+select lives_ok(
+  $$select public.withdraw_expense_report('96000000-0000-0000-0000-000000000301')$$,
+  'el propio rendidor retira su rendición pendiente de revisión'
+);
+select ok(
+  (select status = 'DRAFT' and submitted_at is null and resolved_at is null
+     from public.expense_reports where id = '96000000-0000-0000-0000-000000000301'),
+  'el retiro deja la rendición en DRAFT lista para corregir'
+);
+select throws_ok(
+  $$select public.withdraw_expense_report('96000000-0000-0000-0000-000000000301')$$,
+  '23514', 'Solo se puede retirar una rendición pendiente de revisión.',
+  'no se puede retirar algo que ya está en DRAFT'
 );
 reset role;
 

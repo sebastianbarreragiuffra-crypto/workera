@@ -4760,6 +4760,10 @@ export type Database = {
         Args: { p_name: string; p_rules: Json; p_schedule_id: string }
         Returns: string
       }
+      withdraw_expense_report: {
+        Args: { p_report_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role:
