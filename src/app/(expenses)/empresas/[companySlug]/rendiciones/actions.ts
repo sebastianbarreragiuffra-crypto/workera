@@ -38,6 +38,11 @@ const decisionInput = reportActionInput.extend({
   decision: z.enum(["APPROVED", "REJECTED", "RETURNED"]),
   comment: z.string().trim().max(1000).transform((value) => value || null),
 });
+const ocrReviewInput = reportActionInput.extend({
+  receiptId: uuid,
+  decision: z.enum(["ACCEPTED", "REJECTED"]),
+  comment: z.string().trim().max(1000).transform((value) => value || null),
+});
 
 function entries(formData: FormData): Record<string, FormDataEntryValue> {
   return Object.fromEntries(formData.entries());
@@ -241,4 +246,30 @@ export async function decideExpenseReportAction(
   revalidatePath(`/empresas/${context.slug}/rendiciones/aprobaciones`);
   revalidatePath(`/empresas/${context.slug}/rendiciones`);
   redirect(`/empresas/${context.slug}/rendiciones/aprobaciones?decidida=1`);
+}
+
+export async function reviewExpenseReceiptOcrAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = ocrReviewInput.safeParse(entries(formData));
+  if (!parsed.success) return failed("Revisa la decisión y el comentario.");
+  if (parsed.data.decision === "REJECTED" && !parsed.data.comment) {
+    return failed("Explica por qué rechazas la sugerencia OCR.");
+  }
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context) return failed("No tienes acceso a este comprobante.");
+  const { error } = await supabase.rpc("review_expense_receipt_extraction", {
+    p_receipt_id: parsed.data.receiptId,
+    p_decision: parsed.data.decision,
+    p_comment: parsed.data.comment ?? undefined,
+  });
+  if (error?.code === "23514") return failed("La lectura no está disponible o falta el comentario requerido.");
+  if (error?.code === "42501") return failed("Tu rol no permite revisar esta sugerencia OCR.");
+  if (error) return failed("No pudimos registrar la revisión de la sugerencia OCR.");
+
+  revalidatePath(reportPath(context.slug, parsed.data.reportId));
+  return { status: "success", message: "Revisión de la sugerencia OCR registrada." };
 }

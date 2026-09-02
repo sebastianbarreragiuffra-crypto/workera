@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AddExpenseItemForm, ExpenseDecisionForm, ExpenseReceiptUploadForm, SubmitExpenseReportForm } from "@/components/expenses/ExpenseForms";
+import { AddExpenseItemForm, ExpenseDecisionForm, ExpenseOcrReviewForm, ExpenseReceiptUploadForm, SubmitExpenseReportForm } from "@/components/expenses/ExpenseForms";
 import { ExpenseStatusBadge } from "@/components/expenses/ExpenseStatusBadge";
 import { deleteExpenseItemAction } from "../actions";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
@@ -12,6 +12,19 @@ import { todayInSantiago } from "@/lib/view-models/date-utils";
 function shortDate(value: string): string {
   return new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
 }
+
+function confidenceLabel(value: number | null): string {
+  return value === null ? "sin confianza informada" : `${Math.round(value * 100)}% de confianza`;
+}
+
+const OCR_FIELD_LABELS: Record<string, string> = {
+  merchantName: "Comercio",
+  expenseDate: "Fecha",
+  netAmount: "Neto",
+  taxAmount: "Impuesto",
+  totalAmount: "Total",
+  currencyCode: "Moneda",
+};
 
 export default async function ExpenseReportPage({ params }: { params: Promise<{ companySlug: string; reportId: string }> }) {
   const { companySlug, reportId } = await params;
@@ -55,14 +68,39 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
                     <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-medium text-slate-900">{item.description}</span>{item.categoryId && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{categoryNames.get(item.categoryId)}</span>}{item.categoryId && receiptRequired.get(item.categoryId) && <span className="text-[11px] font-medium text-amber-700">Comprobante obligatorio</span>}</div><p className="mt-1 text-xs text-slate-500">{shortDate(item.expenseDate)}{item.merchantName ? ` · ${item.merchantName}` : ""}</p></div>
                     <div className="flex items-center justify-between gap-4 sm:justify-end"><span className="font-semibold tabular-nums text-slate-900">{formatExpenseMoney(item.totalAmount, report.currencyCode)}</span>{editable && <form action={deleteExpenseItemAction}><input type="hidden" name="companySlug" value={context.slug} /><input type="hidden" name="reportId" value={report.id} /><input type="hidden" name="itemId" value={item.id} /><button type="submit" className="text-xs font-medium text-critical hover:underline">Quitar</button></form>}</div>
                   </div>
-                  {item.receipt && (
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                      <Link href={`${base}/comprobantes/${item.receipt.id}`} target="_blank" className="font-medium text-arcotex-blue-dark hover:underline">Ver {item.receipt.originalFilename}</Link>
-                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">Guardado privado</span>
-                      {item.receipt.duplicateOfReceiptId && <span className="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-800">Posible duplicado</span>}
-                      <span className="text-slate-400">Lectura automática pendiente</span>
-                    </div>
-                  )}
+                  {item.receipt && (() => {
+                    const extraction = item.receipt.extraction;
+                    const canReviewOcr = Boolean(extraction) && (
+                      (report.status === "DRAFT" && (report.isOwn || context.canManage))
+                      || ((report.status === "SUBMITTED" || report.status === "IN_REVIEW") && (context.canApprove || context.canManage))
+                      || context.canManage
+                    );
+                    return <div className="mt-3 space-y-3 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link href={`${base}/comprobantes/${item.receipt.id}`} target="_blank" className="font-medium text-arcotex-blue-dark hover:underline">Ver {item.receipt.originalFilename}</Link>
+                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">Guardado privado</span>
+                        {item.receipt.duplicateOfReceiptId && <span className="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-800">Posible duplicado</span>}
+                        {item.receipt.status === "UPLOADED" && <span className="text-slate-500">OCR en cola</span>}
+                        {item.receipt.status === "PROCESSING" && <span className="text-blue-700">OCR analizando…</span>}
+                        {item.receipt.status === "FAILED" && <span className="text-critical">OCR no disponible; revisa manualmente</span>}
+                        {item.receipt.status === "PROCESSED" && <span className="text-success">OCR procesado · {confidenceLabel(extraction?.confidence ?? null)}</span>}
+                      </div>
+                      {extraction && <div className={`rounded-lg border p-3 ${extraction.requiresHumanReview ? "border-amber-200 bg-amber-50/60" : "border-emerald-200 bg-emerald-50/60"}`}>
+                        <p className="font-semibold text-slate-800">Sugerencia OCR — confirma siempre contra el comprobante original.</p>
+                        <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
+                          <div><dt className="inline text-slate-500">Comercio: </dt><dd className="inline text-slate-800">{extraction.fields.merchantName.value ?? "No detectado"}</dd></div>
+                          <div><dt className="inline text-slate-500">Fecha: </dt><dd className="inline text-slate-800">{extraction.fields.transactionDate.value ?? "No detectada"}</dd></div>
+                          <div><dt className="inline text-slate-500">Neto: </dt><dd className="inline text-slate-800">{extraction.fields.subtotal.value ?? "No detectado"}</dd></div>
+                          <div><dt className="inline text-slate-500">Impuesto: </dt><dd className="inline text-slate-800">{extraction.fields.totalTax.value ?? "No detectado"}</dd></div>
+                          <div><dt className="inline text-slate-500">Total: </dt><dd className="inline text-slate-800">{extraction.fields.total.value ?? "No detectado"} {extraction.fields.currencyCode.value ?? ""}</dd></div>
+                        </dl>
+                        {extraction.discrepancies.length > 0 && <div className="mt-2"><p className="font-medium text-amber-900">Diferencias con lo declarado:</p><ul className="mt-1 list-disc space-y-0.5 pl-4 text-amber-900">{extraction.discrepancies.map((difference, index) => <li key={`${difference.field}-${index}`}>{OCR_FIELD_LABELS[difference.field] ?? difference.field}: declarado “{String(difference.declared)}”, OCR “{String(difference.extracted)}”</li>)}</ul></div>}
+                        {extraction.requiresHumanReview && <p className="mt-2 font-medium text-amber-900">Requiere revisión manual por baja confianza, campos faltantes o diferencias.</p>}
+                        {extraction.humanReview?.decision && <p className="mt-2 text-slate-600">Revisión registrada: {extraction.humanReview.decision === "ACCEPTED" ? "aceptada como referencia" : "rechazada"}{extraction.humanReview.comment ? ` · ${extraction.humanReview.comment}` : ""}.</p>}
+                        {canReviewOcr && !extraction.humanReview?.decision && <ExpenseOcrReviewForm companySlug={context.slug} reportId={report.id} receiptId={item.receipt.id} />}
+                      </div>}
+                    </div>;
+                  })()}
                   {editable && <ExpenseReceiptUploadForm companySlug={context.slug} reportId={report.id} itemId={item.id} hasReceipt={Boolean(item.receipt)} />}
                 </li>
               ))}
