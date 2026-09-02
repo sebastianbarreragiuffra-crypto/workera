@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AddExpenseItemForm, SubmitExpenseReportForm } from "@/components/expenses/ExpenseForms";
+import { AddExpenseItemForm, ExpenseDecisionForm, ExpenseReceiptUploadForm, SubmitExpenseReportForm } from "@/components/expenses/ExpenseForms";
 import { ExpenseStatusBadge } from "@/components/expenses/ExpenseStatusBadge";
 import { deleteExpenseItemAction } from "../actions";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
@@ -23,6 +23,10 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
   if (!report) notFound();
   const editable = report.status === "DRAFT" && (report.isOwn || context.canManage);
   const categoryNames = new Map(report.categories.map((category) => [category.id, category.name]));
+  const receiptRequired = new Map(report.categories.map((category) => [category.id, category.requiresReceipt]));
+  const missingRequiredReceipts = report.items.some((item) => item.categoryId && receiptRequired.get(item.categoryId) && !item.receipt);
+  const awaitingDecision = report.status === "SUBMITTED" || report.status === "IN_REVIEW";
+  const canDecide = awaitingDecision && !report.isOwn && (context.canApprove || context.canManage);
   const base = `/empresas/${context.slug}/rendiciones`;
 
   return (
@@ -35,7 +39,7 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
 
       {editable && (
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4"><h2 className="font-semibold text-slate-900">Agregar gasto</h2><p className="mt-1 text-xs text-slate-500">Los comprobantes y lectura automática se incorporarán en la siguiente fase.</p></div>
+          <div className="mb-4"><h2 className="font-semibold text-slate-900">Agregar gasto</h2><p className="mt-1 text-xs text-slate-500">Después de guardar el gasto podrás adjuntar su comprobante privado.</p></div>
           <AddExpenseItemForm companySlug={context.slug} reportId={report.id} currencyCode={report.currencyCode} categories={report.categories} defaultDate={todayInSantiago()} />
         </section>
       )}
@@ -46,9 +50,20 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
           {report.items.length === 0 ? <div className="px-5 py-10 text-center text-sm text-slate-500">Todavía no agregas gastos.</div> : (
             <ul className="divide-y divide-slate-100">
               {report.items.map((item) => (
-                <li key={item.id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-medium text-slate-900">{item.description}</span>{item.categoryId && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{categoryNames.get(item.categoryId)}</span>}</div><p className="mt-1 text-xs text-slate-500">{shortDate(item.expenseDate)}{item.merchantName ? ` · ${item.merchantName}` : ""}</p></div>
-                  <div className="flex items-center justify-between gap-4 sm:justify-end"><span className="font-semibold tabular-nums text-slate-900">{formatExpenseMoney(item.totalAmount, report.currencyCode)}</span>{editable && <form action={deleteExpenseItemAction}><input type="hidden" name="companySlug" value={context.slug} /><input type="hidden" name="reportId" value={report.id} /><input type="hidden" name="itemId" value={item.id} /><button type="submit" className="text-xs font-medium text-critical hover:underline">Quitar</button></form>}</div>
+                <li key={item.id} className="px-5 py-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-medium text-slate-900">{item.description}</span>{item.categoryId && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{categoryNames.get(item.categoryId)}</span>}{item.categoryId && receiptRequired.get(item.categoryId) && <span className="text-[11px] font-medium text-amber-700">Comprobante obligatorio</span>}</div><p className="mt-1 text-xs text-slate-500">{shortDate(item.expenseDate)}{item.merchantName ? ` · ${item.merchantName}` : ""}</p></div>
+                    <div className="flex items-center justify-between gap-4 sm:justify-end"><span className="font-semibold tabular-nums text-slate-900">{formatExpenseMoney(item.totalAmount, report.currencyCode)}</span>{editable && <form action={deleteExpenseItemAction}><input type="hidden" name="companySlug" value={context.slug} /><input type="hidden" name="reportId" value={report.id} /><input type="hidden" name="itemId" value={item.id} /><button type="submit" className="text-xs font-medium text-critical hover:underline">Quitar</button></form>}</div>
+                  </div>
+                  {item.receipt && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                      <Link href={`${base}/comprobantes/${item.receipt.id}`} target="_blank" className="font-medium text-arcotex-blue-dark hover:underline">Ver {item.receipt.originalFilename}</Link>
+                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">Guardado privado</span>
+                      {item.receipt.duplicateOfReceiptId && <span className="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-800">Posible duplicado</span>}
+                      <span className="text-slate-400">Lectura automática pendiente</span>
+                    </div>
+                  )}
+                  {editable && <ExpenseReceiptUploadForm companySlug={context.slug} reportId={report.id} itemId={item.id} hasReceipt={Boolean(item.receipt)} />}
                 </li>
               ))}
             </ul>
@@ -56,7 +71,10 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
         </section>
 
         <aside className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-900">Siguiente paso</h2>{editable ? <><p className="mt-2 text-sm leading-6 text-slate-500">Al enviar, el borrador quedará bloqueado y pasará a revisión.</p><div className="mt-4"><SubmitExpenseReportForm companySlug={context.slug} reportId={report.id} disabled={report.items.length === 0 || report.totalAmount <= 0} /></div></> : <p className="mt-2 text-sm leading-6 text-slate-500">Esta rendición ya fue enviada y no admite nuevos gastos.</p>}</div>
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-900">Siguiente paso</h2>{editable ? <><p className="mt-2 text-sm leading-6 text-slate-500">Al enviar, el borrador quedará bloqueado y pasará a revisión.</p>{missingRequiredReceipts && <p className="mt-2 text-xs font-medium text-amber-700">Faltan comprobantes obligatorios.</p>}<div className="mt-4"><SubmitExpenseReportForm companySlug={context.slug} reportId={report.id} disabled={report.items.length === 0 || report.totalAmount <= 0 || missingRequiredReceipts} /></div></> : <p className="mt-2 text-sm leading-6 text-slate-500">Esta rendición ya fue enviada y no admite nuevos gastos.</p>}</div>
+          {canDecide && <div className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-900">Revisión</h2><p className="mb-4 mt-2 text-sm leading-6 text-slate-500">Revisa gastos y comprobantes antes de registrar una decisión.</p><ExpenseDecisionForm companySlug={context.slug} reportId={report.id} /></div>}
+          {awaitingDecision && report.isOwn && (context.canApprove || context.canManage) && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-900"><strong>Segregación de funciones.</strong> Aunque tengas permiso de aprobación, otra persona debe revisar esta rendición.</div>}
+          {report.decisions.length > 0 && <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-900">Historial de revisión</h2><ul className="mt-3 space-y-3">{report.decisions.map((decision) => <li key={decision.id} className="border-l-2 border-slate-200 pl-3 text-xs text-slate-600"><div className="font-semibold text-slate-800">Ronda {decision.stepNumber}: {decision.decision === "APPROVED" ? "Aprobada" : decision.decision === "REJECTED" ? "Rechazada" : "Devuelta"}</div>{decision.comment && <p className="mt-1 leading-5">{decision.comment}</p>}</li>)}</ul></div>}
           <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-xs leading-5 text-blue-900"><strong>Aislamiento activo.</strong> Esta información pertenece únicamente a {context.name} y respeta tus permisos dentro de la empresa.</div>
         </aside>
       </div>

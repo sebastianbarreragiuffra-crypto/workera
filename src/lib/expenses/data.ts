@@ -42,13 +42,32 @@ export interface ExpenseItemDetail {
   taxAmount: number;
   totalAmount: number;
   receiptStatus: Database["public"]["Enums"]["expense_receipt_status"];
+  receipt: {
+    id: string;
+    originalFilename: string;
+    status: Database["public"]["Enums"]["expense_receipt_status"];
+    duplicateOfReceiptId: string | null;
+    createdAt: string;
+  } | null;
 }
 
 export interface ExpenseReportDetail extends ExpenseReportSummary {
   purpose: string | null;
   policyId: string | null;
+  reviewRound: number;
   items: ExpenseItemDetail[];
   categories: ExpenseCategoryOption[];
+  decisions: Array<{
+    id: string;
+    stepNumber: number;
+    decision: Database["public"]["Enums"]["expense_approval_decision"];
+    comment: string | null;
+    decidedAt: string;
+  }>;
+}
+
+export interface ExpenseApprovalQueueItem extends ExpenseReportSummary {
+  submitterName: string;
 }
 
 export async function getExpenseDashboard(
@@ -92,10 +111,10 @@ export async function getExpenseReportDetail(
   context: ExpenseCompanyContext,
   reportId: string
 ): Promise<ExpenseReportDetail | null> {
-  const [reportResult, itemsResult, categoriesResult] = await Promise.all([
+  const [reportResult, itemsResult, categoriesResult, receiptsResult, decisionsResult] = await Promise.all([
     supabase
       .from("expense_reports")
-      .select("id, reference_number, title, purpose, policy_id, status, currency_code, total_amount, created_at, submitted_at, submitted_by")
+      .select("id, reference_number, title, purpose, policy_id, status, currency_code, total_amount, created_at, submitted_at, submitted_by, review_round")
       .eq("company_id", context.id)
       .eq("id", reportId)
       .maybeSingle(),
@@ -111,13 +130,26 @@ export async function getExpenseReportDetail(
       .eq("company_id", context.id)
       .eq("active", true)
       .order("name"),
+    supabase
+      .from("expense_receipts")
+      .select("id, item_id, original_filename, status, duplicate_of_receipt_id, created_at")
+      .eq("company_id", context.id)
+      .eq("report_id", reportId)
+      .eq("is_current", true),
+    supabase
+      .from("expense_approval_decisions")
+      .select("id, step_number, decision, comment, decided_at")
+      .eq("company_id", context.id)
+      .eq("report_id", reportId)
+      .order("step_number", { ascending: false }),
   ]);
 
-  if (reportResult.error || itemsResult.error || categoriesResult.error) {
+  if (reportResult.error || itemsResult.error || categoriesResult.error || receiptsResult.error || decisionsResult.error) {
     throw new Error("No se pudo cargar el detalle de la rendición.");
   }
   if (!reportResult.data) return null;
   const report = reportResult.data;
+  const receiptsByItem = new Map((receiptsResult.data ?? []).map((receipt) => [receipt.item_id, receipt]));
 
   return {
     id: report.id,
@@ -125,27 +157,75 @@ export async function getExpenseReportDetail(
     title: report.title,
     purpose: report.purpose,
     policyId: report.policy_id,
+    reviewRound: report.review_round,
     status: report.status,
     currencyCode: report.currency_code,
     totalAmount: Number(report.total_amount),
     createdAt: report.created_at,
     submittedAt: report.submitted_at,
     isOwn: report.submitted_by === context.userId,
-    items: (itemsResult.data ?? []).map((item) => ({
-      id: item.id,
-      categoryId: item.category_id,
-      expenseDate: item.expense_date,
-      merchantName: item.merchant_name,
-      description: item.description,
-      netAmount: Number(item.net_amount),
-      taxAmount: Number(item.tax_amount),
-      totalAmount: Number(item.total_amount ?? 0),
-      receiptStatus: item.receipt_status,
-    })),
+    items: (itemsResult.data ?? []).map((item) => {
+      const receipt = receiptsByItem.get(item.id);
+      return {
+        id: item.id,
+        categoryId: item.category_id,
+        expenseDate: item.expense_date,
+        merchantName: item.merchant_name,
+        description: item.description,
+        netAmount: Number(item.net_amount),
+        taxAmount: Number(item.tax_amount),
+        totalAmount: Number(item.total_amount ?? 0),
+        receiptStatus: item.receipt_status,
+        receipt: receipt ? {
+          id: receipt.id,
+          originalFilename: receipt.original_filename,
+          status: receipt.status,
+          duplicateOfReceiptId: receipt.duplicate_of_receipt_id,
+          createdAt: receipt.created_at,
+        } : null,
+      };
+    }),
     categories: (categoriesResult.data ?? []).map((category) => ({
       id: category.id,
       name: category.name,
       requiresReceipt: category.requires_receipt,
     })),
+    decisions: (decisionsResult.data ?? []).map((decision) => ({
+      id: decision.id,
+      stepNumber: decision.step_number,
+      decision: decision.decision,
+      comment: decision.comment,
+      decidedAt: decision.decided_at,
+    })),
   };
+}
+
+export async function getExpenseApprovalQueue(
+  supabase: SupabaseClient<Database>,
+  context: ExpenseCompanyContext
+): Promise<ExpenseApprovalQueueItem[]> {
+  if (!context.canApprove && !context.canManage) return [];
+  const { data, error } = await supabase
+    .from("expense_reports")
+    .select("id, reference_number, title, status, currency_code, total_amount, created_at, submitted_at, submitted_by, profiles!expense_reports_submitted_by_fkey(display_name)")
+    .eq("company_id", context.id)
+    .in("status", ["SUBMITTED", "IN_REVIEW"])
+    .order("submitted_at", { ascending: true });
+  if (error) throw new Error("No se pudo cargar la bandeja de aprobación.");
+
+  return (data ?? []).map((report) => {
+    const profile = Array.isArray(report.profiles) ? report.profiles[0] : report.profiles;
+    return {
+      id: report.id,
+      referenceNumber: report.reference_number,
+      title: report.title,
+      status: report.status,
+      currencyCode: report.currency_code,
+      totalAmount: Number(report.total_amount),
+      createdAt: report.created_at,
+      submittedAt: report.submitted_at,
+      isOwn: report.submitted_by === context.userId,
+      submitterName: profile?.display_name ?? "Persona de la empresa",
+    };
+  });
 }

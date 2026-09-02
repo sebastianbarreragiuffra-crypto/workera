@@ -47,7 +47,7 @@ export function ExpenseShell({
             <Link href={`${base}/nueva`} className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">Nueva rendición</Link>
           )}
           {(context.canApprove || context.canManage) && (
-            <span className="rounded-md px-3 py-2 text-sm font-medium text-slate-400" title="Se habilitará en EX-3">Aprobaciones</span>
+            <Link href={`${base}/aprobaciones`} className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">Aprobaciones</Link>
           )}
           {context.canConfigure && (
             <span className="rounded-md px-3 py-2 text-sm font-medium text-slate-400" title="Se habilitará en EX-3">Políticas</span>

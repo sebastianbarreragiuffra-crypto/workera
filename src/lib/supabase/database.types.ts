@@ -2057,6 +2057,92 @@ export type Database = {
           },
         ]
       }
+      expense_receipts: {
+        Row: {
+          checksum_sha256: string
+          company_id: string
+          created_at: string
+          duplicate_of_receipt_id: string | null
+          extraction: Json
+          file_size: number
+          id: string
+          is_current: boolean
+          item_id: string
+          mime_type: string
+          original_filename: string
+          report_id: string
+          status: Database["public"]["Enums"]["expense_receipt_status"]
+          storage_path: string
+          uploaded_by: string
+          version: number
+        }
+        Insert: {
+          checksum_sha256: string
+          company_id: string
+          created_at?: string
+          duplicate_of_receipt_id?: string | null
+          extraction?: Json
+          file_size: number
+          id?: string
+          is_current?: boolean
+          item_id: string
+          mime_type: string
+          original_filename: string
+          report_id: string
+          status?: Database["public"]["Enums"]["expense_receipt_status"]
+          storage_path: string
+          uploaded_by: string
+          version: number
+        }
+        Update: {
+          checksum_sha256?: string
+          company_id?: string
+          created_at?: string
+          duplicate_of_receipt_id?: string | null
+          extraction?: Json
+          file_size?: number
+          id?: string
+          is_current?: boolean
+          item_id?: string
+          mime_type?: string
+          original_filename?: string
+          report_id?: string
+          status?: Database["public"]["Enums"]["expense_receipt_status"]
+          storage_path?: string
+          uploaded_by?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_receipts_company_id_duplicate_of_receipt_id_fkey"
+            columns: ["company_id", "duplicate_of_receipt_id"]
+            isOneToOne: false
+            referencedRelation: "expense_receipts"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "expense_receipts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_receipts_company_id_report_id_item_id_fkey"
+            columns: ["company_id", "report_id", "item_id"]
+            isOneToOne: false
+            referencedRelation: "expense_items"
+            referencedColumns: ["company_id", "report_id", "id"]
+          },
+          {
+            foreignKeyName: "expense_receipts_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expense_report_sequences: {
         Row: {
           company_id: string
@@ -2091,6 +2177,7 @@ export type Database = {
           purpose: string | null
           reference_number: string
           resolved_at: string | null
+          review_round: number
           status: Database["public"]["Enums"]["expense_report_status"]
           submitted_at: string | null
           submitted_by: string
@@ -2108,6 +2195,7 @@ export type Database = {
           purpose?: string | null
           reference_number?: string
           resolved_at?: string | null
+          review_round?: number
           status?: Database["public"]["Enums"]["expense_report_status"]
           submitted_at?: string | null
           submitted_by: string
@@ -2125,6 +2213,7 @@ export type Database = {
           purpose?: string | null
           reference_number?: string
           resolved_at?: string | null
+          review_round?: number
           status?: Database["public"]["Enums"]["expense_report_status"]
           submitted_at?: string | null
           submitted_by?: string
@@ -4213,6 +4302,14 @@ export type Database = {
       }
       can_manage_employee: { Args: { p_employee_id: string }; Returns: boolean }
       can_manage_platform: { Args: never; Returns: boolean }
+      can_read_expense_receipt_path: {
+        Args: { p_name: string }
+        Returns: boolean
+      }
+      can_upload_expense_receipt_path: {
+        Args: { p_name: string }
+        Returns: boolean
+      }
       classify_overtime_type_id: {
         Args: { p_work_date: string }
         Returns: string
@@ -4239,6 +4336,14 @@ export type Database = {
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
+      }
+      decide_expense_report: {
+        Args: {
+          p_comment?: string
+          p_decision: Database["public"]["Enums"]["expense_approval_decision"]
+          p_report_id: string
+        }
+        Returns: undefined
       }
       expense_dashboard_summary: {
         Args: { p_company_id: string }
@@ -4433,6 +4538,17 @@ export type Database = {
       recompute_employee_daily_bonus: {
         Args: { p_employee_id: string; p_work_date: string }
         Returns: undefined
+      }
+      register_expense_receipt: {
+        Args: {
+          p_checksum_sha256: string
+          p_file_size: number
+          p_item_id: string
+          p_mime_type: string
+          p_original_filename: string
+          p_storage_path: string
+        }
+        Returns: string
       }
       reject_medical_license: {
         Args: { p_approval_id: string; p_reason: string }

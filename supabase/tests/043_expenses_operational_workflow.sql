@@ -67,7 +67,7 @@ select '96000000-0000-0000-0000-000000000001',
   '96000000-0000-0000-0000-000000000301', ec.id, current_date,
   'Almuerzo con cliente', 15000, 2850
 from public.expense_categories ec
-where ec.company_id = '96000000-0000-0000-0000-000000000001' and ec.code = 'ALIMENTACION';
+where ec.company_id = '96000000-0000-0000-0000-000000000001' and ec.code = 'OTROS';
 
 select lives_ok(
   $$select public.submit_expense_report('96000000-0000-0000-0000-000000000301')$$,

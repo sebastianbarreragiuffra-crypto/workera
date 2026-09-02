@@ -5,7 +5,9 @@ import { useFormStatus } from "react-dom";
 import {
   addExpenseItemAction,
   createExpenseReportAction,
+  decideExpenseReportAction,
   submitExpenseReportAction,
+  uploadExpenseReceiptAction,
   type ExpenseActionState,
 } from "@/app/(expenses)/empresas/[companySlug]/rendiciones/actions";
 import type { ExpenseCategoryOption } from "@/lib/expenses/data";
@@ -138,6 +140,60 @@ export function SubmitExpenseReportForm({ companySlug, reportId, disabled }: { c
       </button>
       {disabled && <p className="text-center text-xs text-slate-500">Agrega al menos un gasto antes de enviar.</p>}
       <Feedback state={state} />
+    </form>
+  );
+}
+
+export function ExpenseReceiptUploadForm({
+  companySlug,
+  reportId,
+  itemId,
+  hasReceipt,
+}: {
+  companySlug: string;
+  reportId: string;
+  itemId: string;
+  hasReceipt: boolean;
+}) {
+  const [state, action] = useActionState(uploadExpenseReceiptAction, INITIAL_STATE);
+  return (
+    <form action={action} className="mt-3 space-y-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <input type="hidden" name="reportId" value={reportId} />
+      <input type="hidden" name="itemId" value={itemId} />
+      <label className="block text-xs font-medium text-slate-700">
+        {hasReceipt ? "Reemplazar comprobante" : "Adjuntar comprobante"}
+        <input name="receipt" type="file" required accept="application/pdf,image/jpeg,image/png" className="mt-1 block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold file:text-arcotex-blue-dark" />
+      </label>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] text-slate-500">PDF, JPG o PNG · máximo 10 MB</span>
+        <SubmitButton>{hasReceipt ? "Reemplazar" : "Adjuntar"}</SubmitButton>
+      </div>
+      <Feedback state={state} />
+    </form>
+  );
+}
+
+export function ExpenseDecisionForm({ companySlug, reportId }: { companySlug: string; reportId: string }) {
+  const [state, action] = useActionState(decideExpenseReportAction, INITIAL_STATE);
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <input type="hidden" name="reportId" value={reportId} />
+      <label className="block text-sm font-medium text-slate-700">
+        Decisión
+        <select name="decision" defaultValue="APPROVED" className={INPUT}>
+          <option value="APPROVED">Aprobar</option>
+          <option value="RETURNED">Devolver para corregir</option>
+          <option value="REJECTED">Rechazar</option>
+        </select>
+      </label>
+      <label className="block text-sm font-medium text-slate-700">
+        Comentario
+        <textarea name="comment" maxLength={1000} rows={3} className={INPUT} placeholder="Obligatorio al devolver o rechazar" />
+      </label>
+      <Feedback state={state} />
+      <SubmitButton tone="success">Registrar decisión</SubmitButton>
     </form>
   );
 }

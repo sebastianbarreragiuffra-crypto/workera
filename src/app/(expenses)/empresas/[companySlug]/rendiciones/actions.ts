@@ -1,9 +1,11 @@
 "use server";
 
+import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
+import { validateExpenseReceiptFile } from "@/lib/expenses/receipts";
 import { createClient } from "@/lib/supabase/server";
 
 export interface ExpenseActionState {
@@ -32,6 +34,10 @@ const addItemInput = z.object({
 });
 const reportActionInput = z.object({ companySlug: slug, reportId: uuid });
 const itemActionInput = reportActionInput.extend({ itemId: uuid });
+const decisionInput = reportActionInput.extend({
+  decision: z.enum(["APPROVED", "REJECTED", "RETURNED"]),
+  comment: z.string().trim().max(1000).transform((value) => value || null),
+});
 
 function entries(formData: FormData): Record<string, FormDataEntryValue> {
   return Object.fromEntries(formData.entries());
@@ -149,10 +155,90 @@ export async function submitExpenseReportAction(
   if (!context?.canSubmit) return failed("Tu rol no permite enviar esta rendición.");
 
   const { error } = await supabase.rpc("submit_expense_report", { p_report_id: parsed.data.reportId });
+  if (error?.code === "23514" && error.message.includes("comprobantes")) return failed("Adjunta todos los comprobantes obligatorios antes de enviar.");
   if (error?.code === "23514") return failed("Agrega al menos un gasto válido antes de enviarla, o verifica que siga en borrador.");
   if (error) return failed("No pudimos enviar la rendición a revisión.");
 
   revalidatePath(reportPath(context.slug, parsed.data.reportId));
   revalidatePath(`/empresas/${context.slug}/rendiciones`);
   redirect(`/empresas/${context.slug}/rendiciones?enviada=1`);
+}
+
+export async function uploadExpenseReceiptAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = itemActionInput.safeParse(entries(formData));
+  const file = formData.get("receipt");
+  if (!parsed.success || !(file instanceof File)) return failed("Selecciona un comprobante válido.");
+
+  const validation = await validateExpenseReceiptFile(file);
+  if (!validation.ok || !validation.mimeType || !validation.extension) return failed(validation.message);
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canSubmit) return failed("Tu rol no permite adjuntar comprobantes.");
+
+  const { data: item } = await supabase
+    .from("expense_items")
+    .select("id, report_id, expense_reports!inner(status, submitted_by)")
+    .eq("company_id", context.id)
+    .eq("report_id", parsed.data.reportId)
+    .eq("id", parsed.data.itemId)
+    .maybeSingle();
+  const relatedReport = Array.isArray(item?.expense_reports) ? item.expense_reports[0] : item?.expense_reports;
+  if (!item || !relatedReport || relatedReport.status !== "DRAFT" || (relatedReport.submitted_by !== context.userId && !context.canManage)) {
+    return failed("El gasto ya no está disponible para adjuntar comprobantes.");
+  }
+
+  const bytes = await file.arrayBuffer();
+  const checksum = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+  const objectId = randomUUID();
+  const storagePath = `${context.id}/${context.userId}/${parsed.data.reportId}/${parsed.data.itemId}/${objectId}.${validation.extension}`;
+  const { error: uploadError } = await supabase.storage.from("expense-receipts").upload(storagePath, bytes, {
+    contentType: validation.mimeType,
+    cacheControl: "3600",
+    upsert: false,
+  });
+  if (uploadError) return failed("No pudimos guardar el comprobante en el almacenamiento privado.");
+
+  const { error: registerError } = await supabase.rpc("register_expense_receipt", {
+    p_item_id: parsed.data.itemId,
+    p_storage_path: storagePath,
+    p_original_filename: file.name.slice(0, 240) || `comprobante.${validation.extension}`,
+    p_mime_type: validation.mimeType,
+    p_file_size: file.size,
+    p_checksum_sha256: checksum,
+  });
+  if (registerError) return failed("El archivo se guardó, pero no pudimos asociarlo al gasto. Intenta nuevamente.");
+
+  revalidatePath(reportPath(context.slug, parsed.data.reportId));
+  return { status: "success", message: "Comprobante adjuntado de forma privada." };
+}
+
+export async function decideExpenseReportAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = decisionInput.safeParse(entries(formData));
+  if (!parsed.success) return failed("Revisa la decisión y el comentario.");
+  if (parsed.data.decision !== "APPROVED" && !parsed.data.comment) return failed("Explica por qué rechazas o devuelves la rendición.");
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context || (!context.canApprove && !context.canManage)) return failed("Tu rol no permite decidir rendiciones.");
+
+  const { error } = await supabase.rpc("decide_expense_report", {
+    p_report_id: parsed.data.reportId,
+    p_decision: parsed.data.decision,
+    p_comment: parsed.data.comment ?? undefined,
+  });
+  if (error?.code === "42501" && error.message.includes("propia")) return failed("Otra persona debe revisar tu propia rendición.");
+  if (error?.code === "23514") return failed("La rendición ya no está pendiente o falta el comentario requerido.");
+  if (error) return failed("No pudimos registrar la decisión.");
+
+  revalidatePath(reportPath(context.slug, parsed.data.reportId));
+  revalidatePath(`/empresas/${context.slug}/rendiciones/aprobaciones`);
+  revalidatePath(`/empresas/${context.slug}/rendiciones`);
+  redirect(`/empresas/${context.slug}/rendiciones/aprobaciones?decidida=1`);
 }
