@@ -113,6 +113,13 @@ function AttendanceCorrectionForm({
           )}
         </div>
 
+        {needsClockOut && (
+          <label className="flex items-center gap-2 text-xs text-slate-600">
+            <input type="checkbox" name="correctedClockOutNextDay" className="rounded border-slate-300" />
+            La salida fue después de medianoche (día siguiente)
+          </label>
+        )}
+
         <label className="block">
           <span className="text-xs font-medium text-slate-600">Motivo</span>
           <input

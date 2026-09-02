@@ -191,6 +191,7 @@ export async function submitAttendanceCorrectionAction(formData: FormData) {
   const area = String(formData.get("area")) as AreaCode;
   const correctedClockIn = (formData.get("correctedClockIn") as string)?.trim() || null;
   const correctedClockOut = (formData.get("correctedClockOut") as string)?.trim() || null;
+  const correctedClockOutNextDay = formData.get("correctedClockOutNextDay") === "on";
   const reason = String(formData.get("reason") ?? "");
 
   await submitAttendanceCorrection(supabase, {
@@ -199,6 +200,7 @@ export async function submitAttendanceCorrectionAction(formData: FormData) {
     workDate: date,
     correctedClockIn,
     correctedClockOut,
+    correctedClockOutNextDay,
     reason,
     correctedBy: profile.id,
   });

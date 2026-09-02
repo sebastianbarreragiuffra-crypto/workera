@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 import { santiagoWallClockToInstant } from "../business-rules/wall-clock";
+import { nextDate } from "../view-models/date-utils";
 
 /**
  * Servicio de escritura para `attendance_corrections` (MB-3).
@@ -33,6 +34,18 @@ export interface SubmitAttendanceCorrectionInput {
   /** "HH:MM" en hora de pared de Santiago, o null para dejar el valor crudo. */
   correctedClockIn: string | null;
   correctedClockOut: string | null;
+  /**
+   * La salida ocurrió al día calendario SIGUIENTE a `workDate` (turno que
+   * cruza medianoche) -- nunca se infiere automáticamente comparando horas:
+   * un supervisor debe declararlo explícitamente. La constraint de base
+   * `attendance_corrections_clock_out_reasonable_day_chk` ya modela esto
+   * (`work_date` o `work_date + 1`); sin esta bandera, cualquier corrección
+   * de salida después de medianoche se anclaba al mismo `workDate` y quedaba
+   * 24 horas antes de la hora real (bug encontrado en auditoría, nunca
+   * causaba un error de la base porque la fecha resultante seguía cayendo
+   * dentro del rango permitido -- solo producía el día equivocado).
+   */
+  correctedClockOutNextDay?: boolean;
   reason: string;
   correctedBy: string;
 }
@@ -102,7 +115,10 @@ export async function submitAttendanceCorrection(
         ? santiagoWallClockToInstant(input.workDate, input.correctedClockIn).toISOString()
         : null,
       corrected_clock_out: input.correctedClockOut
-        ? santiagoWallClockToInstant(input.workDate, input.correctedClockOut).toISOString()
+        ? santiagoWallClockToInstant(
+            input.correctedClockOutNextDay ? nextDate(input.workDate) : input.workDate,
+            input.correctedClockOut
+          ).toISOString()
         : null,
       reason: input.reason.trim(),
       corrected_by: input.correctedBy,
