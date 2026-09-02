@@ -122,11 +122,27 @@ export interface SupplierConflict {
   rows: number[];
 }
 
+export interface AbsentSupplier {
+  normalizedName: string;
+  name: string;
+}
+
 export interface ImportSuppliersResult {
   imported: number;
   updated: number;
   /** Mismo nombre normalizado con datos bancarios distintos dentro del mismo archivo -- el archivo NO se importa hasta resolver esto manualmente. */
   conflicts: SupplierConflict[];
+  /**
+   * Proveedores actualmente ACTIVOS que no aparecen en este archivo. Este
+   * importador nunca desactiva a nadie por su cuenta (a diferencia de un
+   * proveedor sin match en la nómina mensual, acá no hay forma de saber si
+   * la ausencia es intencional -- el proveedor dejó de operar con la
+   * empresa -- o el archivo simplemente vino incompleto; auto-desactivar
+   * datos bancarios reales sobre esa ambigüedad es más riesgoso que dejarlo
+   * activo un ciclo de más). Se reporta para que RRHH decida, nunca se
+   * resuelve en silencio.
+   */
+  absentActiveSuppliers: AbsentSupplier[];
 }
 
 /**
@@ -155,12 +171,13 @@ export async function importSuppliers(
     }
   }
   if (conflicts.length > 0) {
-    return { imported: 0, updated: 0, conflicts };
+    return { imported: 0, updated: 0, conflicts, absentActiveSuppliers: [] };
   }
 
-  const { data: existing, error: existingError } = await supabase.from("suppliers").select("normalized_name");
+  const { data: existing, error: existingError } = await supabase.from("suppliers").select("normalized_name, name, active");
   if (existingError) throw new Error(`importSuppliers: fallo leyendo suppliers existentes: ${existingError.message}`);
-  const existingNames = new Set((existing ?? []).map((s) => s.normalized_name));
+  const existingRows = existing ?? [];
+  const existingNames = new Set(existingRows.map((s) => s.normalized_name));
 
   const toUpsert = [...byName.entries()].map(([normalizedName, group]) => {
     const row = group[0];
@@ -182,5 +199,23 @@ export async function importSuppliers(
   const imported = toUpsert.filter((s) => !existingNames.has(s.normalized_name)).length;
   const updated = toUpsert.length - imported;
 
-  return { imported, updated, conflicts: [] };
+  const uploadedNames = new Set(toUpsert.map((s) => s.normalized_name));
+  const absentActiveSuppliers = existingRows
+    .filter((s) => s.active && !uploadedNames.has(s.normalized_name))
+    .map((s) => ({ normalizedName: s.normalized_name, name: s.name }));
+
+  return { imported, updated, conflicts: [], absentActiveSuppliers };
+}
+
+/**
+ * Desactiva un proveedor puntual por su nombre normalizado -- el único
+ * camino que existe hoy para dar de baja a alguien del maestro (nunca se
+ * borra, mismo criterio que el resto del esquema). Nunca automático: la
+ * ausencia de un proveedor en un archivo nuevo solo lo reporta
+ * (`absentActiveSuppliers`); esta función es la acción explícita que una
+ * persona dispara después de revisar esa advertencia.
+ */
+export async function deactivateSupplier(supabase: SupabaseClient<Database>, normalizedName: string): Promise<void> {
+  const { error } = await supabase.from("suppliers").update({ active: false }).eq("normalized_name", normalizedName);
+  if (error) throw new Error(`deactivateSupplier: fallo desactivando el proveedor: ${error.message}`);
 }
