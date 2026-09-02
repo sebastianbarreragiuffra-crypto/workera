@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   addExpenseItemAction,
@@ -40,9 +40,15 @@ function SubmitButton({ children, tone = "primary" }: { children: React.ReactNod
 
 export function CreateExpenseReportForm({ companySlug }: { companySlug: string }) {
   const [state, action] = useActionState(createExpenseReportAction, INITIAL_STATE);
+  // Estable mientras el formulario esté montado -- un doble clic o un
+  // reintento de red reenvía el MISMO id, así que create_expense_report()
+  // devuelve el borrador ya creado en vez de duplicarlo. Solo una recarga
+  // completa de la página genera uno nuevo, que es un intento nuevo real.
+  const [clientRequestId] = useState(() => crypto.randomUUID());
   return (
     <form action={action} className="space-y-5">
       <input type="hidden" name="companySlug" value={companySlug} />
+      <input type="hidden" name="clientRequestId" value={clientRequestId} />
       <div className="grid gap-5 sm:grid-cols-2">
         <label className="text-sm font-medium text-slate-700 sm:col-span-2">
           Nombre de la rendición

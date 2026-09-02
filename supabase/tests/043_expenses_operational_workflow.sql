@@ -2,7 +2,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(24);
+select plan(27);
 
 select has_table('public', 'expense_report_sequences', 'existe secuencia tenant-aware de folios');
 select has_column('public', 'expense_reports', 'reference_number', 'cada rendición tiene folio visible');
@@ -124,6 +124,43 @@ select ok(
   not (select workspace_enabled from public.companies where id = '96000000-0000-0000-0000-000000000001'),
   'el flujo completo no habilita el workspace laboral'
 );
+
+-- ---------------------------------------------------------------------------
+-- create_expense_report(): idempotencia real ante doble clic o reintento de
+-- red (hallazgo de la auditoría, P2) -- nunca se agregó una restricción de
+-- "un solo borrador por persona", porque tener varios borradores legítimos
+-- a la vez sigue siendo válido; lo único que no debe pasar es duplicar el
+-- MISMO intento.
+set local role authenticated;
+set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000102';
+
+select is(
+  (select public.create_expense_report(
+    '96000000-0000-0000-0000-000000000001', 'Rendición idempotente', null, 'CLP',
+    'aaaaaaaa-0000-0000-0000-000000000001'
+  )),
+  (select public.create_expense_report(
+    '96000000-0000-0000-0000-000000000001', 'Rendición idempotente (reintento)', null, 'CLP',
+    'aaaaaaaa-0000-0000-0000-000000000001'
+  )),
+  'el mismo client_request_id devuelve el mismo borrador en vez de duplicarlo'
+);
+select is(
+  (select count(*)::integer from public.expense_reports
+     where company_id = '96000000-0000-0000-0000-000000000001'
+       and client_request_id = 'aaaaaaaa-0000-0000-0000-000000000001'),
+  1,
+  'reenviar el mismo client_request_id no crea una segunda fila'
+);
+select isnt(
+  (select public.create_expense_report(
+    '96000000-0000-0000-0000-000000000001', 'Otra rendición distinta', null, 'CLP',
+    'aaaaaaaa-0000-0000-0000-000000000002'
+  )),
+  (select id from public.expense_reports where client_request_id = 'aaaaaaaa-0000-0000-0000-000000000001'),
+  'un client_request_id distinto sí crea un borrador nuevo'
+);
+reset role;
 
 select * from finish();
 rollback;

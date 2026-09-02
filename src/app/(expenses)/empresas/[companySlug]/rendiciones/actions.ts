@@ -20,6 +20,7 @@ const createReportInput = z.object({
   title: z.string().trim().min(2).max(160),
   purpose: z.string().trim().max(1000).transform((value) => value || null),
   currencyCode: z.enum(["CLP", "USD", "EUR"]),
+  clientRequestId: uuid,
 });
 const addItemInput = z.object({
   companySlug: slug,
@@ -67,31 +68,20 @@ export async function createExpenseReportAction(
   const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
   if (!context?.canSubmit) return failed("Tu rol no permite crear rendiciones en esta empresa.");
 
-  const { data: policy } = await supabase
-    .from("expense_policies")
-    .select("id")
-    .eq("company_id", context.id)
-    .eq("active", true)
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // create_expense_report() es idempotente: un doble clic o un reintento de
+  // red que repita el mismo clientRequestId devuelve el borrador ya creado
+  // en vez de duplicarlo (ver 20260901210000_expense_reports_idempotent_create.sql).
+  const { data: reportId, error } = await supabase.rpc("create_expense_report", {
+    p_company_id: context.id,
+    p_title: parsed.data.title,
+    p_purpose: parsed.data.purpose ?? undefined,
+    p_currency_code: parsed.data.currencyCode,
+    p_client_request_id: parsed.data.clientRequestId,
+  });
 
-  const { data, error } = await supabase
-    .from("expense_reports")
-    .insert({
-      company_id: context.id,
-      submitted_by: context.userId,
-      title: parsed.data.title,
-      purpose: parsed.data.purpose,
-      currency_code: parsed.data.currencyCode,
-      policy_id: policy?.id ?? null,
-    })
-    .select("id")
-    .single();
-
-  if (error || !data) return failed("No pudimos crear la rendición. Intenta nuevamente.");
+  if (error || !reportId) return failed("No pudimos crear la rendición. Intenta nuevamente.");
   revalidatePath(`/empresas/${context.slug}/rendiciones`);
-  redirect(reportPath(context.slug, data.id));
+  redirect(reportPath(context.slug, reportId));
 }
 
 export async function addExpenseItemAction(

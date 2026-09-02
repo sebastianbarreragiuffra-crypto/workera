@@ -2289,6 +2289,7 @@ export type Database = {
       }
       expense_reports: {
         Row: {
+          client_request_id: string | null
           company_id: string
           created_at: string
           currency_code: string
@@ -2307,6 +2308,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          client_request_id?: string | null
           company_id: string
           created_at?: string
           currency_code?: string
@@ -2325,6 +2327,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          client_request_id?: string | null
           company_id?: string
           created_at?: string
           currency_code?: string
@@ -4471,6 +4474,16 @@ export type Database = {
       complete_expense_ocr_job: {
         Args: { p_extraction: Json; p_job_id: string; p_worker_id: string }
         Returns: undefined
+      }
+      create_expense_report: {
+        Args: {
+          p_client_request_id: string
+          p_company_id: string
+          p_currency_code: string
+          p_purpose?: string
+          p_title: string
+        }
+        Returns: string
       }
       current_platform_role: {
         Args: never
