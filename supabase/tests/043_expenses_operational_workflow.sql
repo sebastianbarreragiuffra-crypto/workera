@@ -2,7 +2,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(31);
+select plan(36);
 
 select has_table('public', 'expense_report_sequences', 'existe secuencia tenant-aware de folios');
 select has_column('public', 'expense_reports', 'reference_number', 'cada rendición tiene folio visible');
@@ -189,6 +189,52 @@ select throws_ok(
   $$select public.withdraw_expense_report('96000000-0000-0000-0000-000000000301')$$,
   '23514', 'Solo se puede retirar una rendición pendiente de revisión.',
   'no se puede retirar algo que ya está en DRAFT'
+);
+reset role;
+
+-- expense_policies.rules.categoryLimits (EX-5): primer uso real de `rules`
+-- -- hasta esta migración era un objeto decorativo (receipt_required_from/
+-- duplicate_detection/approval_mode) que ningún código consultaba. Un gasto
+-- que supera el límite de su categoría bloquea el ENVÍO, nunca se ajusta el
+-- monto en silencio. El informe 301 sigue en DRAFT desde el retiro de
+-- arriba, con su único ítem en la categoría OTROS por 17850.
+insert into public.company_membership_roles (company_id, membership_id, role_id)
+select '96000000-0000-0000-0000-000000000001', '96000000-0000-0000-0000-000000000201', cr.id
+from public.company_roles cr
+where cr.company_id = '96000000-0000-0000-0000-000000000001' and cr.code = 'HR_ADMIN'
+on conflict do nothing;
+
+set local role authenticated;
+set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000102';
+
+select lives_ok(
+  format(
+    $$update public.expense_policies set rules = jsonb_build_object('categoryLimits', jsonb_build_object(%L, 10000))
+      where company_id = '96000000-0000-0000-0000-000000000001' and active$$,
+    (select id::text from public.expense_categories where company_id = '96000000-0000-0000-0000-000000000001' and code = 'OTROS')
+  ),
+  'expenses.manage puede configurar un límite máximo por categoría'
+);
+select throws_ok(
+  $$select public.submit_expense_report('96000000-0000-0000-0000-000000000301')$$,
+  '23514', 'Un gasto supera el monto máximo permitido para su categoría según la política vigente.',
+  'un gasto que supera el límite de su categoría bloquea el envío'
+);
+select is(
+  (select status::text from public.expense_reports where id = '96000000-0000-0000-0000-000000000301'),
+  'DRAFT', 'la rendición sigue en DRAFT tras el envío bloqueado por política'
+);
+
+update public.expense_policies set rules = '{}'::jsonb
+  where company_id = '96000000-0000-0000-0000-000000000001' and active;
+
+select lives_ok(
+  $$select public.submit_expense_report('96000000-0000-0000-0000-000000000301')$$,
+  'sin límite configurado, el mismo gasto sí puede enviarse'
+);
+select is(
+  (select status::text from public.expense_reports where id = '96000000-0000-0000-0000-000000000301'),
+  'SUBMITTED', 'el envío se completa una vez removido el límite'
 );
 reset role;
 

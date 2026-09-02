@@ -360,3 +360,44 @@ export async function getExpenseApprovalQueue(
 
   return { reports, pagination: { page, pageSize: EXPENSE_PAGE_SIZE, totalCount: count ?? reports.length } };
 }
+
+export interface ExpensePolicySettings {
+  policyId: string | null;
+  categoryLimits: Record<string, number>;
+  categories: ExpenseCategoryOption[];
+}
+
+function parseCategoryLimits(rules: unknown): Record<string, number> {
+  if (!rules || typeof rules !== "object" || Array.isArray(rules)) return {};
+  const raw = (rules as Record<string, unknown>).categoryLimits;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter((entry): entry is [string, number] => typeof entry[1] === "number" && entry[1] > 0)
+  );
+}
+
+/**
+ * Primer uso real de expense_policies.rules (EX-5): monto máximo por
+ * categoría. Sin política activa, no hay límites -- comportamiento
+ * retrocompatible con toda empresa que activó Rendiciones antes de esto.
+ */
+export async function getExpensePolicySettings(
+  supabase: SupabaseClient<Database>,
+  context: ExpenseCompanyContext
+): Promise<ExpensePolicySettings> {
+  const [policyResult, categoriesResult] = await Promise.all([
+    supabase.from("expense_policies").select("id, rules").eq("company_id", context.id).eq("active", true).maybeSingle(),
+    supabase.from("expense_categories").select("id, name, requires_receipt").eq("company_id", context.id).eq("active", true).order("name"),
+  ]);
+  if (policyResult.error || categoriesResult.error) throw new Error("No se pudo cargar la configuración de políticas.");
+
+  return {
+    policyId: policyResult.data?.id ?? null,
+    categoryLimits: parseCategoryLimits(policyResult.data?.rules),
+    categories: (categoriesResult.data ?? []).map((category) => ({
+      id: category.id,
+      name: category.name,
+      requiresReceipt: category.requires_receipt,
+    })),
+  };
+}

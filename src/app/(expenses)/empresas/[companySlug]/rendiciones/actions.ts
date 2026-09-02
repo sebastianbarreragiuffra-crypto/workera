@@ -34,6 +34,7 @@ const addItemInput = z.object({
   currencyCode: z.enum(["CLP", "USD", "EUR"]),
 });
 const reportActionInput = z.object({ companySlug: slug, reportId: uuid });
+const policyLimitsInput = z.object({ companySlug: slug, policyId: uuid });
 const itemActionInput = reportActionInput.extend({ itemId: uuid });
 const decisionInput = reportActionInput.extend({
   decision: z.enum(["APPROVED", "REJECTED", "RETURNED"]),
@@ -178,6 +179,48 @@ export async function withdrawExpenseReportAction(
   revalidatePath(reportPath(context.slug, parsed.data.reportId));
   revalidatePath(`/empresas/${context.slug}/rendiciones`);
   return { status: "success", message: "Rendición retirada -- vuelve a estar en borrador para que la corrijas." };
+}
+
+export async function updateCategoryLimitsAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = policyLimitsInput.safeParse(entries(formData));
+  if (!parsed.success) return failed();
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canConfigure && !context?.canManage) return failed("Tu rol no permite configurar políticas de gasto.");
+
+  const categoryLimits: Record<string, number> = {};
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith("limit_") || typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed === "") continue;
+    const amount = Number(trimmed);
+    if (!Number.isFinite(amount) || amount <= 0) return failed("Los montos máximos deben ser números enteros positivos.");
+    categoryLimits[key.slice("limit_".length)] = Math.round(amount);
+  }
+
+  // rules guarda otros campos (receipt_required_from, etc.) -- se fusiona en
+  // vez de reemplazar todo el objeto para no pisarlos.
+  const { data: current, error: readError } = await supabase
+    .from("expense_policies")
+    .select("rules")
+    .eq("company_id", context.id)
+    .eq("id", parsed.data.policyId)
+    .single();
+  if (readError || !current) return failed("No se pudo leer la política vigente.");
+
+  const { error } = await supabase
+    .from("expense_policies")
+    .update({ rules: { ...(current.rules as Record<string, unknown>), categoryLimits } })
+    .eq("company_id", context.id)
+    .eq("id", parsed.data.policyId);
+  if (error) return failed("No pudimos guardar la política.");
+
+  revalidatePath(`/empresas/${context.slug}/rendiciones/politicas`);
+  return { status: "success", message: "Política actualizada -- los límites se aplican desde el próximo envío." };
 }
 
 export async function uploadExpenseReceiptAction(

@@ -8,6 +8,7 @@ import {
   decideExpenseReportAction,
   reviewExpenseReceiptOcrAction,
   submitExpenseReportAction,
+  updateCategoryLimitsAction,
   uploadExpenseReceiptAction,
   withdrawExpenseReportAction,
   type ExpenseActionState,
@@ -164,6 +165,45 @@ export function WithdrawExpenseReportForm({ companySlug, reportId }: { companySl
       >
         Retirar y corregir
       </button>
+      <Feedback state={state} />
+    </form>
+  );
+}
+
+export function CategoryLimitsForm({
+  companySlug,
+  policyId,
+  categories,
+  categoryLimits,
+}: {
+  companySlug: string;
+  policyId: string;
+  categories: ExpenseCategoryOption[];
+  categoryLimits: Record<string, number>;
+}) {
+  const [state, action] = useActionState(updateCategoryLimitsAction, INITIAL_STATE);
+  return (
+    <form action={action} className="space-y-4">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <input type="hidden" name="policyId" value={policyId} />
+      <div className="space-y-3">
+        {categories.map((category) => (
+          <label key={category.id} className="flex items-center justify-between gap-3 text-sm font-medium text-slate-700">
+            {category.name}
+            <input
+              type="number"
+              name={`limit_${category.id}`}
+              min={1}
+              step={1}
+              placeholder="Sin límite"
+              defaultValue={categoryLimits[category.id] ?? ""}
+              className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-right text-sm shadow-sm focus:border-arcotex-blue focus:outline-none focus:ring-2 focus:ring-blue-100"
+            />
+          </label>
+        ))}
+      </div>
+      <p className="text-xs text-slate-500">Deja vacío para no limitar esa categoría. Un gasto que supere su límite bloquea el envío hasta corregirlo.</p>
+      <SubmitButton>Guardar política</SubmitButton>
       <Feedback state={state} />
     </form>
   );
