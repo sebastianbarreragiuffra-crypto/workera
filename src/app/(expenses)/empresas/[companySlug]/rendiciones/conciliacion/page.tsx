@@ -12,6 +12,13 @@ function dateLabel(value: string | null): string {
   return new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeZone: "America/Santiago" }).format(new Date(value));
 }
 
+function currentMonthInSantiago(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit" }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")!.value;
+  const month = parts.find((part) => part.type === "month")!.value;
+  return `${year}-${month}`;
+}
+
 export default async function ExpenseReconciliationPage({
   params,
   searchParams,
@@ -34,6 +41,29 @@ export default async function ExpenseReconciliationPage({
         <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">Conciliación</h1>
         <p className="mt-2 text-sm text-slate-500">Rendiciones aprobadas de {context.name}, pendientes de registrar su pago o ya conciliadas.</p>
       </header>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="font-medium text-slate-900">Planilla mensual de reembolso</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Cuánto hay que devolverle a cada persona por comprobantes pagados con su tarjeta personal, agrupado por moneda -- incluye rendiciones
+          aprobadas o ya pagadas, enviadas dentro del mes elegido.
+        </p>
+        <form action={`${base}/conciliacion/exportar`} method="GET" className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-slate-700">Mes</span>
+            <input
+              type="month"
+              name="mes"
+              defaultValue={currentMonthInSantiago()}
+              required
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <button type="submit" className="rounded-lg bg-arcotex-blue px-4 py-2 text-sm font-medium text-white hover:bg-arcotex-blue-dark">
+            Descargar planilla (.xlsx)
+          </button>
+        </form>
+      </section>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <ExpenseListFiltersForm filters={filters} statuses={EXPENSE_RECONCILIATION_STATUSES} legend="Filtrar la bandeja de conciliación" />
