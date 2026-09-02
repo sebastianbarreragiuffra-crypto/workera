@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
+import { unwrapEmbed } from "@/lib/supabase/embed";
 
 type CompanyStatus = Database["public"]["Enums"]["company_lifecycle_status"];
 
@@ -32,8 +33,7 @@ type MembershipCompany = {
 };
 
 function relatedCompany(value: unknown): MembershipCompany | null {
-  if (Array.isArray(value)) return (value[0] as MembershipCompany | undefined) ?? null;
-  return (value as MembershipCompany | null) ?? null;
+  return unwrapEmbed(value as MembershipCompany | MembershipCompany[] | null);
 }
 
 export async function listExpenseCompaniesFromClient(
