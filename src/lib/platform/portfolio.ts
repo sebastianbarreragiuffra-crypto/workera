@@ -660,11 +660,11 @@ export async function getPlatformCompanyPortfolioPage(input: {
   const supabase = await createClient();
   await requirePlatformSessionFromClient(supabase);
   const args = {
-    p_company_id: input.companyId ?? null,
+    p_company_id: input.companyId ?? undefined,
     p_limit: pageSize,
     p_offset: (page - 1) * pageSize,
-    p_search: search,
-    p_status: input.status ?? null,
+    p_search: search ?? undefined,
+    p_status: input.status ?? undefined,
   };
   const result = await supabase.rpc("platform_company_portfolio_page", args);
   let rows = requireQueryData(result as QueryResult<PlatformPortfolioPageRow[]>, "la página del portafolio");
@@ -735,8 +735,6 @@ export async function getPlatformCompanyDetail(
     p_company_id: company.id,
     p_limit: 1,
     p_offset: 0,
-    p_search: null,
-    p_status: null,
   });
   const portfolioRows = requireQueryData(
     portfolioResult as QueryResult<PlatformPortfolioPageRow[]>,

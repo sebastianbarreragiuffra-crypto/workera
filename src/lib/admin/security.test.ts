@@ -42,10 +42,11 @@ test("ningún archivo fuente usa NEXT_PUBLIC_SUPABASE_SERVICE_ROLE (la service_r
   assert.deepEqual(offenders, [], `Se encontró NEXT_PUBLIC_SUPABASE_SERVICE_ROLE en: ${offenders.join(", ")}`);
 });
 
-test("admin-client.ts y user-management.ts declaran server-only", () => {
+test("los límites que usan privilegios administrativos declaran server-only", () => {
   const guardedFiles = [
     path.join(import.meta.dirname, "..", "supabase", "admin-client.ts"),
     path.join(import.meta.dirname, "user-management.ts"),
+    path.join(import.meta.dirname, "company-invitations.ts"),
   ];
 
   for (const filePath of guardedFiles) {
@@ -91,7 +92,7 @@ test("createAdminClient nunca se importa desde un archivo fuera de src/lib/supab
   assert.deepEqual(
     offenders,
     [],
-    `createAdminClient (service_role) referenciado fuera de src/lib/supabase|admin|sync en: ${offenders.join(", ")}`
+    `createAdminClient (service_role) referenciado fuera de src/lib/supabase|admin|sync|rule-engine en: ${offenders.join(", ")}`
   );
 });
 

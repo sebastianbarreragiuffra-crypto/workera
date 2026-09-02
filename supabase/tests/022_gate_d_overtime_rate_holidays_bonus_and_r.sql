@@ -39,7 +39,7 @@ select is(
   'classify_overtime_type_id: viernes normal -> OVERTIME_50'
 );
 select is(
-  public.classify_overtime_type_id(date '2026-08-15'), -- sábado
+  public.classify_overtime_type_id(date '2026-08-22'), -- sábado no feriado
   (select id from public.overtime_types where code = 'OVERTIME_50'),
   'classify_overtime_type_id: sábado normal -> OVERTIME_50'
 );
@@ -925,7 +925,7 @@ set local role authenticated;
 set local request.jwt.claim.sub = '40000000-0000-0000-0000-000000000001'; -- ADMIN_RRHH
 select lives_ok(
   $$ insert into public.holidays (holiday_date, name, created_by)
-     values (date '2026-12-25', 'Navidad fixture', '40000000-0000-0000-0000-000000000001') $$,
+     values (date '2028-02-15', 'Feriado fixture ACL', '40000000-0000-0000-0000-000000000001') $$,
   'ADMIN_RRHH puede crear un feriado'
 );
 reset role;

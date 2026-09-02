@@ -232,6 +232,8 @@ test("invitaciones ordenan por fecha y resuelven el nombre de rol sin exponer mÃ
         expires_at: "2026-09-07T00:00:00Z",
         created_at: "2026-08-31T00:00:00Z",
         role_id: "r1",
+        delivery_status: "PENDING",
+        delivery_attempts: 0,
       },
     ],
     [{ id: "r1", code: "HR", name: "RRHH", description: null, active: true, is_system: true }]
@@ -248,6 +250,8 @@ test("una invitaciÃ³n PENDING vencida por reloj se presenta como EXPIRED", () =>
       expires_at: "2020-01-01T00:00:00Z",
       created_at: "2019-12-01T00:00:00Z",
       role_id: "r1",
+      delivery_status: "PENDING",
+      delivery_attempts: 0,
     }],
     [{ id: "r1", code: "HR", name: "RRHH", description: null, active: true, is_system: true }]
   );

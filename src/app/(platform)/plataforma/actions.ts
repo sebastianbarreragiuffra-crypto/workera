@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { z } from "zod";
+import { deliverCompanyInvitation, type InvitationDeliveryResult } from "@/lib/admin/company-invitations";
 import { PlatformAuthorizationError, requirePlatformManager } from "@/lib/platform/authorization";
-import { deliverCompanyInvitation, type InvitationDeliveryResult } from "@/lib/platform/invitations";
 import { createClient } from "@/lib/supabase/server";
 
 export interface PlatformActionState {
