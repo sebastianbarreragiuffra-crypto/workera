@@ -4532,6 +4532,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      employee_belongs_to_active_company: {
+        Args: { p_employee_id: string }
+        Returns: boolean
+      }
       expense_dashboard_summary: {
         Args: { p_company_id: string }
         Returns: {
