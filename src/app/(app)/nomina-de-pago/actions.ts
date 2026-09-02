@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../lib/auth/session";
 import { isPrivilegedAdmin } from "../../../lib/supabase/authorize";
-import { parseSuppliersExcel, importSuppliers } from "../../../lib/payroll/suppliers-import";
+import { parseSuppliersExcel, importSuppliers, deactivateSupplier } from "../../../lib/payroll/suppliers-import";
 import { parseInvoiceExcel, generatePayrollBatch } from "../../../lib/payroll/invoice-import";
 import { computeSupplierMasterPreview, applySupplierMasterImport, validateFileMeta, type SupplierMasterPreview } from "../../../lib/payroll/supplier-master";
 
@@ -32,6 +32,8 @@ export interface UploadSuppliersActionState {
   updated?: number;
   conflicts?: { normalizedName: string; rows: number[] }[];
   parseIssues?: number;
+  /** Proveedores activos ausentes de este archivo -- advertencia, nunca se desactivan solos. */
+  absentActiveSuppliers?: { normalizedName: string; name: string }[];
 }
 
 export async function uploadSuppliersAction(_prev: UploadSuppliersActionState, formData: FormData): Promise<UploadSuppliersActionState> {
@@ -75,6 +77,7 @@ export async function uploadSuppliersAction(_prev: UploadSuppliersActionState, f
     imported: result.imported,
     updated: result.updated,
     parseIssues: parsed.issues.length,
+    absentActiveSuppliers: result.absentActiveSuppliers,
   };
 }
 
@@ -221,4 +224,19 @@ export async function confirmSupplierMasterAction(_prev: ConfirmSupplierMasterAc
   } catch (err) {
     return { status: "error", message: err instanceof Error ? err.message : "No pudimos actualizar el maestro de proveedores." };
   }
+}
+
+/**
+ * Acción explícita para dar de baja a un proveedor puntual -- el único
+ * camino que existe hoy para desactivar a alguien del maestro. Nunca se
+ * dispara sola: existe para que RRHH resuelva, caso por caso, la advertencia
+ * de "proveedor activo ausente del archivo" (`uploadSuppliersAction`).
+ */
+export async function deactivateSupplierAction(formData: FormData): Promise<void> {
+  await requirePayrollAccess();
+  const supabase = await createClient();
+  const normalizedName = String(formData.get("normalizedName") ?? "").trim();
+  if (!normalizedName || normalizedName.length > 240) return;
+  await deactivateSupplier(supabase, normalizedName);
+  revalidatePath("/nomina-de-pago");
 }

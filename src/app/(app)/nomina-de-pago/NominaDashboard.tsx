@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { SectionCard } from "../../../components/shell/SectionCard";
 import { Badge } from "../../../components/shell/Badge";
-import { generatePayrollBatchAction, uploadSuppliersAction, type GenerateBatchActionState, type UploadSuppliersActionState } from "./actions";
+import { generatePayrollBatchAction, uploadSuppliersAction, deactivateSupplierAction, type GenerateBatchActionState, type UploadSuppliersActionState } from "./actions";
 import { FileUploadBox } from "./FileUploadBox";
 import { formatDateTimeInSantiago } from "../../../lib/view-models/date-utils";
 
@@ -93,9 +93,35 @@ export function NominaDashboard({ recentBatches }: { recentBatches: RecentBatch[
         </form>
 
         {suppliersState.status === "success" && (
-          <p role="status" className="mt-3 rounded-md border border-success-border bg-success-bg px-3 py-2 text-sm text-success">
-            ✓ {suppliersState.message}
-          </p>
+          <div className="mt-3 space-y-2">
+            <p role="status" className="rounded-md border border-success-border bg-success-bg px-3 py-2 text-sm text-success">
+              ✓ {suppliersState.message}
+            </p>
+            {(suppliersState.absentActiveSuppliers?.length ?? 0) > 0 && (
+              <div role="alert" className="rounded-md border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning">
+                <p className="font-medium">
+                  ⚠ {suppliersState.absentActiveSuppliers!.length} proveedor{suppliersState.absentActiveSuppliers!.length === 1 ? "" : "es"} activo
+                  {suppliersState.absentActiveSuppliers!.length === 1 ? "" : "s"} no aparece{suppliersState.absentActiveSuppliers!.length === 1 ? "" : "n"} en este archivo:
+                </p>
+                <p className="mt-1 text-xs">
+                  No se desactivaron solos -- si ya no deberían recibir pagos, desactívalos abajo. Si el archivo vino incompleto, no hagas nada.
+                </p>
+                <ul className="mt-1 space-y-1">
+                  {suppliersState.absentActiveSuppliers!.map((s) => (
+                    <li key={s.normalizedName} className="flex items-center justify-between gap-2">
+                      <span>{s.name}</span>
+                      <form action={deactivateSupplierAction}>
+                        <input type="hidden" name="normalizedName" value={s.normalizedName} />
+                        <button type="submit" className="shrink-0 rounded border border-warning-border px-2 py-0.5 text-xs font-medium text-warning hover:bg-warning-bg">
+                          Desactivar
+                        </button>
+                      </form>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         )}
         {suppliersState.status === "conflict" && (
           <div role="alert" className="mt-3 rounded-md border border-critical-border bg-critical-bg px-3 py-2 text-sm text-critical">

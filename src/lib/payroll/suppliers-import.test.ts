@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
-import { parseSuppliersExcel, importSuppliers } from "./suppliers-import";
+import { parseSuppliersExcel, importSuppliers, deactivateSupplier } from "./suppliers-import";
 
 function buildWorkbookBytes(rows: (string | number | null)[][]): Uint8Array {
   const sheetRows: (string | number | null)[][] = [["Rut", "Nombre Beneficiario", "FP", "BCO", "N° Cuenta Cte."], ...rows];
@@ -74,21 +74,43 @@ test("parseSuppliersExcel: fila en blanco se ignora sin reportar issue", () => {
   assert.equal(result.issues.length, 0);
 });
 
-function mockSupabase(existingNormalizedNames: string[], inserted: { upserted?: unknown[] } = {}) {
+interface ExistingSupplierRow {
+  normalized_name: string;
+  name: string;
+  active: boolean;
+}
+
+function mockSupabase(existing: ExistingSupplierRow[], captured: { upserted?: unknown[]; updated?: { normalizedName: string; patch: unknown } } = {}) {
   return {
     from() {
       return {
         select() {
-          return { data: existingNormalizedNames.map((n) => ({ normalized_name: n })), error: null };
+          return { data: existing, error: null };
         },
         upsert(rows: unknown[]) {
-          inserted.upserted = rows;
+          captured.upserted = rows;
           return Promise.resolve({ error: null });
+        },
+        update(patch: unknown) {
+          return {
+            eq(_col: string, normalizedName: string) {
+              captured.updated = { normalizedName, patch };
+              return Promise.resolve({ error: null });
+            },
+          };
         },
       };
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
+}
+
+/** Compatibilidad con los tests existentes, que solo les importan nombres normalizados ya existentes (sin distinguir activo/inactivo ni nombre real). */
+function mockSupabaseByNames(existingNormalizedNames: string[], inserted: { upserted?: unknown[] } = {}) {
+  return mockSupabase(
+    existingNormalizedNames.map((n) => ({ normalized_name: n, name: n, active: true })),
+    inserted
+  );
 }
 
 test("importSuppliers: proveedor nuevo se cuenta como imported, no updated", async () => {
@@ -106,7 +128,7 @@ test("importSuppliers: proveedor nuevo se cuenta como imported, no updated", asy
 });
 
 test("importSuppliers: proveedor ya existente (mismo nombre normalizado) se cuenta como updated", async () => {
-  const supabase = mockSupabase(["PROVEEDOR EXISTENTE"]);
+  const supabase = mockSupabaseByNames(["PROVEEDOR EXISTENTE"]);
   const result = await importSuppliers(
     supabase,
     [{ rowNumber: 2, rut: "11111111", name: "Proveedor Existente", paymentMethod: "OTC", bankCode: "1", accountNumber: "12345678" }],
@@ -146,4 +168,62 @@ test("importSuppliers: filas exactamente duplicadas (mismo nombre y mismos datos
   );
   assert.equal(result.conflicts.length, 0);
   assert.equal(result.imported, 1);
+});
+
+test("importSuppliers: un proveedor ACTIVO ausente del archivo nuevo se reporta en absentActiveSuppliers, nunca se desactiva solo", async () => {
+  const supabase = mockSupabase([
+    { normalized_name: "PROVEEDOR AUSENTE", name: "Proveedor Ausente", active: true },
+    { normalized_name: "PROVEEDOR PRESENTE", name: "Proveedor Presente", active: true },
+  ]);
+  const result = await importSuppliers(
+    supabase,
+    [{ rowNumber: 2, rut: "11111111", name: "Proveedor Presente", paymentMethod: "OTC", bankCode: "1", accountNumber: "111" }],
+    "admin-1"
+  );
+  assert.deepEqual(result.absentActiveSuppliers, [{ normalizedName: "PROVEEDOR AUSENTE", name: "Proveedor Ausente" }]);
+});
+
+test("importSuppliers: un proveedor ya INACTIVO ausente del archivo no se reporta (ya se sabía que no está vigente)", async () => {
+  const supabase = mockSupabase([{ normalized_name: "PROVEEDOR INACTIVO", name: "Proveedor Inactivo", active: false }]);
+  const result = await importSuppliers(
+    supabase,
+    [{ rowNumber: 2, rut: "11111111", name: "Proveedor Nuevo", paymentMethod: "OTC", bankCode: "1", accountNumber: "111" }],
+    "admin-1"
+  );
+  assert.deepEqual(result.absentActiveSuppliers, []);
+});
+
+test("importSuppliers: si el proveedor SÍ aparece en el archivo, nunca se reporta como ausente aunque esté activo", async () => {
+  const supabase = mockSupabase([{ normalized_name: "PROVEEDOR PRESENTE", name: "Proveedor Presente", active: true }]);
+  const result = await importSuppliers(
+    supabase,
+    [{ rowNumber: 2, rut: "11111111", name: "Proveedor Presente", paymentMethod: "OTC", bankCode: "1", accountNumber: "111" }],
+    "admin-1"
+  );
+  assert.deepEqual(result.absentActiveSuppliers, []);
+});
+
+test("deactivateSupplier: actualiza active=false filtrando por normalized_name", async () => {
+  const captured: { updated?: { normalizedName: string; patch: unknown } } = {};
+  const supabase = mockSupabase([], captured);
+  await deactivateSupplier(supabase, "PROVEEDOR A DAR DE BAJA");
+  assert.deepEqual(captured.updated, { normalizedName: "PROVEEDOR A DAR DE BAJA", patch: { active: false } });
+});
+
+test("importSuppliers: si un proveedor inactivo reaparece, el upsert lo reactiva", async () => {
+  const captured: { upserted?: unknown[] } = {};
+  const supabase = mockSupabase(
+    [{ normalized_name: "PROVEEDOR QUE VOLVIO", name: "Proveedor que volvió", active: false }],
+    captured
+  );
+  await importSuppliers(
+    supabase,
+    [{ rowNumber: 2, rut: "11111111", name: "Proveedor que volvió", paymentMethod: "OTC", bankCode: "1", accountNumber: "111" }],
+    "admin-1"
+  );
+  assert.equal((captured.upserted as Array<{ active: boolean }>)[0].active, true);
+});
+
+test("deactivateSupplier: rechaza un identificador vacío antes de consultar la base", async () => {
+  await assert.rejects(() => deactivateSupplier(mockSupabase([]), ""), /inválido/);
 });
