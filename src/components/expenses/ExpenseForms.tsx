@@ -6,6 +6,7 @@ import {
   addExpenseItemAction,
   createExpenseReportAction,
   decideExpenseReportAction,
+  reviewExpenseReceiptOcrAction,
   submitExpenseReportAction,
   uploadExpenseReceiptAction,
   type ExpenseActionState,
@@ -194,6 +195,38 @@ export function ExpenseDecisionForm({ companySlug, reportId }: { companySlug: st
       </label>
       <Feedback state={state} />
       <SubmitButton tone="success">Registrar decisión</SubmitButton>
+    </form>
+  );
+}
+
+export function ExpenseOcrReviewForm({
+  companySlug,
+  reportId,
+  receiptId,
+}: {
+  companySlug: string;
+  reportId: string;
+  receiptId: string;
+}) {
+  const [state, action] = useActionState(reviewExpenseReceiptOcrAction, INITIAL_STATE);
+  return (
+    <form action={action} className="mt-3 space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <input type="hidden" name="reportId" value={reportId} />
+      <input type="hidden" name="receiptId" value={receiptId} />
+      <label className="block text-xs font-medium text-slate-700">
+        Revisión de la sugerencia
+        <select name="decision" defaultValue="ACCEPTED" className={INPUT}>
+          <option value="ACCEPTED">Aceptar como referencia</option>
+          <option value="REJECTED">Rechazar sugerencia</option>
+        </select>
+      </label>
+      <label className="block text-xs font-medium text-slate-700">
+        Comentario
+        <textarea name="comment" maxLength={1000} rows={2} className={INPUT} placeholder="Obligatorio al rechazar" />
+      </label>
+      <Feedback state={state} />
+      <SubmitButton>Registrar revisión</SubmitButton>
     </form>
   );
 }

@@ -125,7 +125,30 @@ export interface ExpenseItemDetail {
     status: Database["public"]["Enums"]["expense_receipt_status"];
     duplicateOfReceiptId: string | null;
     createdAt: string;
+    extraction: ExpenseReceiptExtraction | null;
   } | null;
+}
+
+export interface ExpenseReceiptExtraction {
+  fields: {
+    merchantName: { value: string | null; confidence: number | null };
+    transactionDate: { value: string | null; confidence: number | null };
+    subtotal: { value: number | null; confidence: number | null };
+    totalTax: { value: number | null; confidence: number | null };
+    total: { value: number | null; confidence: number | null };
+    currencyCode: { value: string | null; confidence: number | null };
+  };
+  confidence: number | null;
+  discrepancies: Array<{ field: string; declared: string | number | null; extracted: string | number | null }>;
+  requiresHumanReview: boolean;
+  humanReview?: { decision?: "ACCEPTED" | "REJECTED"; comment?: string | null };
+}
+
+function parseReceiptExtraction(value: unknown): ExpenseReceiptExtraction | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Partial<ExpenseReceiptExtraction>;
+  if (!candidate.fields || !Array.isArray(candidate.discrepancies) || typeof candidate.requiresHumanReview !== "boolean") return null;
+  return candidate as ExpenseReceiptExtraction;
 }
 
 export interface ExpenseReportDetail extends ExpenseReportSummary {
@@ -221,7 +244,7 @@ export async function getExpenseReportDetail(
       .order("name"),
     supabase
       .from("expense_receipts")
-      .select("id, item_id, original_filename, status, duplicate_of_receipt_id, created_at")
+      .select("id, item_id, original_filename, status, duplicate_of_receipt_id, created_at, extraction")
       .eq("company_id", context.id)
       .eq("report_id", reportId)
       .eq("is_current", true),
@@ -271,6 +294,7 @@ export async function getExpenseReportDetail(
           status: receipt.status,
           duplicateOfReceiptId: receipt.duplicate_of_receipt_id,
           createdAt: receipt.created_at,
+          extraction: parseReceiptExtraction(receipt.extraction),
         } : null,
       };
     }),

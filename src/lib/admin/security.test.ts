@@ -59,7 +59,7 @@ test("los límites que usan privilegios administrativos declaran server-only", (
   }
 });
 
-test("createAdminClient nunca se importa desde un archivo fuera de src/lib/supabase, src/lib/admin, src/lib/sync o src/lib/rule-engine", () => {
+test("createAdminClient nunca se importa fuera de los límites server-only auditados", () => {
   // src/lib/sync se agregó en Fase 6A: el servicio de ingesta controlada
   // Workera -> Supabase (workera-attendance-sync.ts) es un segundo
   // consumidor legítimo, server-only, de service_role -- misma categoría
@@ -78,7 +78,8 @@ test("createAdminClient nunca se importa desde un archivo fuera de src/lib/supab
       !f.includes(`${path.sep}lib${path.sep}supabase${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}admin${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}sync${path.sep}`) &&
-      !f.includes(`${path.sep}lib${path.sep}rule-engine${path.sep}`)
+      !f.includes(`${path.sep}lib${path.sep}rule-engine${path.sep}`) &&
+      !f.includes(`${path.sep}lib${path.sep}expense-ocr${path.sep}`)
   );
   const offenders: string[] = [];
 
@@ -93,6 +94,19 @@ test("createAdminClient nunca se importa desde un archivo fuera de src/lib/supab
     offenders,
     [],
     `createAdminClient (service_role) referenciado fuera de src/lib/supabase|admin|sync|rule-engine en: ${offenders.join(", ")}`
+  );
+});
+
+test("el límite OCR privilegiado es server-only y ninguna ruta obtiene createAdminClient", () => {
+  const ocrRoot = path.join(SRC_ROOT, "lib", "expense-ocr");
+  for (const filePath of listFilesRecursively(ocrRoot)) {
+    assert.match(readFileSync(filePath, "utf8"), /import\s+["']server-only["']/, `${filePath} debe ser server-only`);
+  }
+  const appFiles = listFilesRecursively(path.join(SRC_ROOT, "app"));
+  assert.deepEqual(
+    appFiles.filter((filePath) => /createAdminClient/.test(readFileSync(filePath, "utf8"))),
+    [],
+    "ningún Route Handler ni Server Action debe obtener service_role directamente"
   );
 });
 

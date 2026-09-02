@@ -50,8 +50,18 @@ continuación están en
 - Rendiciones EX-1/EX-2/EX-3 ya tiene fundación multiempresa independiente, botón
   **Agregar Rendiciones**, selector de empresa, dashboard, borradores, ítems,
   folios correlativos, comprobantes privados versionados, alerta de duplicados,
-  envío seguro y bandeja de aprobación sin autoaprobación. La extracción OCR,
-  políticas avanzadas y conciliación se construirán en las fases siguientes.
+  envío seguro y bandeja de aprobación sin autoaprobación. Políticas avanzadas y
+  conciliación se construirán en las fases siguientes.
+- EX-4 agrega extracción OCR asíncrona de comprobantes (Azure Document
+  Intelligence, `prebuilt-receipt`) mediante una cola propia
+  (`expense_ocr_jobs`) con reintentos acotados, leases recuperables y
+  aislamiento por `company_id` en cada paso. El worker nunca sobrescribe los
+  montos declarados por la persona: solo dejan discrepancias visibles y exigen
+  revisión humana con comentario obligatorio al rechazar. Completo y validado
+  en local; **todavía sin desplegar a staging** y con Azure deshabilitado
+  (`EXPENSE_OCR_ENABLED=false` por defecto) hasta configurar credenciales
+  reales -- ningún resultado de esta fase fue probado contra la API de Azure
+  en producción.
 - El dashboard usa KPIs agregados y la cartera se busca, filtra y pagina en el
   servidor. El detalle carga solo la pestaña solicitada y pagina membresías;
   administrar la plataforma no implica leer automáticamente la nómina de cada
@@ -67,7 +77,10 @@ continuación están en
   add-on de Rendiciones se prueba en `042_expenses_multi_company_foundation.sql`
   y su flujo operativo en `043_expenses_operational_workflow.sql`; la privacidad
   de comprobantes y segregación de aprobación se prueban en
-  `044_expenses_receipts_and_approvals.sql`.
+  `044_expenses_receipts_and_approvals.sql`; la cola OCR de EX-4 (encolado
+  automático, claim concurrente, leases, reintentos, cancelación al
+  reemplazar comprobante y aislamiento entre empresas) se prueba en
+  `045_expenses_ocr_pipeline.sql`.
 
 ## Desarrollo local
 

@@ -2003,6 +2003,127 @@ export type Database = {
           },
         ]
       }
+      expense_ocr_jobs: {
+        Row: {
+          attempt: number
+          available_at: string
+          company_id: string
+          created_at: string
+          error_category: string | null
+          error_summary: string | null
+          finished_at: string | null
+          id: string
+          locked_at: string | null
+          locked_by: string | null
+          provider: string
+          provider_operation_url: string | null
+          receipt_id: string
+          started_at: string | null
+          status: Database["public"]["Enums"]["expense_ocr_job_status"]
+        }
+        Insert: {
+          attempt: number
+          available_at?: string
+          company_id: string
+          created_at?: string
+          error_category?: string | null
+          error_summary?: string | null
+          finished_at?: string | null
+          id?: string
+          locked_at?: string | null
+          locked_by?: string | null
+          provider?: string
+          provider_operation_url?: string | null
+          receipt_id: string
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["expense_ocr_job_status"]
+        }
+        Update: {
+          attempt?: number
+          available_at?: string
+          company_id?: string
+          created_at?: string
+          error_category?: string | null
+          error_summary?: string | null
+          finished_at?: string | null
+          id?: string
+          locked_at?: string | null
+          locked_by?: string | null
+          provider?: string
+          provider_operation_url?: string | null
+          receipt_id?: string
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["expense_ocr_job_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_ocr_jobs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_ocr_jobs_company_id_receipt_id_fkey"
+            columns: ["company_id", "receipt_id"]
+            isOneToOne: false
+            referencedRelation: "expense_receipts"
+            referencedColumns: ["company_id", "id"]
+          },
+        ]
+      }
+      expense_ocr_reviews: {
+        Row: {
+          comment: string | null
+          company_id: string
+          decision: Database["public"]["Enums"]["expense_ocr_review_decision"]
+          id: string
+          receipt_id: string
+          reviewed_at: string
+          reviewed_by: string
+        }
+        Insert: {
+          comment?: string | null
+          company_id: string
+          decision: Database["public"]["Enums"]["expense_ocr_review_decision"]
+          id?: string
+          receipt_id: string
+          reviewed_at?: string
+          reviewed_by: string
+        }
+        Update: {
+          comment?: string | null
+          company_id?: string
+          decision?: Database["public"]["Enums"]["expense_ocr_review_decision"]
+          id?: string
+          receipt_id?: string
+          reviewed_at?: string
+          reviewed_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_ocr_reviews_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_ocr_reviews_company_id_receipt_id_fkey"
+            columns: ["company_id", "receipt_id"]
+            isOneToOne: false
+            referencedRelation: "expense_receipts"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "expense_ocr_reviews_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expense_policies: {
         Row: {
           active: boolean
@@ -4310,6 +4431,24 @@ export type Database = {
         Args: { p_name: string }
         Returns: boolean
       }
+      claim_expense_ocr_jobs: {
+        Args: { p_limit?: number; p_worker_id: string }
+        Returns: {
+          attempt: number
+          company_id: string
+          currency_code: string
+          expense_date: string
+          job_id: string
+          merchant_name: string
+          mime_type: string
+          net_amount: number
+          provider_operation_url: string
+          receipt_id: string
+          storage_path: string
+          tax_amount: number
+          total_amount: number
+        }[]
+      }
       classify_overtime_type_id: {
         Args: { p_work_date: string }
         Returns: string
@@ -4329,6 +4468,10 @@ export type Database = {
         Args: { p_company_id: string; p_module_key: string }
         Returns: boolean
       }
+      complete_expense_ocr_job: {
+        Args: { p_extraction: Json; p_job_id: string; p_worker_id: string }
+        Returns: undefined
+      }
       current_platform_role: {
         Args: never
         Returns: Database["public"]["Enums"]["platform_role"]
@@ -4345,6 +4488,15 @@ export type Database = {
         }
         Returns: undefined
       }
+      defer_expense_ocr_job: {
+        Args: {
+          p_delay_seconds?: number
+          p_job_id: string
+          p_provider_operation_url: string
+          p_worker_id: string
+        }
+        Returns: undefined
+      }
       expense_dashboard_summary: {
         Args: { p_company_id: string }
         Returns: {
@@ -4353,6 +4505,17 @@ export type Database = {
           review_count: number
           visible_total: number
         }[]
+      }
+      fail_expense_ocr_job: {
+        Args: {
+          p_error_category: string
+          p_error_summary: string
+          p_job_id: string
+          p_retry_delay_seconds?: number
+          p_retryable: boolean
+          p_worker_id: string
+        }
+        Returns: boolean
       }
       has_company_permission: {
         Args: { p_company_id: string; p_permission_code: string }
@@ -4527,6 +4690,10 @@ export type Database = {
         Args: { p_actor_id: string; p_company_id: string }
         Returns: undefined
       }
+      reclaim_stale_expense_ocr_jobs: {
+        Args: { p_stale_after_seconds?: number }
+        Returns: number
+      }
       reclaim_stale_rule_engine_runs: {
         Args: { p_stale_after_seconds?: number }
         Returns: number
@@ -4553,6 +4720,14 @@ export type Database = {
       reject_medical_license: {
         Args: { p_approval_id: string; p_reason: string }
         Returns: undefined
+      }
+      review_expense_receipt_extraction: {
+        Args: {
+          p_comment?: string
+          p_decision: Database["public"]["Enums"]["expense_ocr_review_decision"]
+          p_receipt_id: string
+        }
+        Returns: string
       }
       set_time_control_exemption: {
         Args: {
@@ -4600,6 +4775,14 @@ export type Database = {
         | "CORRECTED_AFTER_REVIEW"
         | "READY_FOR_WEEKLY_CLOSE"
       expense_approval_decision: "APPROVED" | "REJECTED" | "RETURNED"
+      expense_ocr_job_status:
+        | "QUEUED"
+        | "RUNNING"
+        | "WAITING_PROVIDER"
+        | "SUCCEEDED"
+        | "FAILED"
+        | "CANCELLED"
+      expense_ocr_review_decision: "ACCEPTED" | "REJECTED"
       expense_receipt_status:
         | "NOT_PROVIDED"
         | "UPLOADED"
@@ -4811,6 +4994,15 @@ export const Constants = {
         "READY_FOR_WEEKLY_CLOSE",
       ],
       expense_approval_decision: ["APPROVED", "REJECTED", "RETURNED"],
+      expense_ocr_job_status: [
+        "QUEUED",
+        "RUNNING",
+        "WAITING_PROVIDER",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED",
+      ],
+      expense_ocr_review_decision: ["ACCEPTED", "REJECTED"],
       expense_receipt_status: [
         "NOT_PROVIDED",
         "UPLOADED",
