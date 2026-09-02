@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AddExpenseItemForm, ExpenseDecisionForm, ExpenseOcrReviewForm, ExpenseReceiptUploadForm, SubmitExpenseReportForm, WithdrawExpenseReportForm } from "@/components/expenses/ExpenseForms";
+import { AddExpenseItemForm, ExpenseDecisionForm, ExpenseOcrReviewForm, ExpenseReceiptUploadForm, ReconcileExpenseReportForm, SubmitExpenseReportForm, WithdrawExpenseReportForm } from "@/components/expenses/ExpenseForms";
 import { ExpenseStatusBadge } from "@/components/expenses/ExpenseStatusBadge";
 import { deleteExpenseItemAction } from "../actions";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
@@ -47,6 +47,7 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
   const canDecide = awaitingDecision && !report.isOwn && !alreadyDecidedThisRound && (context.canApprove || context.canManage);
   const canWithdraw = awaitingDecision && (report.isOwn || context.canManage);
   const decisionsThisRound = report.decisions.filter((decision) => decision.reviewRound === report.reviewRound);
+  const canReconcile = report.status === "APPROVED" && context.canReconcile;
   const base = `/empresas/${context.slug}/rendiciones`;
 
   return (
@@ -117,6 +118,8 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
 
         <aside className="space-y-4">
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-900">Siguiente paso</h2>{editable ? <><p className="mt-2 text-sm leading-6 text-slate-500">Al enviar, el borrador quedará bloqueado y pasará a revisión.</p>{missingRequiredReceipts && <p className="mt-2 text-xs font-medium text-amber-700">Faltan comprobantes obligatorios.</p>}<div className="mt-4"><SubmitExpenseReportForm companySlug={context.slug} reportId={report.id} disabled={report.items.length === 0 || report.totalAmount <= 0 || missingRequiredReceipts} /></div></> : canWithdraw ? <><p className="mt-2 text-sm leading-6 text-slate-500">Pendiente de revisión. Puedes retirarla para corregirla antes de que alguien la decida.</p><div className="mt-4"><WithdrawExpenseReportForm companySlug={context.slug} reportId={report.id} /></div></> : <p className="mt-2 text-sm leading-6 text-slate-500">Esta rendición ya fue enviada y no admite nuevos gastos.</p>}</div>
+          {canReconcile && <div className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-900">Conciliación</h2><p className="mb-4 mt-2 text-sm leading-6 text-slate-500">Registra la referencia de pago o el asiento contable una vez pagado el reembolso.</p><ReconcileExpenseReportForm companySlug={context.slug} reportId={report.id} /></div>}
+          {report.status === "PAID" && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-900"><strong>Conciliada.</strong> Referencia: {report.paymentReference}{report.paidAt && ` · ${shortDate(report.paidAt.slice(0, 10))}`}</div>}
           {canDecide && <div className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-900">Revisión</h2><p className="mt-1 text-xs text-slate-500">{report.requiredApprovalSteps > 1 ? `Paso ${decisionsThisRound.length + 1} de ${report.requiredApprovalSteps} -- por el monto de esta rendición se requieren dos aprobaciones de personas distintas.` : "Un solo paso de aprobación."}</p><p className="mb-4 mt-2 text-sm leading-6 text-slate-500">Revisa gastos y comprobantes antes de registrar una decisión.</p><ExpenseDecisionForm companySlug={context.slug} reportId={report.id} /></div>}
           {awaitingDecision && report.isOwn && (context.canApprove || context.canManage) && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-900"><strong>Segregación de funciones.</strong> Aunque tengas permiso de aprobación, otra persona debe revisar esta rendición.</div>}
           {awaitingDecision && !report.isOwn && alreadyDecidedThisRound && (context.canApprove || context.canManage) && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-900"><strong>Segregación de funciones.</strong> Ya registraste una decisión en esta ronda; el siguiente paso lo debe resolver otra persona.</div>}

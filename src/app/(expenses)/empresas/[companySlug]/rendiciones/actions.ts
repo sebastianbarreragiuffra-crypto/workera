@@ -37,6 +37,9 @@ const addItemInput = z.object({
 const reportActionInput = z.object({ companySlug: slug, reportId: uuid });
 const policyLimitsInput = z.object({ companySlug: slug, policyId: uuid });
 const itemActionInput = reportActionInput.extend({ itemId: uuid });
+const reconcileInput = reportActionInput.extend({
+  paymentReference: z.string().trim().min(1).max(160),
+});
 const decisionInput = reportActionInput.extend({
   decision: z.enum(["APPROVED", "REJECTED", "RETURNED"]),
   comment: z.string().trim().max(1000).transform((value) => value || null),
@@ -235,6 +238,31 @@ export async function updateCategoryLimitsAction(
 
   revalidatePath(`/empresas/${context.slug}/rendiciones/politicas`);
   return { status: "success", message: "Política actualizada -- los límites se aplican desde el próximo envío." };
+}
+
+export async function reconcileExpenseReportAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = reconcileInput.safeParse(entries(formData));
+  if (!parsed.success) return failed("Indica una referencia de pago o asiento contable.");
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canReconcile) return failed("Tu rol no permite conciliar rendiciones.");
+
+  const { error } = await supabase.rpc("reconcile_expense_report", {
+    p_report_id: parsed.data.reportId,
+    p_payment_reference: parsed.data.paymentReference,
+  });
+  if (error?.code === "23514") return failed("Solo se puede conciliar una rendición aprobada, con una referencia de pago.");
+  if (error?.code === "42501") return failed("Tu rol no permite conciliar esta rendición.");
+  if (error) return failed("No pudimos registrar la conciliación.");
+
+  revalidatePath(reportPath(context.slug, parsed.data.reportId));
+  revalidatePath(`/empresas/${context.slug}/rendiciones/conciliacion`);
+  revalidatePath(`/empresas/${context.slug}/rendiciones`);
+  return { status: "success", message: "Rendición conciliada -- queda registrada como pagada." };
 }
 
 export async function uploadExpenseReceiptAction(

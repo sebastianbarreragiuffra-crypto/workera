@@ -6,6 +6,7 @@ import {
   addExpenseItemAction,
   createExpenseReportAction,
   decideExpenseReportAction,
+  reconcileExpenseReportAction,
   reviewExpenseReceiptOcrAction,
   submitExpenseReportAction,
   updateCategoryLimitsAction,
@@ -166,6 +167,22 @@ export function WithdrawExpenseReportForm({ companySlug, reportId }: { companySl
         Retirar y corregir
       </button>
       <Feedback state={state} />
+    </form>
+  );
+}
+
+export function ReconcileExpenseReportForm({ companySlug, reportId }: { companySlug: string; reportId: string }) {
+  const [state, action] = useActionState(reconcileExpenseReportAction, INITIAL_STATE);
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <input type="hidden" name="reportId" value={reportId} />
+      <label className="block text-sm font-medium text-slate-700">
+        Referencia de pago o asiento contable
+        <input name="paymentReference" required maxLength={160} className={INPUT} placeholder="Ej. Transferencia #4821 o asiento 2026-0912" />
+      </label>
+      <Feedback state={state} />
+      <SubmitButton tone="success">Marcar como pagada</SubmitButton>
     </form>
   );
 }

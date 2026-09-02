@@ -156,6 +156,9 @@ export interface ExpenseReportDetail extends ExpenseReportSummary {
   policyId: string | null;
   reviewRound: number;
   requiredApprovalSteps: number;
+  paidAt: string | null;
+  paidBy: string | null;
+  paymentReference: string | null;
   items: ExpenseItemDetail[];
   categories: ExpenseCategoryOption[];
   decisions: Array<{
@@ -229,7 +232,7 @@ export async function getExpenseReportDetail(
   const [reportResult, itemsResult, categoriesResult, receiptsResult, decisionsResult] = await Promise.all([
     supabase
       .from("expense_reports")
-      .select("id, reference_number, title, purpose, policy_id, status, currency_code, total_amount, created_at, submitted_at, submitted_by, review_round, required_approval_steps")
+      .select("id, reference_number, title, purpose, policy_id, status, currency_code, total_amount, created_at, submitted_at, submitted_by, review_round, required_approval_steps, paid_at, paid_by, payment_reference")
       .eq("company_id", context.id)
       .eq("id", reportId)
       .maybeSingle(),
@@ -275,6 +278,9 @@ export async function getExpenseReportDetail(
     policyId: report.policy_id,
     reviewRound: report.review_round,
     requiredApprovalSteps: report.required_approval_steps,
+    paidAt: report.paid_at,
+    paidBy: report.paid_by,
+    paymentReference: report.payment_reference,
     status: report.status,
     currencyCode: report.currency_code,
     totalAmount: Number(report.total_amount),
@@ -362,6 +368,65 @@ export async function getExpenseApprovalQueue(
       submittedAt: report.submitted_at,
       isOwn: report.submitted_by === context.userId,
       submitterName: profile?.display_name ?? "Persona de la empresa",
+    };
+  });
+
+  return { reports, pagination: { page, pageSize: EXPENSE_PAGE_SIZE, totalCount: count ?? reports.length } };
+}
+
+export interface ExpenseReconciliationQueueItem extends ExpenseReportSummary {
+  submitterName: string;
+  paidAt: string | null;
+  paymentReference: string | null;
+}
+
+/** Estados visibles en la bandeja de conciliación: APPROVED espera pago; PAID queda para consultar la referencia ya registrada. */
+export const EXPENSE_RECONCILIATION_STATUSES: readonly ExpenseReportStatus[] = ["APPROVED", "PAID"];
+
+export async function getExpenseReconciliationQueue(
+  supabase: SupabaseClient<Database>,
+  context: ExpenseCompanyContext,
+  filters: ExpenseListFilters = {}
+): Promise<{ reports: ExpenseReconciliationQueueItem[]; pagination: ExpensePagination }> {
+  const page = resolvePage(filters.page);
+  const emptyPagination = { page, pageSize: EXPENSE_PAGE_SIZE, totalCount: 0 };
+  if (!context.canReconcile && !context.canManage) return { reports: [], pagination: emptyPagination };
+  const [start, end] = rangeFor(page);
+
+  // Por defecto solo lo pendiente de pago; filtrar por PAID sirve para
+  // volver a ver una referencia ya registrada, nunca amplía a otro estado.
+  const statuses = filters.status && EXPENSE_RECONCILIATION_STATUSES.includes(filters.status)
+    ? [filters.status]
+    : (["APPROVED"] as const);
+
+  let queueQuery = supabase
+    .from("expense_reports")
+    .select(
+      "id, reference_number, title, status, currency_code, total_amount, created_at, submitted_at, submitted_by, paid_at, payment_reference, profiles!expense_reports_submitted_by_fkey(display_name)",
+      { count: "exact" }
+    )
+    .eq("company_id", context.id)
+    .in("status", statuses);
+  queueQuery = applyDateWindow(queueQuery, "created_at", filters);
+
+  const { data, error, count } = await queueQuery.order("created_at", { ascending: true }).range(start, end);
+  if (error) throw new Error("No se pudo cargar la bandeja de conciliación.");
+
+  const reports = (data ?? []).map((report) => {
+    const profile = Array.isArray(report.profiles) ? report.profiles[0] : report.profiles;
+    return {
+      id: report.id,
+      referenceNumber: report.reference_number,
+      title: report.title,
+      status: report.status,
+      currencyCode: report.currency_code,
+      totalAmount: Number(report.total_amount),
+      createdAt: report.created_at,
+      submittedAt: report.submitted_at,
+      isOwn: report.submitted_by === context.userId,
+      submitterName: profile?.display_name ?? "Persona de la empresa",
+      paidAt: report.paid_at,
+      paymentReference: report.payment_reference,
     };
   });
 

@@ -20,6 +20,7 @@ export interface ExpenseCompanyContext extends ExpenseCompanyOption {
   canApprove: boolean;
   canConfigure: boolean;
   canManage: boolean;
+  canReconcile: boolean;
 }
 
 type MembershipCompany = {
@@ -110,13 +111,14 @@ export async function getExpenseCompanyContextFromClient(
   const company = companies.find((candidate) => candidate.slug === slug);
   if (!company) return null;
 
-  const [profileResult, canSubmit, canReadAll, canApprove, canConfigure, canManage] = await Promise.all([
+  const [profileResult, canSubmit, canReadAll, canApprove, canConfigure, canManage, canReconcile] = await Promise.all([
     supabase.from("profiles").select("display_name").eq("id", userId).eq("active", true).maybeSingle(),
     hasPermission(supabase, company.id, "expenses.submit"),
     hasPermission(supabase, company.id, "expenses.read"),
     hasPermission(supabase, company.id, "expenses.approve"),
     hasPermission(supabase, company.id, "expenses.configure"),
     hasPermission(supabase, company.id, "expenses.manage"),
+    hasPermission(supabase, company.id, "expenses.reconcile"),
   ]);
   if (profileResult.error || !profileResult.data) return null;
 
@@ -129,5 +131,6 @@ export async function getExpenseCompanyContextFromClient(
     canApprove,
     canConfigure,
     canManage,
+    canReconcile: canReconcile || canManage,
   };
 }

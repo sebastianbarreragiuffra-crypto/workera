@@ -2298,6 +2298,9 @@ export type Database = {
           currency_code: string
           id: string
           organization_unit_id: string | null
+          paid_at: string | null
+          paid_by: string | null
+          payment_reference: string | null
           policy_id: string | null
           purpose: string | null
           reference_number: string
@@ -2318,6 +2321,9 @@ export type Database = {
           currency_code?: string
           id?: string
           organization_unit_id?: string | null
+          paid_at?: string | null
+          paid_by?: string | null
+          payment_reference?: string | null
           policy_id?: string | null
           purpose?: string | null
           reference_number?: string
@@ -2338,6 +2344,9 @@ export type Database = {
           currency_code?: string
           id?: string
           organization_unit_id?: string | null
+          paid_at?: string | null
+          paid_by?: string | null
+          payment_reference?: string | null
           policy_id?: string | null
           purpose?: string | null
           reference_number?: string
@@ -2372,6 +2381,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "expense_policies"
             referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "expense_reports_paid_by_fkey"
+            columns: ["paid_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "expense_reports_submitted_by_fkey"
@@ -4720,6 +4736,10 @@ export type Database = {
       reclaim_stale_workera_sync_runs: {
         Args: { p_stale_after_seconds?: number }
         Returns: number
+      }
+      reconcile_expense_report: {
+        Args: { p_payment_reference: string; p_report_id: string }
+        Returns: undefined
       }
       recompute_employee_daily_bonus: {
         Args: { p_employee_id: string; p_work_date: string }
