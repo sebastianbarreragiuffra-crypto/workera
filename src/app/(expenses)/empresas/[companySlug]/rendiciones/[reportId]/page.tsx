@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AddExpenseItemForm, ExpenseDecisionForm, ExpenseOcrReviewForm, ExpenseReceiptUploadForm, ReconcileExpenseReportForm, SubmitExpenseReportForm, WithdrawExpenseReportForm } from "@/components/expenses/ExpenseForms";
+import { AddExpenseItemForm, ExpenseDecisionForm, ExpenseOcrReviewForm, ExpenseReceiptUploadForm, LinkExpenseAdvanceForm, ReconcileExpenseReportForm, SubmitExpenseReportForm, WithdrawExpenseReportForm } from "@/components/expenses/ExpenseForms";
 import { ExpenseStatusBadge } from "@/components/expenses/ExpenseStatusBadge";
 import { deleteExpenseItemAction } from "../actions";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
-import { getExpenseReportDetail } from "@/lib/expenses/data";
+import { getExpenseReportDetail, getOwnPendingExpenseAdvances } from "@/lib/expenses/data";
 import { formatExpenseMoney } from "@/lib/expenses/presentation";
 import { createClient } from "@/lib/supabase/server";
 import { todayInSantiago } from "@/lib/view-models/date-utils";
@@ -35,6 +35,7 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
   const report = await getExpenseReportDetail(supabase, context, reportId);
   if (!report) notFound();
   const editable = report.status === "DRAFT" && (report.isOwn || context.canManage);
+  const ownPendingAdvances = editable && report.isOwn ? await getOwnPendingExpenseAdvances(supabase, context, report.currencyCode, report.advanceId) : [];
   const categoryNames = new Map(report.categories.map((category) => [category.id, category.name]));
   const receiptRequired = new Map(report.categories.map((category) => [category.id, category.requiresReceipt]));
   const missingRequiredReceipts = report.items.some((item) => item.categoryId && receiptRequired.get(item.categoryId) && !item.receipt);
@@ -117,6 +118,15 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
         </section>
 
         <aside className="space-y-4">
+          {editable && report.isOwn && (ownPendingAdvances.length > 0 || report.advanceId) && (
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="font-semibold text-slate-900">Anticipo</h2>
+              <p className="mt-1 text-xs text-slate-500">Si esta rendición es contra un fondo por rendir, selecciónalo -- si no, deja &quot;Sin anticipo&quot; para un reembolso normal.</p>
+              <div className="mt-4">
+                <LinkExpenseAdvanceForm companySlug={context.slug} reportId={report.id} currentAdvanceId={report.advanceId} options={ownPendingAdvances} />
+              </div>
+            </div>
+          )}
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-900">Siguiente paso</h2>{editable ? <><p className="mt-2 text-sm leading-6 text-slate-500">Al enviar, el borrador quedará bloqueado y pasará a revisión.</p>{missingRequiredReceipts && <p className="mt-2 text-xs font-medium text-amber-700">Faltan comprobantes obligatorios.</p>}<div className="mt-4"><SubmitExpenseReportForm companySlug={context.slug} reportId={report.id} disabled={report.items.length === 0 || report.totalAmount <= 0 || missingRequiredReceipts} /></div></> : canWithdraw ? <><p className="mt-2 text-sm leading-6 text-slate-500">Pendiente de revisión. Puedes retirarla para corregirla antes de que alguien la decida.</p><div className="mt-4"><WithdrawExpenseReportForm companySlug={context.slug} reportId={report.id} /></div></> : <p className="mt-2 text-sm leading-6 text-slate-500">Esta rendición ya fue enviada y no admite nuevos gastos.</p>}</div>
           {canReconcile && <div className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm"><h2 className="font-semibold text-slate-900">Conciliación</h2><p className="mb-4 mt-2 text-sm leading-6 text-slate-500">Registra la referencia de pago o el asiento contable una vez pagado el reembolso.</p><ReconcileExpenseReportForm companySlug={context.slug} reportId={report.id} /></div>}
           {report.status === "PAID" && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-900"><strong>Conciliada.</strong> Referencia: {report.paymentReference}{report.paidAt && ` · ${shortDate(report.paidAt.slice(0, 10))}`}</div>}
