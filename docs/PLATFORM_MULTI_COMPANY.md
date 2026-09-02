@@ -135,9 +135,13 @@ empresa en onboarding como si ya estuviera operativa.
 
 ## 7. Próximos pasos
 
-1. Continuar Rendiciones EX-3 con comprobantes privados, extracción OCR y
-   decisiones de aprobación, consumiendo siempre el tenant y entitlement ya
-   implementados en EX-1/EX-2.
+1. EX-3 (comprobantes privados y decisiones de aprobación) y EX-4 (extracción
+   OCR asíncrona vía Azure Document Intelligence, sin desplegar a staging y
+   con Azure deshabilitado hasta configurar credenciales reales) ya están
+   completos localmente, consumiendo siempre el tenant y entitlement ya
+   implementados en EX-1/EX-2. EX-5 continúa con políticas por empresa,
+   snapshot de aprobación al enviar, retiro de rendiciones enviadas y
+   separación real de funciones en cadenas multi-paso.
 2. Ejecutar MT-3B–D por dominio laboral, con migraciones pequeñas, backfill explícito y
    pruebas de cruce tenant antes de avanzar al siguiente dominio.
 3. Hacer tenant-aware los jobs, archivos, exports e integraciones; evitar que un
