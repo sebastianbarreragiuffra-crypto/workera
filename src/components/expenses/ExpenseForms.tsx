@@ -4,10 +4,14 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   addExpenseItemAction,
+  cancelExpenseAdvanceAction,
   createExpenseReportAction,
   decideExpenseReportAction,
+  grantExpenseAdvanceAction,
+  linkExpenseReportToAdvanceAction,
   reconcileExpenseReportAction,
   reviewExpenseReceiptOcrAction,
+  settleExpenseAdvanceAction,
   submitExpenseReportAction,
   updateCategoryLimitsAction,
   uploadExpenseReceiptAction,
@@ -328,6 +332,112 @@ export function ExpenseOcrReviewForm({
       </label>
       <Feedback state={state} />
       <SubmitButton>Registrar revisión</SubmitButton>
+    </form>
+  );
+}
+
+export function GrantExpenseAdvanceForm({
+  companySlug,
+  members,
+}: {
+  companySlug: string;
+  members: Array<{ id: string; displayName: string }>;
+}) {
+  const [state, action] = useActionState(grantExpenseAdvanceAction, INITIAL_STATE);
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <label className="block text-sm font-medium text-slate-700">
+        Destinatario
+        <select name="recipientId" required className={INPUT} defaultValue="">
+          <option value="" disabled>Selecciona una persona…</option>
+          {members.map((member) => <option key={member.id} value={member.id}>{member.displayName}</option>)}
+        </select>
+      </label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block text-sm font-medium text-slate-700">
+          Monto
+          <input name="amount" type="number" min="0.01" step="0.01" inputMode="decimal" required className={INPUT} />
+        </label>
+        <label className="block text-sm font-medium text-slate-700">
+          Moneda
+          <select name="currencyCode" required className={INPUT} defaultValue="CLP">
+            <option value="CLP">CLP</option>
+            <option value="USD">USD</option>
+            <option value="EUR">EUR</option>
+          </select>
+        </label>
+      </div>
+      <label className="block text-sm font-medium text-slate-700">
+        Motivo
+        <input name="purpose" required maxLength={240} className={INPUT} placeholder="Ej. Viaje a terreno Concepción" />
+      </label>
+      <Feedback state={state} />
+      <SubmitButton>Otorgar anticipo</SubmitButton>
+    </form>
+  );
+}
+
+export function SettleExpenseAdvanceForm({ companySlug, advanceId }: { companySlug: string; advanceId: string }) {
+  const [state, action] = useActionState(settleExpenseAdvanceAction, INITIAL_STATE);
+  return (
+    <form action={action} className="inline-flex flex-col items-end gap-1">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <input type="hidden" name="advanceId" value={advanceId} />
+      <button type="submit" className="text-xs font-medium text-arcotex-blue-dark hover:underline">Cerrar</button>
+      {state.status === "error" && <p role="alert" className="text-xs text-critical">{state.message}</p>}
+    </form>
+  );
+}
+
+export function CancelExpenseAdvanceForm({ companySlug, advanceId }: { companySlug: string; advanceId: string }) {
+  const [state, action] = useActionState(cancelExpenseAdvanceAction, INITIAL_STATE);
+  return (
+    <form action={action} className="inline-flex flex-col items-end gap-1">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <input type="hidden" name="advanceId" value={advanceId} />
+      <button type="submit" className="text-xs font-medium text-critical hover:underline">Cancelar</button>
+      {state.status === "error" && <p role="alert" className="text-xs text-critical">{state.message}</p>}
+    </form>
+  );
+}
+
+export function LinkExpenseAdvanceForm({
+  companySlug,
+  reportId,
+  currentAdvanceId,
+  options,
+}: {
+  companySlug: string;
+  reportId: string;
+  currentAdvanceId: string | null;
+  options: Array<{ id: string; amount: number; purpose: string; status: "PENDING" | "SETTLED" | "CANCELLED" }>;
+}) {
+  const [state, action] = useActionState(linkExpenseReportToAdvanceAction, INITIAL_STATE);
+  if (options.length === 0 && !currentAdvanceId) return null;
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <input type="hidden" name="reportId" value={reportId} />
+      <label className="block text-sm font-medium text-slate-700">
+        Rendir contra un anticipo propio (opcional)
+        <select name="advanceId" className={INPUT} defaultValue={currentAdvanceId ?? ""}>
+          <option value="">Sin anticipo -- reembolso normal</option>
+          {options.map((option) => (
+            <option key={option.id} value={option.id} disabled={option.status !== "PENDING" && option.id !== currentAdvanceId}>
+              {option.purpose} -- {option.amount.toLocaleString("es-CL")}
+              {option.status !== "PENDING" ? ` (${option.status === "SETTLED" ? "ya cerrado" : "cancelado"})` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+      {currentAdvanceId && options.find((option) => option.id === currentAdvanceId)?.status !== "PENDING" && (
+        <p className="text-xs font-medium text-amber-700">
+          El anticipo vinculado ya no está pendiente -- si sigue seleccionado y guardas sin cambiarlo, se mantiene igual; si necesitas desvincularlo, elige &quot;Sin anticipo&quot;.
+        </p>
+      )}
+      <Feedback state={state} />
+      <SubmitButton>Guardar</SubmitButton>
     </form>
   );
 }

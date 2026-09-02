@@ -45,6 +45,17 @@ const decisionInput = reportActionInput.extend({
   decision: z.enum(["APPROVED", "REJECTED", "RETURNED"]),
   comment: z.string().trim().max(1000).transform((value) => value || null),
 });
+const grantAdvanceInput = z.object({
+  companySlug: slug,
+  recipientId: uuid,
+  amount: z.coerce.number().finite().positive().max(999999999999.99),
+  currencyCode: z.enum(["CLP", "USD", "EUR"]),
+  purpose: z.string().trim().min(2).max(240),
+});
+const advanceActionInput = z.object({ companySlug: slug, advanceId: uuid });
+const linkAdvanceInput = reportActionInput.extend({
+  advanceId: z.string().transform((value) => value || null).pipe(z.uuid().nullable()),
+});
 const ocrReviewInput = reportActionInput.extend({
   receiptId: uuid,
   decision: z.enum(["ACCEPTED", "REJECTED"]),
@@ -403,4 +414,90 @@ export async function reviewExpenseReceiptOcrAction(
 
   revalidatePath(reportPath(context.slug, parsed.data.reportId));
   return { status: "success", message: "Revisión de la sugerencia OCR registrada." };
+}
+
+export async function grantExpenseAdvanceAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = grantAdvanceInput.safeParse(entries(formData));
+  if (!parsed.success) return failed("Revisa la persona destinataria, el monto y el motivo del anticipo.");
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canReconcile) return failed("Tu rol no permite otorgar anticipos.");
+
+  const { error } = await supabase.rpc("grant_expense_advance", {
+    p_company_id: context.id,
+    p_recipient_id: parsed.data.recipientId,
+    p_amount: parsed.data.amount,
+    p_currency_code: parsed.data.currencyCode,
+    p_purpose: parsed.data.purpose,
+  });
+  if (error?.code === "23503") return failed("La persona destinataria no es miembro activo de esta empresa.");
+  if (error) return failed("No pudimos otorgar el anticipo.");
+
+  revalidatePath(`/empresas/${context.slug}/rendiciones/anticipos`);
+  return { status: "success", message: "Anticipo otorgado correctamente." };
+}
+
+export async function settleExpenseAdvanceAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = advanceActionInput.safeParse(entries(formData));
+  if (!parsed.success) return failed();
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canReconcile) return failed("Tu rol no permite cerrar anticipos.");
+
+  const { error } = await supabase.rpc("settle_expense_advance", { p_advance_id: parsed.data.advanceId });
+  if (error?.code === "23514") return failed("Solo se puede cerrar un anticipo pendiente.");
+  if (error) return failed("No pudimos cerrar el anticipo.");
+
+  revalidatePath(`/empresas/${context.slug}/rendiciones/anticipos`);
+  return { status: "success", message: "Anticipo cerrado." };
+}
+
+export async function cancelExpenseAdvanceAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = advanceActionInput.safeParse(entries(formData));
+  if (!parsed.success) return failed();
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canReconcile) return failed("Tu rol no permite cancelar anticipos.");
+
+  const { error } = await supabase.rpc("cancel_expense_advance", { p_advance_id: parsed.data.advanceId });
+  if (error?.code === "23514") return failed("Este anticipo ya tiene rendiciones vinculadas -- ciérralo en vez de cancelarlo.");
+  if (error) return failed("No pudimos cancelar el anticipo.");
+
+  revalidatePath(`/empresas/${context.slug}/rendiciones/anticipos`);
+  return { status: "success", message: "Anticipo cancelado." };
+}
+
+export async function linkExpenseReportToAdvanceAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = linkAdvanceInput.safeParse(entries(formData));
+  if (!parsed.success) return failed();
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context) return failed("No tienes acceso a esta rendición.");
+
+  const { error } = await supabase.rpc("link_expense_report_to_advance", {
+    p_report_id: parsed.data.reportId,
+    p_advance_id: parsed.data.advanceId,
+  });
+  if (error?.code === "23514") return failed("Ese anticipo ya no está disponible para vincular, o la rendición ya no admite cambios.");
+  if (error?.code === "42501") return failed("No puedes vincular ese anticipo.");
+  if (error) return failed("No pudimos actualizar el anticipo vinculado.");
+
+  revalidatePath(reportPath(context.slug, parsed.data.reportId));
+  return { status: "success", message: parsed.data.advanceId ? "Anticipo vinculado." : "Anticipo desvinculado." };
 }

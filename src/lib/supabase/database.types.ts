@@ -1773,6 +1773,93 @@ export type Database = {
           },
         ]
       }
+      expense_advances: {
+        Row: {
+          amount: number
+          cancelled_at: string | null
+          cancelled_by: string | null
+          company_id: string
+          created_at: string
+          currency_code: string
+          granted_at: string
+          granted_by: string
+          id: string
+          purpose: string
+          recipient_id: string
+          settled_at: string | null
+          settled_by: string | null
+          status: Database["public"]["Enums"]["expense_advance_status"]
+        }
+        Insert: {
+          amount: number
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          company_id: string
+          created_at?: string
+          currency_code?: string
+          granted_at?: string
+          granted_by: string
+          id?: string
+          purpose: string
+          recipient_id: string
+          settled_at?: string | null
+          settled_by?: string | null
+          status?: Database["public"]["Enums"]["expense_advance_status"]
+        }
+        Update: {
+          amount?: number
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          company_id?: string
+          created_at?: string
+          currency_code?: string
+          granted_at?: string
+          granted_by?: string
+          id?: string
+          purpose?: string
+          recipient_id?: string
+          settled_at?: string | null
+          settled_by?: string | null
+          status?: Database["public"]["Enums"]["expense_advance_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_advances_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_advances_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_advances_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_advances_settled_by_fkey"
+            columns: ["settled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_advances_cancelled_by_fkey"
+            columns: ["cancelled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expense_approval_decisions: {
         Row: {
           comment: string | null
@@ -2292,6 +2379,7 @@ export type Database = {
       }
       expense_reports: {
         Row: {
+          advance_id: string | null
           client_request_id: string | null
           company_id: string
           created_at: string
@@ -2315,6 +2403,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          advance_id?: string | null
           client_request_id?: string | null
           company_id: string
           created_at?: string
@@ -2338,6 +2427,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          advance_id?: string | null
           client_request_id?: string | null
           company_id?: string
           created_at?: string
@@ -2361,6 +2451,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "expense_reports_advance_company_fk"
+            columns: ["company_id", "advance_id"]
+            isOneToOne: false
+            referencedRelation: "expense_advances"
+            referencedColumns: ["company_id", "id"]
+          },
           {
             foreignKeyName: "expense_reports_company_id_fkey"
             columns: ["company_id"]
@@ -4784,6 +4881,28 @@ export type Database = {
         Args: { p_actor_id: string; p_company_id: string }
         Returns: undefined
       }
+      cancel_expense_advance: {
+        Args: { p_advance_id: string }
+        Returns: undefined
+      }
+      grant_expense_advance: {
+        Args: {
+          p_amount: number
+          p_company_id: string
+          p_currency_code: string
+          p_purpose: string
+          p_recipient_id: string
+        }
+        Returns: string
+      }
+      link_expense_report_to_advance: {
+        Args: { p_advance_id: string | null; p_report_id: string }
+        Returns: undefined
+      }
+      settle_expense_advance: {
+        Args: { p_advance_id: string }
+        Returns: undefined
+      }
       reclaim_stale_expense_ocr_jobs: {
         Args: { p_stale_after_seconds?: number }
         Returns: number
@@ -4878,6 +4997,7 @@ export type Database = {
         | "SYNC_CONFLICT"
         | "CORRECTED_AFTER_REVIEW"
         | "READY_FOR_WEEKLY_CLOSE"
+      expense_advance_status: "PENDING" | "SETTLED" | "CANCELLED"
       expense_approval_decision: "APPROVED" | "REJECTED" | "RETURNED"
       expense_ocr_job_status:
         | "QUEUED"
@@ -5097,6 +5217,7 @@ export const Constants = {
         "CORRECTED_AFTER_REVIEW",
         "READY_FOR_WEEKLY_CLOSE",
       ],
+      expense_advance_status: ["PENDING", "SETTLED", "CANCELLED"],
       expense_approval_decision: ["APPROVED", "REJECTED", "RETURNED"],
       expense_ocr_job_status: [
         "QUEUED",
