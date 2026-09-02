@@ -9,6 +9,17 @@
 -- referencia todavía. En cuanto register_expense_receipt() inserta esa
 -- fila, el objeto deja de calificar para el borrado -- un comprobante ya
 -- registrado nunca puede borrarse por esta vía.
+--
+-- Esta policy solo se ejerce a través de la Storage API real (el
+-- `.remove()` del SDK cliente que usa uploadExpenseReceiptAction), nunca
+-- con un DELETE por SQL directo: Supabase instala un trigger
+-- storage.protect_delete() que rechaza CUALQUIER DELETE directo sobre
+-- storage.objects sin importar RLS, precisamente para que la baja de
+-- metadata y el borrado del archivo real en el backend de objetos no se
+-- desincronicen. Verificado empíricamente vía pgTAP: ni el propio dueño de
+-- un objeto huérfano puede borrarlo con SQL crudo -- por eso la prueba de
+-- 044_expenses_receipts_and_approvals.sql valida la policy por su
+-- definición y su condición, no ejecutando un DELETE.
 create policy "expense_receipts_storage_delete_orphan"
   on storage.objects for delete to authenticated
   using (

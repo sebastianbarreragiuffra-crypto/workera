@@ -210,7 +210,9 @@ export async function uploadExpenseReceiptAction(
     // limpieza inmediata en vez de dejarlo huérfano indefinidamente
     // (hallazgo de la auditoría). La policy "expense_receipts_storage_
     // delete_orphan" solo permite borrar acá porque todavía no existe fila
-    // en expense_receipts para esta ruta.
+    // en expense_receipts para esta ruta. Debe ser vía Storage API (este
+    // .remove() del SDK) -- Supabase bloquea cualquier DELETE por SQL
+    // directo sobre storage.objects (storage.protect_delete()).
     const { error: cleanupError } = await supabase.storage.from("expense-receipts").remove([storagePath]);
     if (cleanupError) {
       console.error("uploadExpenseReceiptAction: no se pudo limpiar un comprobante huérfano tras fallo de registro.", {

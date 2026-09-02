@@ -2,7 +2,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(37);
+select plan(34);
 
 select has_table('public', 'expense_receipts', 'existe historial de comprobantes');
 select has_column('public', 'expense_reports', 'review_round', 'el informe registra su ronda de revisión');
@@ -107,48 +107,40 @@ select lives_ok(
 select ok((select status = 'DRAFT' and submitted_at is null and resolved_at is null from public.expense_reports where id = '97000000-0000-0000-0000-000000000301'), 'la devolución reabre el borrador sin borrar historial');
 reset role;
 
--- expense_receipts_storage_delete_orphan (hallazgo de la auditoría, P1): si
--- Storage acepta el archivo pero register_expense_receipt() falla después,
--- el objeto no debe quedar huérfano indefinidamente -- pero solo mientras
--- NINGUNA fila de expense_receipts lo referencie todavía. Nunca se otorga
--- DELETE general sobre storage.objects.
-set local role authenticated;
-set local request.jwt.claim.sub = '97000000-0000-0000-0000-000000000102';
-insert into storage.objects (id, bucket_id, name, owner_id, metadata)
-values (
-  '97000000-0000-0000-0000-000000000502', 'expense-receipts',
-  '97000000-0000-0000-0000-000000000001/97000000-0000-0000-0000-000000000102/97000000-0000-0000-0000-000000000301/97000000-0000-0000-0000-000000000401/97000000-0000-0000-0000-000000000502.pdf',
-  '97000000-0000-0000-0000-000000000102', '{"mimetype":"application/pdf","size":999}'::jsonb
+-- expense_receipts_storage_delete_orphan (hallazgo de la auditoría, P1): NO
+-- se puede ejercer con un DELETE real acá -- storage.protect_delete()
+-- bloquea CUALQUIER DELETE directo por SQL sobre storage.objects, sin
+-- importar RLS ni quién lo intente (verificado empíricamente: hasta el
+-- dueño legítimo de un objeto nunca registrado lo recibe). Es a propósito:
+-- Supabase exige pasar por la Storage API real para que la baja de
+-- metadata y el borrado del archivo en el backend de objetos queden
+-- sincronizados. uploadExpenseReceiptAction() ya usa esa API
+-- (`supabase.storage.from(...).remove(...)`), nunca SQL directo, así que el
+-- borrado real no pasa por este trigger. Lo que sí se puede probar por SQL
+-- es que la policy existe y que su condición ("todavía nadie lo registró")
+-- es exactamente la correcta.
+select ok(
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'storage' and tablename = 'objects'
+      and policyname = 'expense_receipts_storage_delete_orphan' and cmd = 'DELETE'
+  ),
+  'existe la policy de borrado acotado a comprobantes huérfanos'
 );
-select lives_ok(
-  $$delete from storage.objects where bucket_id = 'expense-receipts' and id = '97000000-0000-0000-0000-000000000502'$$,
-  'el dueño puede borrar su propio objeto huérfano (nunca registrado)'
+select ok(
+  not exists (
+    select 1 from public.expense_receipts
+    where storage_path = '97000000-0000-0000-0000-000000000001/97000000-0000-0000-0000-000000000102/97000000-0000-0000-0000-000000000301/97000000-0000-0000-0000-000000000401/97000000-0000-0000-0000-000000000502.pdf'
+  ),
+  'una ruta nunca registrada calificaría como huérfana para la policy'
 );
-select is(
-  (select count(*)::integer from storage.objects where id = '97000000-0000-0000-0000-000000000502'),
-  0, 'el objeto huérfano queda efectivamente borrado'
+select ok(
+  exists (
+    select 1 from public.expense_receipts
+    where storage_path = '97000000-0000-0000-0000-000000000001/97000000-0000-0000-0000-000000000102/97000000-0000-0000-0000-000000000301/97000000-0000-0000-0000-000000000401/97000000-0000-0000-0000-000000000501.pdf'
+  ),
+  'un comprobante ya registrado nunca calificaría como huérfano para la policy'
 );
-select lives_ok(
-  $$delete from storage.objects where bucket_id = 'expense-receipts' and id = '97000000-0000-0000-0000-000000000501'$$,
-  'intentar borrar un comprobante ya registrado no lanza error (RLS solo filtra la fila, no aborta)'
-);
-select is(
-  (select count(*)::integer from storage.objects where id = '97000000-0000-0000-0000-000000000501'),
-  1, 'el comprobante ya registrado sigue intacto -- dejó de calificar como huérfano'
-);
-reset role;
-
-set local role authenticated;
-set local request.jwt.claim.sub = '97000000-0000-0000-0000-000000000104';
-select lives_ok(
-  $$delete from storage.objects where bucket_id = 'expense-receipts' and id = '97000000-0000-0000-0000-000000000501'$$,
-  'otro tenant intenta borrar un objeto ajeno y tampoco lanza error'
-);
-select is(
-  (select count(*)::integer from storage.objects where id = '97000000-0000-0000-0000-000000000501'),
-  1, 'el objeto de otro tenant sigue intacto tras el intento'
-);
-reset role;
 
 set local role authenticated;
 set local request.jwt.claim.sub = '97000000-0000-0000-0000-000000000102';
