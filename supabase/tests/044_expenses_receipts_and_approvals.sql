@@ -2,7 +2,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(31);
+select plan(37);
 
 select has_table('public', 'expense_receipts', 'existe historial de comprobantes');
 select has_column('public', 'expense_reports', 'review_round', 'el informe registra su ronda de revisión');
@@ -105,6 +105,49 @@ select lives_ok(
   'un aprobador distinto puede devolver el informe'
 );
 select ok((select status = 'DRAFT' and submitted_at is null and resolved_at is null from public.expense_reports where id = '97000000-0000-0000-0000-000000000301'), 'la devolución reabre el borrador sin borrar historial');
+reset role;
+
+-- expense_receipts_storage_delete_orphan (hallazgo de la auditoría, P1): si
+-- Storage acepta el archivo pero register_expense_receipt() falla después,
+-- el objeto no debe quedar huérfano indefinidamente -- pero solo mientras
+-- NINGUNA fila de expense_receipts lo referencie todavía. Nunca se otorga
+-- DELETE general sobre storage.objects.
+set local role authenticated;
+set local request.jwt.claim.sub = '97000000-0000-0000-0000-000000000102';
+insert into storage.objects (id, bucket_id, name, owner_id, metadata)
+values (
+  '97000000-0000-0000-0000-000000000502', 'expense-receipts',
+  '97000000-0000-0000-0000-000000000001/97000000-0000-0000-0000-000000000102/97000000-0000-0000-0000-000000000301/97000000-0000-0000-0000-000000000401/97000000-0000-0000-0000-000000000502.pdf',
+  '97000000-0000-0000-0000-000000000102', '{"mimetype":"application/pdf","size":999}'::jsonb
+);
+select lives_ok(
+  $$delete from storage.objects where bucket_id = 'expense-receipts' and id = '97000000-0000-0000-0000-000000000502'$$,
+  'el dueño puede borrar su propio objeto huérfano (nunca registrado)'
+);
+select is(
+  (select count(*)::integer from storage.objects where id = '97000000-0000-0000-0000-000000000502'),
+  0, 'el objeto huérfano queda efectivamente borrado'
+);
+select lives_ok(
+  $$delete from storage.objects where bucket_id = 'expense-receipts' and id = '97000000-0000-0000-0000-000000000501'$$,
+  'intentar borrar un comprobante ya registrado no lanza error (RLS solo filtra la fila, no aborta)'
+);
+select is(
+  (select count(*)::integer from storage.objects where id = '97000000-0000-0000-0000-000000000501'),
+  1, 'el comprobante ya registrado sigue intacto -- dejó de calificar como huérfano'
+);
+reset role;
+
+set local role authenticated;
+set local request.jwt.claim.sub = '97000000-0000-0000-0000-000000000104';
+select lives_ok(
+  $$delete from storage.objects where bucket_id = 'expense-receipts' and id = '97000000-0000-0000-0000-000000000501'$$,
+  'otro tenant intenta borrar un objeto ajeno y tampoco lanza error'
+);
+select is(
+  (select count(*)::integer from storage.objects where id = '97000000-0000-0000-0000-000000000501'),
+  1, 'el objeto de otro tenant sigue intacto tras el intento'
+);
 reset role;
 
 set local role authenticated;

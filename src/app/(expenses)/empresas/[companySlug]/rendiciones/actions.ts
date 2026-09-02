@@ -205,7 +205,21 @@ export async function uploadExpenseReceiptAction(
     p_file_size: file.size,
     p_checksum_sha256: checksum,
   });
-  if (registerError) return failed("El archivo se guardó, pero no pudimos asociarlo al gasto. Intenta nuevamente.");
+  if (registerError) {
+    // El archivo ya se subió a Storage pero nunca quedó referenciado --
+    // limpieza inmediata en vez de dejarlo huérfano indefinidamente
+    // (hallazgo de la auditoría). La policy "expense_receipts_storage_
+    // delete_orphan" solo permite borrar acá porque todavía no existe fila
+    // en expense_receipts para esta ruta.
+    const { error: cleanupError } = await supabase.storage.from("expense-receipts").remove([storagePath]);
+    if (cleanupError) {
+      console.error("uploadExpenseReceiptAction: no se pudo limpiar un comprobante huérfano tras fallo de registro.", {
+        companyId: context.id,
+        itemId: parsed.data.itemId,
+      });
+    }
+    return failed("No pudimos asociar el comprobante al gasto. Intenta nuevamente.");
+  }
 
   revalidatePath(reportPath(context.slug, parsed.data.reportId));
   return { status: "success", message: "Comprobante adjuntado de forma privada." };
