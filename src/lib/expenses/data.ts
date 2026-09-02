@@ -160,6 +160,7 @@ export interface ExpenseReportDetail extends ExpenseReportSummary {
   paidAt: string | null;
   paidBy: string | null;
   paymentReference: string | null;
+  advanceId: string | null;
   items: ExpenseItemDetail[];
   categories: ExpenseCategoryOption[];
   decisions: Array<{
@@ -233,7 +234,7 @@ export async function getExpenseReportDetail(
   const [reportResult, itemsResult, categoriesResult, receiptsResult, decisionsResult] = await Promise.all([
     supabase
       .from("expense_reports")
-      .select("id, reference_number, title, purpose, policy_id, status, currency_code, total_amount, created_at, submitted_at, submitted_by, review_round, required_approval_steps, paid_at, paid_by, payment_reference")
+      .select("id, reference_number, title, purpose, policy_id, status, currency_code, total_amount, created_at, submitted_at, submitted_by, review_round, required_approval_steps, paid_at, paid_by, payment_reference, advance_id")
       .eq("company_id", context.id)
       .eq("id", reportId)
       .maybeSingle(),
@@ -282,6 +283,7 @@ export async function getExpenseReportDetail(
     paidAt: report.paid_at,
     paidBy: report.paid_by,
     paymentReference: report.payment_reference,
+    advanceId: report.advance_id,
     status: report.status,
     currencyCode: report.currency_code,
     totalAmount: Number(report.total_amount),
@@ -482,4 +484,121 @@ export async function getExpensePolicySettings(
       requiresReceipt: category.requires_receipt,
     })),
   };
+}
+
+/**
+ * Miembros activos de la empresa, para el selector de destinatario al
+ * otorgar un anticipo -- grant_expense_advance() igual revalida esto en el
+ * servidor (23503 si ya no es miembro activo), esto es solo para poblar el
+ * formulario.
+ */
+export async function getCompanyMembersForAdvances(
+  supabase: SupabaseClient<Database>,
+  context: ExpenseCompanyContext
+): Promise<Array<{ id: string; displayName: string }>> {
+  const { data, error } = await supabase
+    .from("company_memberships")
+    .select("user_id, profiles!company_memberships_user_id_fkey(display_name)")
+    .eq("company_id", context.id)
+    .eq("active", true);
+  if (error) throw new Error("No se pudo cargar la lista de personas de la empresa.");
+
+  return (data ?? [])
+    .map((membership) => ({ id: membership.user_id, displayName: unwrapEmbed(membership.profiles)?.display_name ?? "Persona sin nombre registrado" }))
+    .sort((a, b) => a.displayName.localeCompare(b.displayName, "es"));
+}
+
+export type ExpenseAdvanceStatus = Database["public"]["Enums"]["expense_advance_status"];
+
+export interface ExpenseAdvance {
+  id: string;
+  recipientId: string;
+  recipientName: string;
+  amount: number;
+  currencyCode: string;
+  purpose: string;
+  status: ExpenseAdvanceStatus;
+  grantedAt: string;
+  settledAt: string | null;
+  cancelledAt: string | null;
+}
+
+/**
+ * Lista de anticipos visible según RLS (EX-7): finanzas ve todos los de la
+ * empresa, cualquier otra persona solo los que le otorgaron a ella misma --
+ * no hace falta duplicar ese filtro acá, la policy de expense_advances ya
+ * lo aplica.
+ */
+export async function getExpenseAdvances(
+  supabase: SupabaseClient<Database>,
+  context: ExpenseCompanyContext
+): Promise<ExpenseAdvance[]> {
+  const { data, error } = await supabase
+    .from("expense_advances")
+    .select("id, recipient_id, amount, currency_code, purpose, status, granted_at, settled_at, cancelled_at, profiles!expense_advances_recipient_id_fkey(display_name)")
+    .eq("company_id", context.id)
+    .order("granted_at", { ascending: false });
+  if (error) throw new Error("No se pudieron cargar los anticipos.");
+
+  return (data ?? []).map((advance) => ({
+    id: advance.id,
+    recipientId: advance.recipient_id,
+    recipientName: unwrapEmbed(advance.profiles)?.display_name ?? "Persona de la empresa",
+    amount: Number(advance.amount),
+    currencyCode: advance.currency_code,
+    purpose: advance.purpose,
+    status: advance.status,
+    grantedAt: advance.granted_at,
+    settledAt: advance.settled_at,
+    cancelledAt: advance.cancelled_at,
+  }));
+}
+
+/**
+ * Anticipos PENDIENTES del propio usuario en una moneda dada -- la lista que
+ * ve el selector de "vincular anticipo" al armar una rendición en borrador.
+ */
+export interface ExpenseAdvanceOption {
+  id: string;
+  amount: number;
+  purpose: string;
+  grantedAt: string;
+  status: ExpenseAdvanceStatus;
+}
+
+/**
+ * Anticipos PENDIENTES del propio usuario en una moneda dada, MÁS -- si se
+ * pasa `includeAdvanceId` -- ese anticipo puntual sin importar su estado
+ * actual. Sin esto, si el anticipo ya vinculado a un borrador se cierra o
+ * cancela mientras el borrador sigue abierto, dejaría de aparecer en la
+ * lista de opciones: el <select> del formulario perdería su
+ * defaultValue (ningún <option> coincidiría) y caería al primero ("Sin
+ * anticipo"), arriesgando una desvinculación silenciosa si la persona
+ * guarda sin fijarse. Incluirlo siempre como opción (marcado si ya no está
+ * pendiente) mantiene la selección visible y explícita.
+ */
+export async function getOwnPendingExpenseAdvances(
+  supabase: SupabaseClient<Database>,
+  context: ExpenseCompanyContext,
+  currencyCode: string,
+  includeAdvanceId?: string | null
+): Promise<ExpenseAdvanceOption[]> {
+  let query = supabase
+    .from("expense_advances")
+    .select("id, amount, purpose, granted_at, status")
+    .eq("company_id", context.id)
+    .eq("recipient_id", context.userId)
+    .eq("currency_code", currencyCode);
+  query = includeAdvanceId ? query.or(`status.eq.PENDING,id.eq.${includeAdvanceId}`) : query.eq("status", "PENDING");
+
+  const { data, error } = await query.order("granted_at", { ascending: false });
+  if (error) throw new Error("No se pudieron cargar tus anticipos pendientes.");
+
+  return (data ?? []).map((advance) => ({
+    id: advance.id,
+    amount: Number(advance.amount),
+    purpose: advance.purpose,
+    grantedAt: advance.granted_at,
+    status: advance.status,
+  }));
 }
