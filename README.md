@@ -50,8 +50,18 @@ continuación están en
 - Rendiciones EX-1/EX-2/EX-3 ya tiene fundación multiempresa independiente, botón
   **Agregar Rendiciones**, selector de empresa, dashboard, borradores, ítems,
   folios correlativos, comprobantes privados versionados, alerta de duplicados,
-  envío seguro y bandeja de aprobación sin autoaprobación. Políticas avanzadas y
-  conciliación se construirán en las fases siguientes.
+  envío seguro y bandeja de aprobación sin autoaprobación.
+- EX-5 agrega retiro de una rendición enviada por su propio dueño, monto
+  máximo por categoría vía `expense_policies.rules`, y cadenas de aprobación
+  multi-paso: si el total supera un umbral configurable se exige un segundo
+  aprobador -- nunca la misma persona resolviendo dos pasos de la misma
+  ronda, aunque su rol tenga permiso formal para ambos. Los pasos requeridos
+  se congelan al enviar (`required_approval_steps`) y nunca se releen en
+  vivo mientras la revisión está en curso.
+- EX-6 agrega conciliación: una rendición ya APROBADA se puede marcar como
+  pagada con una referencia de pago o asiento contable obligatoria (`paid_at`,
+  `paid_by`, `payment_reference`). Nunca reabre la revisión ni ajusta el
+  monto aprobado; queda auditada como cualquier otro cambio de estado.
 - EX-4 agrega extracción OCR asíncrona de comprobantes (Azure Document
   Intelligence, `prebuilt-receipt`) mediante una cola propia
   (`expense_ocr_jobs`) con reintentos acotados, leases recuperables y
@@ -76,11 +86,14 @@ continuación están en
   alternativas en `041_platform_security_hardening.sql`. El aislamiento del
   add-on de Rendiciones se prueba en `042_expenses_multi_company_foundation.sql`
   y su flujo operativo en `043_expenses_operational_workflow.sql`; la privacidad
-  de comprobantes y segregación de aprobación se prueban en
+  de comprobantes y segregación de aprobación, junto con las cadenas de
+  aprobación multi-paso de EX-5, se prueban en
   `044_expenses_receipts_and_approvals.sql`; la cola OCR de EX-4 (encolado
   automático, claim concurrente, leases, reintentos, cancelación al
   reemplazar comprobante y aislamiento entre empresas) se prueba en
-  `045_expenses_ocr_pipeline.sql`.
+  `045_expenses_ocr_pipeline.sql`; la conciliación de EX-6 (solo aprobadas,
+  referencia obligatoria, no se concilia dos veces, aislamiento entre
+  empresas) se prueba en `046_expense_report_reconciliation.sql`.
 
 ## Desarrollo local
 
