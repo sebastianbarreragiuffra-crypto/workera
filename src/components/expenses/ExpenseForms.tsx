@@ -175,11 +175,13 @@ export function CategoryLimitsForm({
   policyId,
   categories,
   categoryLimits,
+  secondApproverThreshold,
 }: {
   companySlug: string;
   policyId: string;
   categories: ExpenseCategoryOption[];
   categoryLimits: Record<string, number>;
+  secondApproverThreshold: number | null;
 }) {
   const [state, action] = useActionState(updateCategoryLimitsAction, INITIAL_STATE);
   return (
@@ -203,6 +205,24 @@ export function CategoryLimitsForm({
         ))}
       </div>
       <p className="text-xs text-slate-500">Deja vacío para no limitar esa categoría. Un gasto que supere su límite bloquea el envío hasta corregirlo.</p>
+      <div className="border-t border-slate-200 pt-4">
+        <label className="flex items-center justify-between gap-3 text-sm font-medium text-slate-700">
+          Monto que exige un segundo aprobador
+          <input
+            type="number"
+            name="secondApproverThreshold"
+            min={1}
+            step={1}
+            placeholder="Sin segundo paso"
+            defaultValue={secondApproverThreshold ?? ""}
+            className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-right text-sm shadow-sm focus:border-arcotex-blue focus:outline-none focus:ring-2 focus:ring-blue-100"
+          />
+        </label>
+        <p className="mt-2 text-xs text-slate-500">
+          Si el total de la rendición supera este monto, se necesitan dos aprobaciones de personas distintas antes de
+          aprobarla. Deja vacío para requerir siempre un solo paso.
+        </p>
+      </div>
       <SubmitButton>Guardar política</SubmitButton>
       <Feedback state={state} />
     </form>

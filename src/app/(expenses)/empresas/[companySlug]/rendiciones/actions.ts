@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
 import { validateExpenseReceiptFile } from "@/lib/expenses/receipts";
 import { createClient } from "@/lib/supabase/server";
+import type { Json } from "@/lib/supabase/database.types";
 
 export interface ExpenseActionState {
   status: "idle" | "success" | "error";
@@ -202,6 +203,14 @@ export async function updateCategoryLimitsAction(
     categoryLimits[key.slice("limit_".length)] = Math.round(amount);
   }
 
+  const thresholdRaw = formData.get("secondApproverThreshold");
+  let secondApproverThreshold: number | null = null;
+  if (typeof thresholdRaw === "string" && thresholdRaw.trim() !== "") {
+    const amount = Number(thresholdRaw.trim());
+    if (!Number.isFinite(amount) || amount <= 0) return failed("El monto que exige un segundo aprobador debe ser un número positivo.");
+    secondApproverThreshold = Math.round(amount);
+  }
+
   // rules guarda otros campos (receipt_required_from, etc.) -- se fusiona en
   // vez de reemplazar todo el objeto para no pisarlos.
   const { data: current, error: readError } = await supabase
@@ -212,9 +221,14 @@ export async function updateCategoryLimitsAction(
     .single();
   if (readError || !current) return failed("No se pudo leer la política vigente.");
 
+  const nextRules: Record<string, unknown> = { ...(current.rules as Record<string, unknown>), categoryLimits };
+  if (secondApproverThreshold === null) delete nextRules.secondApproverThreshold;
+  else nextRules.secondApproverThreshold = secondApproverThreshold;
+  const rules = nextRules as unknown as Json;
+
   const { error } = await supabase
     .from("expense_policies")
-    .update({ rules: { ...(current.rules as Record<string, unknown>), categoryLimits } })
+    .update({ rules })
     .eq("company_id", context.id)
     .eq("id", parsed.data.policyId);
   if (error) return failed("No pudimos guardar la política.");
@@ -309,6 +323,7 @@ export async function decideExpenseReportAction(
     p_comment: parsed.data.comment ?? undefined,
   });
   if (error?.code === "42501" && error.message.includes("propia")) return failed("Otra persona debe revisar tu propia rendición.");
+  if (error?.code === "42501" && error.message.includes("ronda")) return failed("Ya registraste una decisión para esta rendición; otra persona debe resolver el siguiente paso.");
   if (error?.code === "23514") return failed("La rendición ya no está pendiente o falta el comentario requerido.");
   if (error) return failed("No pudimos registrar la decisión.");
 

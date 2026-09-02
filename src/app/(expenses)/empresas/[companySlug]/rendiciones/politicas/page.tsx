@@ -18,7 +18,7 @@ export default async function ExpensePoliciesPage({ params }: { params: Promise<
       <div>
         <Link href={base} className="text-sm font-medium text-arcotex-blue-dark hover:underline">← Volver a Rendiciones</Link>
         <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Políticas de gasto</h1>
-        <p className="mt-2 text-sm text-slate-500">Define un monto máximo por categoría. Un gasto que lo supere bloquea el envío de la rendición hasta corregirlo -- nunca se ajusta el monto en silencio.</p>
+        <p className="mt-2 text-sm text-slate-500">Define un monto máximo por categoría y, opcionalmente, un monto total que exija un segundo aprobador. Un gasto que supera su límite bloquea el envío hasta corregirlo -- nunca se ajusta el monto en silencio.</p>
       </div>
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
         {settings.policyId ? (
@@ -27,6 +27,7 @@ export default async function ExpensePoliciesPage({ params }: { params: Promise<
             policyId={settings.policyId}
             categories={settings.categories}
             categoryLimits={settings.categoryLimits}
+            secondApproverThreshold={settings.secondApproverThreshold}
           />
         ) : (
           <p className="text-sm text-slate-500">Todavía no hay una política activa para esta empresa.</p>

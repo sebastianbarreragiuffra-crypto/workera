@@ -1782,6 +1782,7 @@ export type Database = {
           decision: Database["public"]["Enums"]["expense_approval_decision"]
           id: string
           report_id: string
+          review_round: number
           step_number: number
         }
         Insert: {
@@ -1792,6 +1793,7 @@ export type Database = {
           decision: Database["public"]["Enums"]["expense_approval_decision"]
           id?: string
           report_id: string
+          review_round: number
           step_number: number
         }
         Update: {
@@ -1802,6 +1804,7 @@ export type Database = {
           decision?: Database["public"]["Enums"]["expense_approval_decision"]
           id?: string
           report_id?: string
+          review_round?: number
           step_number?: number
         }
         Relationships: [
@@ -2298,6 +2301,7 @@ export type Database = {
           policy_id: string | null
           purpose: string | null
           reference_number: string
+          required_approval_steps: number
           resolved_at: string | null
           review_round: number
           status: Database["public"]["Enums"]["expense_report_status"]
@@ -2317,6 +2321,7 @@ export type Database = {
           policy_id?: string | null
           purpose?: string | null
           reference_number?: string
+          required_approval_steps?: number
           resolved_at?: string | null
           review_round?: number
           status?: Database["public"]["Enums"]["expense_report_status"]
@@ -2336,6 +2341,7 @@ export type Database = {
           policy_id?: string | null
           purpose?: string | null
           reference_number?: string
+          required_approval_steps?: number
           resolved_at?: string | null
           review_round?: number
           status?: Database["public"]["Enums"]["expense_report_status"]

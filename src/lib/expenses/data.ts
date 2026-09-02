@@ -155,14 +155,17 @@ export interface ExpenseReportDetail extends ExpenseReportSummary {
   purpose: string | null;
   policyId: string | null;
   reviewRound: number;
+  requiredApprovalSteps: number;
   items: ExpenseItemDetail[];
   categories: ExpenseCategoryOption[];
   decisions: Array<{
     id: string;
+    reviewRound: number;
     stepNumber: number;
     decision: Database["public"]["Enums"]["expense_approval_decision"];
     comment: string | null;
     decidedAt: string;
+    decidedBy: string;
   }>;
 }
 
@@ -226,7 +229,7 @@ export async function getExpenseReportDetail(
   const [reportResult, itemsResult, categoriesResult, receiptsResult, decisionsResult] = await Promise.all([
     supabase
       .from("expense_reports")
-      .select("id, reference_number, title, purpose, policy_id, status, currency_code, total_amount, created_at, submitted_at, submitted_by, review_round")
+      .select("id, reference_number, title, purpose, policy_id, status, currency_code, total_amount, created_at, submitted_at, submitted_by, review_round, required_approval_steps")
       .eq("company_id", context.id)
       .eq("id", reportId)
       .maybeSingle(),
@@ -250,9 +253,10 @@ export async function getExpenseReportDetail(
       .eq("is_current", true),
     supabase
       .from("expense_approval_decisions")
-      .select("id, step_number, decision, comment, decided_at")
+      .select("id, review_round, step_number, decision, comment, decided_at, decided_by")
       .eq("company_id", context.id)
       .eq("report_id", reportId)
+      .order("review_round", { ascending: false })
       .order("step_number", { ascending: false }),
   ]);
 
@@ -270,6 +274,7 @@ export async function getExpenseReportDetail(
     purpose: report.purpose,
     policyId: report.policy_id,
     reviewRound: report.review_round,
+    requiredApprovalSteps: report.required_approval_steps,
     status: report.status,
     currencyCode: report.currency_code,
     totalAmount: Number(report.total_amount),
@@ -305,10 +310,12 @@ export async function getExpenseReportDetail(
     })),
     decisions: (decisionsResult.data ?? []).map((decision) => ({
       id: decision.id,
+      reviewRound: decision.review_round,
       stepNumber: decision.step_number,
       decision: decision.decision,
       comment: decision.comment,
       decidedAt: decision.decided_at,
+      decidedBy: decision.decided_by,
     })),
   };
 }
@@ -364,6 +371,7 @@ export async function getExpenseApprovalQueue(
 export interface ExpensePolicySettings {
   policyId: string | null;
   categoryLimits: Record<string, number>;
+  secondApproverThreshold: number | null;
   categories: ExpenseCategoryOption[];
 }
 
@@ -376,10 +384,17 @@ function parseCategoryLimits(rules: unknown): Record<string, number> {
   );
 }
 
+function parseSecondApproverThreshold(rules: unknown): number | null {
+  if (!rules || typeof rules !== "object" || Array.isArray(rules)) return null;
+  const raw = (rules as Record<string, unknown>).secondApproverThreshold;
+  return typeof raw === "number" && raw > 0 ? raw : null;
+}
+
 /**
  * Primer uso real de expense_policies.rules (EX-5): monto máximo por
- * categoría. Sin política activa, no hay límites -- comportamiento
- * retrocompatible con toda empresa que activó Rendiciones antes de esto.
+ * categoría y umbral que exige un segundo aprobador. Sin política activa,
+ * no hay límites ni segundo paso -- comportamiento retrocompatible con toda
+ * empresa que activó Rendiciones antes de esto.
  */
 export async function getExpensePolicySettings(
   supabase: SupabaseClient<Database>,
@@ -394,6 +409,7 @@ export async function getExpensePolicySettings(
   return {
     policyId: policyResult.data?.id ?? null,
     categoryLimits: parseCategoryLimits(policyResult.data?.rules),
+    secondApproverThreshold: parseSecondApproverThreshold(policyResult.data?.rules),
     categories: (categoriesResult.data ?? []).map((category) => ({
       id: category.id,
       name: category.name,
