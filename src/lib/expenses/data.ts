@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ExpenseCompanyContext } from "./access";
 import type { Database } from "@/lib/supabase/database.types";
 import { nextDate, santiagoDayStartIso } from "@/lib/view-models/date-utils";
+import { unwrapEmbed } from "@/lib/supabase/embed";
 
 export type ExpenseReportStatus = Database["public"]["Enums"]["expense_report_status"];
 
@@ -356,7 +357,7 @@ export async function getExpenseApprovalQueue(
   if (error) throw new Error("No se pudo cargar la bandeja de aprobación.");
 
   const reports = (data ?? []).map((report) => {
-    const profile = Array.isArray(report.profiles) ? report.profiles[0] : report.profiles;
+    const profile = unwrapEmbed(report.profiles);
     return {
       id: report.id,
       referenceNumber: report.reference_number,
@@ -413,7 +414,7 @@ export async function getExpenseReconciliationQueue(
   if (error) throw new Error("No se pudo cargar la bandeja de conciliación.");
 
   const reports = (data ?? []).map((report) => {
-    const profile = Array.isArray(report.profiles) ? report.profiles[0] : report.profiles;
+    const profile = unwrapEmbed(report.profiles);
     return {
       id: report.id,
       referenceNumber: report.reference_number,

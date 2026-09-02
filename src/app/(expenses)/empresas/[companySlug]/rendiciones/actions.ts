@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
 import { validateExpenseReceiptFile } from "@/lib/expenses/receipts";
 import { createClient } from "@/lib/supabase/server";
+import { unwrapEmbed } from "@/lib/supabase/embed";
 import type { Json } from "@/lib/supabase/database.types";
 
 export interface ExpenseActionState {
@@ -156,6 +157,7 @@ export async function submitExpenseReportAction(
 
   const { error } = await supabase.rpc("submit_expense_report", { p_report_id: parsed.data.reportId });
   if (error?.code === "23514" && error.message.includes("comprobantes")) return failed("Adjunta todos los comprobantes obligatorios antes de enviar.");
+  if (error?.code === "23514" && error.message.includes("monto máximo")) return failed("Un gasto supera el monto máximo permitido para su categoría. Reduce el monto o divídelo antes de enviar.");
   if (error?.code === "23514") return failed("Agrega al menos un gasto válido antes de enviarla, o verifica que siga en borrador.");
   if (error) return failed("No pudimos enviar la rendición a revisión.");
 
@@ -196,14 +198,30 @@ export async function updateCategoryLimitsAction(
   const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
   if (!context?.canConfigure && !context?.canManage) return failed("Tu rol no permite configurar políticas de gasto.");
 
-  const categoryLimits: Record<string, number> = {};
+  const rawLimits = new Map<string, string>();
   for (const [key, value] of formData.entries()) {
     if (!key.startsWith("limit_") || typeof value !== "string") continue;
     const trimmed = value.trim();
     if (trimmed === "") continue;
-    const amount = Number(trimmed);
-    if (!Number.isFinite(amount) || amount <= 0) return failed("Los montos máximos deben ser números enteros positivos.");
-    categoryLimits[key.slice("limit_".length)] = Math.round(amount);
+    rawLimits.set(key.slice("limit_".length), trimmed);
+  }
+
+  const categoryLimits: Record<string, number> = {};
+  if (rawLimits.size > 0) {
+    const { data: categories, error: categoriesError } = await supabase
+      .from("expense_categories")
+      .select("id")
+      .eq("company_id", context.id)
+      .in("id", [...rawLimits.keys()]);
+    if (categoriesError) return failed("No se pudieron validar las categorías.");
+    const validIds = new Set((categories ?? []).map((category) => category.id));
+
+    for (const [categoryId, trimmed] of rawLimits) {
+      if (!validIds.has(categoryId)) return failed("Una de las categorías enviadas no pertenece a esta empresa.");
+      const amount = Number(trimmed);
+      if (!Number.isFinite(amount) || amount <= 0) return failed("Los montos máximos deben ser números enteros positivos.");
+      categoryLimits[categoryId] = Math.round(amount);
+    }
   }
 
   const thresholdRaw = formData.get("secondApproverThreshold");
@@ -287,7 +305,7 @@ export async function uploadExpenseReceiptAction(
     .eq("report_id", parsed.data.reportId)
     .eq("id", parsed.data.itemId)
     .maybeSingle();
-  const relatedReport = Array.isArray(item?.expense_reports) ? item.expense_reports[0] : item?.expense_reports;
+  const relatedReport = unwrapEmbed(item?.expense_reports);
   if (!item || !relatedReport || relatedReport.status !== "DRAFT" || (relatedReport.submitted_by !== context.userId && !context.canManage)) {
     return failed("El gasto ya no está disponible para adjuntar comprobantes.");
   }
