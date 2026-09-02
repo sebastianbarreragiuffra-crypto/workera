@@ -39,7 +39,7 @@ insert into public.profiles (id, display_name, role, active) values
   ('92000000-0000-0000-0000-000000000101', 'Platform Manager RPC', null, true),
   ('92000000-0000-0000-0000-000000000102', 'Platform Viewer RPC', null, true),
   ('92000000-0000-0000-0000-000000000103', 'Cliente Member RPC', null, true),
-  ('92000000-0000-0000-0000-000000000104', 'ARCOTEX Legacy RPC', 'ADMIN_RRHH', true);
+  ('92000000-0000-0000-0000-000000000104', 'ARCOTEX Legacy RPC', null, true);
 
 insert into public.platform_memberships (user_id, role, active) values
   ('92000000-0000-0000-0000-000000000101', 'ADMIN', true),
@@ -110,7 +110,8 @@ values (
   '0a4c0000-0000-0000-0000-000000000001',
   'ADMIN_RRHH',
   true
-);
+)
+on conflict (user_id, company_id) do nothing;
 
 set local role authenticated;
 set local request.jwt.claim.sub = '92000000-0000-0000-0000-000000000101';

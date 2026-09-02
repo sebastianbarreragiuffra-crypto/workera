@@ -15,7 +15,7 @@ select ok(
 
 insert into public.profiles (id, display_name, role, active) values
   ('93000000-0000-0000-0000-000000000101', 'Platform Viewer Org', null, true),
-  ('93000000-0000-0000-0000-000000000102', 'Client Org', 'ADMIN_RRHH', true);
+  ('93000000-0000-0000-0000-000000000102', 'Client Org', null, true);
 
 insert into public.platform_memberships (user_id, role, active)
 values ('93000000-0000-0000-0000-000000000101', 'VIEWER', true);
@@ -27,7 +27,8 @@ values (
   '0a4c0000-0000-0000-0000-000000000001',
   'ADMIN_RRHH',
   true
-);
+)
+on conflict (user_id, company_id) do nothing;
 
 insert into public.company_membership_roles (company_id, membership_id, role_id)
 select

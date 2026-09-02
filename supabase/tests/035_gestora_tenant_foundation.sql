@@ -21,15 +21,16 @@ insert into public.companies (id, name, slug, active) values
 
 insert into public.profiles (id, display_name, role, active) values
   ('90000000-0000-0000-0000-000000000101', 'Fixture Arcotex User', 'ADMIN_RRHH', true),
-  ('90000000-0000-0000-0000-000000000102', 'Fixture Demo User', 'ADMIN_RRHH', true),
+  ('90000000-0000-0000-0000-000000000102', 'Fixture Demo User', null, true),
   ('90000000-0000-0000-0000-000000000103', 'Fixture Multi-Tenant User', 'SUPERVISOR_PRODUCTION', true),
-  ('90000000-0000-0000-0000-000000000104', 'Fixture No Membership User', 'ADMIN_RRHH', true);
+  ('90000000-0000-0000-0000-000000000104', 'Fixture No Membership User', null, true);
 
 insert into public.company_memberships (user_id, company_id, role, active) values
   ('90000000-0000-0000-0000-000000000101', (select id from public.companies where slug='arcotex'), 'ADMIN_RRHH', true),
   ('90000000-0000-0000-0000-000000000102', '90000000-0000-0000-0000-0000000000c2', 'ADMIN_RRHH', true),
   ('90000000-0000-0000-0000-000000000103', (select id from public.companies where slug='arcotex'), 'SUPERVISOR_PRODUCTION', true),
-  ('90000000-0000-0000-0000-000000000103', '90000000-0000-0000-0000-0000000000c2', 'ADMIN_RRHH', true);
+  ('90000000-0000-0000-0000-000000000103', '90000000-0000-0000-0000-0000000000c2', 'ADMIN_RRHH', true)
+on conflict (user_id, company_id) do nothing;
 -- 000104 deliberadamente SIN ninguna membresía -- caso "0 memberships".
 
 -- ---------------------------------------------------------------------------
