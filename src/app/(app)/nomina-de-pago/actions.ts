@@ -235,7 +235,8 @@ export async function confirmSupplierMasterAction(_prev: ConfirmSupplierMasterAc
 export async function deactivateSupplierAction(formData: FormData): Promise<void> {
   await requirePayrollAccess();
   const supabase = await createClient();
-  const normalizedName = String(formData.get("normalizedName"));
+  const normalizedName = String(formData.get("normalizedName") ?? "").trim();
+  if (!normalizedName || normalizedName.length > 240) return;
   await deactivateSupplier(supabase, normalizedName);
   revalidatePath("/nomina-de-pago");
 }

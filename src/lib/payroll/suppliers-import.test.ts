@@ -209,3 +209,21 @@ test("deactivateSupplier: actualiza active=false filtrando por normalized_name",
   await deactivateSupplier(supabase, "PROVEEDOR A DAR DE BAJA");
   assert.deepEqual(captured.updated, { normalizedName: "PROVEEDOR A DAR DE BAJA", patch: { active: false } });
 });
+
+test("importSuppliers: si un proveedor inactivo reaparece, el upsert lo reactiva", async () => {
+  const captured: { upserted?: unknown[] } = {};
+  const supabase = mockSupabase(
+    [{ normalized_name: "PROVEEDOR QUE VOLVIO", name: "Proveedor que volvió", active: false }],
+    captured
+  );
+  await importSuppliers(
+    supabase,
+    [{ rowNumber: 2, rut: "11111111", name: "Proveedor que volvió", paymentMethod: "OTC", bankCode: "1", accountNumber: "111" }],
+    "admin-1"
+  );
+  assert.equal((captured.upserted as Array<{ active: boolean }>)[0].active, true);
+});
+
+test("deactivateSupplier: rechaza un identificador vacío antes de consultar la base", async () => {
+  await assert.rejects(() => deactivateSupplier(mockSupabase([]), ""), /inválido/);
+});

@@ -189,6 +189,10 @@ export async function importSuppliers(
       payment_method: row.paymentMethod,
       bank_code: row.bankCode,
       account_number: row.accountNumber,
+      // Si un proveedor desactivado reaparece en un maestro posterior, esa
+      // nueva evidencia explícita lo reactiva. Sin esto, la baja manual era
+      // irreversible desde la UI aunque el proveedor volviera al archivo.
+      active: true,
       created_by: createdBy,
     };
   });
@@ -216,6 +220,9 @@ export async function importSuppliers(
  * persona dispara después de revisar esa advertencia.
  */
 export async function deactivateSupplier(supabase: SupabaseClient<Database>, normalizedName: string): Promise<void> {
+  if (!normalizedName || normalizedName.length > 240) {
+    throw new Error("deactivateSupplier: nombre normalizado inválido.");
+  }
   const { error } = await supabase.from("suppliers").update({ active: false }).eq("normalized_name", normalizedName);
   if (error) throw new Error(`deactivateSupplier: fallo desactivando el proveedor: ${error.message}`);
 }
