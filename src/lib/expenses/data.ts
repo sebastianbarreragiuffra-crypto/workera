@@ -602,3 +602,94 @@ export async function getOwnPendingExpenseAdvances(
     status: advance.status,
   }));
 }
+
+// ---------------------------------------------------------------------------
+// EX-13 (parte 1): indicadores de gasto, tiempos de aprobación y desglose
+// por categoría -- deliberadamente calculados en TypeScript a partir de
+// consultas normales (que ya respetan RLS), sin RPC nuevo: son agregaciones
+// de solo lectura sobre datos que expense_reports_read/expense_items_read
+// ya exponen a quien tiene expenses.read/approve/manage, y no justifican
+// una función de base de datos para esta primera pasada.
+
+export interface ExpenseIndicators {
+  windowDays: number;
+  resolvedCount: number;
+  approvedCount: number;
+  rejectedCount: number;
+  /** null si no hubo ninguna rendición resuelta en la ventana. */
+  avgApprovalHours: number | null;
+  categoryBreakdown: Array<{ categoryName: string; currencyCode: string; totalAmount: number; itemCount: number }>;
+}
+
+/**
+ * Visible solo a quien puede ver el panorama completo de la empresa
+ * (expenses.read/approve/manage/reconcile) -- un supervisor con solo
+ * expenses.submit ve sus propias rendiciones, no indicadores agregados de
+ * toda la empresa.
+ */
+export async function getExpenseIndicators(
+  supabase: SupabaseClient<Database>,
+  context: ExpenseCompanyContext,
+  windowDays = 90
+): Promise<ExpenseIndicators | null> {
+  // canReconcile NO alcanza acá: la RLS de expense_reports/expense_items
+  // (expense_reports_read) solo concede visibilidad de TODA la empresa a
+  // expenses.read/approve/manage (más las filas propias por submitted_by) --
+  // expenses.reconcile no está en esa policy. Pedirlo igual devolvería un
+  // "0 rendiciones" silencioso para un rol reconcile-only en vez de negar el
+  // acceso, así que el gate de esta función solo pide los permisos que la
+  // RLS realmente honra.
+  if (!context.canReadAll && !context.canApprove && !context.canManage) return null;
+
+  const sinceIso = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
+
+  const [reportsResult, itemsResult] = await Promise.all([
+    supabase
+      .from("expense_reports")
+      .select("status, submitted_at, resolved_at")
+      .eq("company_id", context.id)
+      .in("status", ["APPROVED", "REJECTED", "PAID"])
+      .gte("resolved_at", sinceIso),
+    // "Gasto por categoría" es gasto REAL: solo ítems de rendiciones
+    // aprobadas o pagadas, resueltas dentro de la ventana -- un borrador
+    // nunca enviado o una rendición rechazada no es gasto de la empresa,
+    // aunque la fila exista en expense_items.
+    supabase
+      .from("expense_items")
+      .select("total_amount, currency_code, category_id, expense_categories(name), expense_reports!inner(company_id, status, resolved_at)")
+      .eq("company_id", context.id)
+      .in("expense_reports.status", ["APPROVED", "PAID"])
+      .gte("expense_reports.resolved_at", sinceIso),
+  ]);
+  if (reportsResult.error || itemsResult.error) throw new Error("No se pudieron cargar los indicadores.");
+
+  const reports = reportsResult.data ?? [];
+  const approvalDurationsHours = reports
+    .filter((report) => report.submitted_at && report.resolved_at)
+    .map((report) => (new Date(report.resolved_at!).getTime() - new Date(report.submitted_at!).getTime()) / (1000 * 60 * 60));
+  const avgApprovalHours = approvalDurationsHours.length > 0
+    ? approvalDurationsHours.reduce((sum, hours) => sum + hours, 0) / approvalDurationsHours.length
+    : null;
+
+  const breakdownByKey = new Map<string, { categoryName: string; currencyCode: string; totalAmount: number; itemCount: number }>();
+  for (const item of itemsResult.data ?? []) {
+    const categoryName = unwrapEmbed(item.expense_categories)?.name ?? "Sin categoría";
+    const key = `${categoryName}::${item.currency_code}`;
+    const existing = breakdownByKey.get(key);
+    if (existing) {
+      existing.totalAmount += Number(item.total_amount ?? 0);
+      existing.itemCount += 1;
+    } else {
+      breakdownByKey.set(key, { categoryName, currencyCode: item.currency_code, totalAmount: Number(item.total_amount ?? 0), itemCount: 1 });
+    }
+  }
+
+  return {
+    windowDays,
+    resolvedCount: reports.length,
+    approvedCount: reports.filter((report) => report.status === "APPROVED" || report.status === "PAID").length,
+    rejectedCount: reports.filter((report) => report.status === "REJECTED").length,
+    avgApprovalHours,
+    categoryBreakdown: [...breakdownByKey.values()].sort((a, b) => b.totalAmount - a.totalAmount),
+  };
+}
