@@ -204,6 +204,18 @@ from public.company_roles cr
 where cr.company_id = '96000000-0000-0000-0000-000000000001' and cr.code = 'HR_ADMIN'
 on conflict do nothing;
 
+-- El informe 301 se creó más arriba en este mismo archivo con un INSERT
+-- directo (antes de que existiera policy_id como parte del flujo probado
+-- acá), así que nunca quedó anclado a una política -- a diferencia de un
+-- informe real, que siempre la recibe de create_expense_report() al
+-- crearse. Se lo asigna acá explícitamente para simular ese camino real.
+update public.expense_reports
+set policy_id = (
+  select id from public.expense_policies
+  where company_id = '96000000-0000-0000-0000-000000000001' and active
+)
+where id = '96000000-0000-0000-0000-000000000301';
+
 set local role authenticated;
 set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000102';
 
