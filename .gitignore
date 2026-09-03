@@ -67,3 +67,6 @@ next-env.d.ts
 
 # borradores de Supabase Studio ("Untitled query N.sql")
 /supabase/snippets/
+
+# entregables generados (se regeneran, no se versionan)
+/GESTORA-*.pdf
