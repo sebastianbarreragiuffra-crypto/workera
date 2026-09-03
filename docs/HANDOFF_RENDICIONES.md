@@ -4,7 +4,7 @@ Estado de trabajo, no documento de arquitectura. Borrar cuando se mergee a `mast
 
 ## Dónde estamos
 
-Rama: **`claude/hola-e040lp`** — 12 commits, todo pusheado a `origin`.
+Rama: **`claude/hola-e040lp`** — 14 commits publicados antes del bloque actual.
 
 Se venía construyendo **Rendiciones** (la alternativa mejorada a RindeGastos)
 por fases chicas, y después se hizo una **auditoría técnica en dos vueltas**.
@@ -56,25 +56,25 @@ motor de reglas. Su bitácora técnica usa el permiso separado
 prueba `055` confirma que supervisores y auditores conservan la lectura de
 marcaciones, pero no ven reintentos ni `error_summary`.
 
-## Dónde seguir (Fase 1, bloque 3)
+## Fase 1, bloque 3 — completado en PC 2
 
-La auditoría (Fase 0 v2) dejó un hallazgo abierto, el único que falta:
+Se eliminó el caso especial de Rendiciones en
+`platform_set_company_module_status()`. El catálogo declara ahora
+`tenant_isolated`: los módulos con backend y RLS tenant-aware completos
+pueden cambiar de estado aunque el workspace laboral legacy esté operativo.
+Rendiciones es el único módulo marcado por ahora; los demás conservan el
+bloqueo seguro por defecto.
 
-**`platform_set_company_module_status()` tiene `'expenses'` hardcodeado.**
-Es una función CORE del control plane que Rendiciones redefinió (en
-`20260901190000` y `20260901191000`) para (a) permitir cambiar ese módulo
-aunque el workspace esté operativo y (b) llamar a `provision_expense_defaults()`
-al habilitarlo.
+La configuración inicial de Rendiciones pasó a un trigger de su propio
+dominio, por lo que el RPC CORE tampoco conoce
+`provision_expense_defaults()`. La migración `20260902140000` implementa el
+cambio y la prueba `056` cubre catálogo, bloqueo legacy, comportamiento
+genérico, provisión idempotente, autorización y auditoría.
 
-Funciona hoy, pero **el próximo módulo tenant-aware va a exigir volver a
-editar esa función core y agregarle otra rama**. Hay que decidir entre:
-1. Dejarlo (es una excepción documentada, hay un solo módulo así hoy).
-2. Generalizarlo: mover la excepción a un flag del `module_catalog`
-   (ej. `tenant_isolated boolean`) y que la función lea el flag en vez de
-   comparar contra un string.
-
-Es una decisión de arquitectura, no un fix mecánico — conviene discutirla
-antes de tocar nada.
+Validación del bloque: reconstrucción desde cero, 56 suites pgTAP / 1.005
+aserciones y 711 tests de aplicación en verde (2 opt-in omitidos). TypeScript,
+ESLint y lint de base sin errores. Bugbot y Security Review no encontraron
+problemas antes del commit.
 
 ## Otros hallazgos ya cerrados (no rehacer)
 
