@@ -19,8 +19,9 @@ export function mapWorkeraAttendanceEvent(
       ? WORKERA_ATTENDANCE_TYPES[raw.attendanceType as keyof typeof WORKERA_ATTENDANCE_TYPES]
       : "UNKNOWN_EXTERNAL_TYPE";
 
-  const status: WorkeraAttendanceStatus = KNOWN_STATUSES.has(raw.attendanceStatus)
-    ? (raw.attendanceStatus as WorkeraAttendanceStatus)
+  const normalizedStatus = raw.attendanceStatus.trim().toUpperCase();
+  const status: WorkeraAttendanceStatus = KNOWN_STATUSES.has(normalizedStatus)
+    ? (normalizedStatus as WorkeraAttendanceStatus)
     : "UNKNOWN_EXTERNAL_STATUS";
 
   return {

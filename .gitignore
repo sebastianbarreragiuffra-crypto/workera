@@ -45,8 +45,14 @@ yarn-error.log*
 # datos reales de la empresa (plantillas/exports no deben subirse al repo)
 /src/lib/excel/templates/*
 !/src/lib/excel/templates/.gitkeep
+# `*.xlsx` por sí solo NO cubre el formato BIFF antiguo: la planilla que
+# entrega RRHH es un .xls con nombres reales y quedaba fuera del filtro.
 *.xlsx
+*.xls
+*.xlsm
 !**/fixtures/**/*.xlsx
+!**/fixtures/**/*.xls
+!**/fixtures/**/*.xlsm
 
 # typescript
 *.tsbuildinfo
@@ -55,3 +61,9 @@ next-env.d.ts
 # local-only manual verification scripts (never committed)
 /scratch-*.ts
 /.codex/
+
+# git worktrees creados dentro del repo (copias completas de la app)
+/.worktrees/
+
+# borradores de Supabase Studio ("Untitled query N.sql")
+/supabase/snippets/

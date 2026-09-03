@@ -249,8 +249,8 @@ interface RawInvitation {
   expires_at: string;
   created_at: string;
   role_id: string;
-  delivery_status: "PENDING" | "SENT" | "ACCOUNT_EXISTS" | "FAILED";
-  delivery_attempts: number;
+  delivery_status?: "PENDING" | "SENT" | "ACCOUNT_EXISTS" | "FAILED";
+  delivery_attempts?: number;
 }
 
 interface RawOnboardingStep {
@@ -546,8 +546,8 @@ export function mapInvitationItems(invitations: RawInvitation[], roles: RawRole[
       createdAt: invitation.created_at,
       roleId: invitation.role_id,
       roleName: rolesById.get(invitation.role_id)?.name ?? "Rol no disponible",
-      deliveryStatus: invitation.delivery_status,
-      deliveryAttempts: invitation.delivery_attempts,
+      deliveryStatus: invitation.delivery_status ?? "PENDING",
+      deliveryAttempts: invitation.delivery_attempts ?? 0,
     }));
 }
 

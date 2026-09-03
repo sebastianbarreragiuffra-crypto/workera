@@ -33,19 +33,30 @@ export function formatDateTimeInSantiago(value: Instant): string {
   return formatInstantInSantiago(value, { dateStyle: "medium", timeStyle: "short", hourCycle: "h23" });
 }
 
-/** Formatea YYYY-MM-DD como fecha calendario, sin convertirla entre zonas. */
-export function formatCalendarDate(date: string, options: SantiagoFormatOptions = { dateStyle: "short" }): string {
+/**
+ * ¿`date` es un día real del calendario? El formato correcto no basta:
+ * "2026-13-45" pasa cualquier regex y no existe. Quien reciba una fecha desde
+ * la URL o un formulario debe filtrarla con esto ANTES de usarla, porque
+ * `formatCalendarDate` lanza y en un Server Component eso es una página caída.
+ */
+export function isCalendarDate(date: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  if (!match) throw new RangeError(`Fecha calendario inválida: ${date}`);
+  if (!match) return false;
 
   const [, yearText, monthText, dayText] = match;
   const year = Number(yearText);
   const month = Number(monthText);
   const day = Number(dayText);
   const instant = new Date(Date.UTC(year, month - 1, day));
-  if (instant.getUTCFullYear() !== year || instant.getUTCMonth() !== month - 1 || instant.getUTCDate() !== day) {
-    throw new RangeError(`Fecha calendario inválida: ${date}`);
-  }
+  return instant.getUTCFullYear() === year && instant.getUTCMonth() === month - 1 && instant.getUTCDate() === day;
+}
+
+/** Formatea YYYY-MM-DD como fecha calendario, sin convertirla entre zonas. */
+export function formatCalendarDate(date: string, options: SantiagoFormatOptions = { dateStyle: "short" }): string {
+  if (!isCalendarDate(date)) throw new RangeError(`Fecha calendario inválida: ${date}`);
+
+  const [year, month, day] = date.split("-").map(Number);
+  const instant = new Date(Date.UTC(year, month - 1, day));
 
   return new Intl.DateTimeFormat("es-CL", { ...options, timeZone: "UTC" }).format(instant);
 }

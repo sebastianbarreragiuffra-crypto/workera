@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mapWorkeraAttendance, mapWorkeraAttendanceStatus } from "./attendance";
+import { mapWorkeraAttendanceEvent } from "./attendance-event";
 import type { AttendanceStatusMappingTable } from "../types/attendance-status";
 
 test("clock_in y clock_out presentes se normalizan a instantes UTC", () => {
@@ -66,4 +67,16 @@ test("status_code ausente produce null (distinto de UNKNOWN_EXTERNAL_STATUS)", (
     { statusMapping: STATUS_MAPPING }
   );
   assert.equal(result, null);
+});
+
+test("attendanceStatus de Workera se normaliza aunque llegue con mayúsculas/minúsculas", () => {
+  const result = mapWorkeraAttendanceEvent({
+    employee: { code: "90000017" },
+    attendanceDate: "2026-09-01T07:30:00",
+    attendanceType: 0,
+    attendanceStatus: "Activo",
+  });
+
+  assert.equal(result.attendanceStatus, "ACTIVO");
+  assert.equal(result.externalAttendanceStatus, "Activo");
 });

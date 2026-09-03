@@ -16,6 +16,9 @@ const eslintConfig = defineConfig([
     // (vendored, minified, gitignored) — not our code.
     "supabase/.temp/**",
     "supabase/.branches/**",
+    // Git worktrees checked out under el repo: son copias completas de la
+    // app (incluido su build) y duplicarían cada hallazgo del código real.
+    ".worktrees/**",
   ]),
 ]);
 

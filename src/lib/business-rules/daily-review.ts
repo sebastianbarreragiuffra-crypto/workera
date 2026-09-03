@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 
@@ -49,7 +50,7 @@ function assertGroupAccessAllowed(callerRole: CallerRole, groupCode: string): vo
   );
 }
 
-export async function getDailyReview(
+async function getDailyReviewUncached(
   supabase: SupabaseClient<Database>,
   callerRole: CallerRole,
   groupCode: DailyReviewResult["groupCode"],
@@ -176,3 +177,11 @@ export async function getDailyReview(
 
   return { groupCode, date, requiresReview, noIssues };
 }
+
+/**
+ * El dashboard usa la misma revisión para sus colas y para la tarjeta de
+ * preparación de asistencia. React cachea la promesa por solicitud, evitando
+ * repetir las mismas siete consultas por área sin dejar datos obsoletos entre
+ * usuarios o cargas distintas.
+ */
+export const getDailyReview = cache(getDailyReviewUncached);

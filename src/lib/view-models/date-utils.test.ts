@@ -4,6 +4,7 @@ import {
   formatDateLong,
   formatDateTimeInSantiago,
   formatCalendarDate,
+  isCalendarDate,
   formatInstantInSantiago,
   formatTimeInSantiago,
   nextDate,
@@ -74,4 +75,43 @@ test("santiagoDayStartIso: el instante producido cae en el día calendario corre
 
 test("santiagoDayStartIso: rechaza formato inválido", () => {
   assert.throws(() => santiagoDayStartIso("19-08-2026"), RangeError);
+});
+
+// ---------------------------------------------------------------------------
+// isCalendarDate: filtro para fechas que llegan desde la URL
+// ---------------------------------------------------------------------------
+
+test("isCalendarDate: acepta un día real en YYYY-MM-DD", () => {
+  assert.equal(isCalendarDate("2026-08-17"), true);
+  assert.equal(isCalendarDate("2024-02-29"), true, "2024 es bisiesto");
+});
+
+test("isCalendarDate: rechaza un día que no existe aunque cumpla el formato", () => {
+  assert.equal(isCalendarDate("2026-13-45"), false);
+  assert.equal(isCalendarDate("2026-02-30"), false);
+  assert.equal(isCalendarDate("2025-02-29"), false, "2025 no es bisiesto");
+});
+
+test("isCalendarDate: rechaza una fecha sin ceros a la izquierda", () => {
+  // Postgres SÍ acepta "2026-8-17", así que la consulta respondería bien y el
+  // formateo posterior lanzaría. Este es exactamente el caso que tiraba
+  // /revision-diaria con un 500 desde la barra de direcciones.
+  assert.equal(isCalendarDate("2026-8-17"), false);
+});
+
+test("isCalendarDate: rechaza basura y cadenas vacías, sin lanzar", () => {
+  for (const value of ["", "hoy", "2026-08", "2026-08-17T00:00:00Z", "../../etc"]) {
+    assert.equal(isCalendarDate(value), false, `debería rechazar ${JSON.stringify(value)}`);
+  }
+});
+
+test("isCalendarDate concuerda con formatCalendarDate: si pasa el filtro, no lanza", () => {
+  for (const value of ["2026-01-01", "2026-12-31", "2024-02-29"]) {
+    assert.equal(isCalendarDate(value), true);
+    assert.doesNotThrow(() => formatCalendarDate(value));
+  }
+  for (const value of ["2026-13-45", "2026-8-17", "hoy"]) {
+    assert.equal(isCalendarDate(value), false);
+    assert.throws(() => formatCalendarDate(value), RangeError);
+  }
 });

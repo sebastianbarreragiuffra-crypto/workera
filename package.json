@@ -22,11 +22,13 @@
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.3",
+    "fflate": "^0.8.3",
     "next": "16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1",
     "xlsx": "file:vendor/xlsx-0.20.3.tgz",
+    "xlsx-js-style": "^1.2.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

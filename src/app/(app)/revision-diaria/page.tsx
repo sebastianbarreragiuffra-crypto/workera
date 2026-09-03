@@ -5,7 +5,7 @@ import { getCurrentProfile } from "../../../lib/auth/session";
 import { getDailyReviewBoard, getDailyReviewDetail, sortPendingCards } from "../../../lib/view-models/daily-review-view";
 import type { DailyReviewCardViewModel, FilterCounts } from "../../../lib/view-models/daily-review-view";
 import { areasVisibleToRole, assertAreaAccessAllowed, AreaAccessError, type AreaCode } from "../../../lib/access/scope";
-import { todayInSantiago, previousDate, nextDate, formatDateLong } from "../../../lib/view-models/date-utils";
+import { todayInSantiago, previousDate, nextDate, formatDateLong, isCalendarDate } from "../../../lib/view-models/date-utils";
 import { EmptyState, ErrorState } from "../../../components/shell/StateMessages";
 import { ReviewDetailPanel } from "./ReviewDetailPanel";
 import { CaseCard } from "./CaseCard";
@@ -100,7 +100,11 @@ export default async function DailyReviewPage({
   if (!profile?.role) redirect("/login");
 
   const params = await searchParams;
-  const date = params.fecha ?? todayInSantiago();
+  // `fecha` viene de la URL. Postgres acepta "2026-8-17" sin ceros y la
+  // consulta responde bien, pero `formatDateLong` (línea ~163) exige
+  // YYYY-MM-DD y lanza: sin este filtro la página cae con un 500 provocable
+  // desde la barra de direcciones.
+  const date = params.fecha && isCalendarDate(params.fecha) ? params.fecha : todayInSantiago();
   const allowedAreas = areasVisibleToRole(profile.role);
   const requestedArea = (params.area as AreaCode | undefined) ?? allowedAreas[0];
   const filter = params.filtro && FILTERS.some((f) => f.key === params.filtro) ? params.filtro : DEFAULT_FILTER;

@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import type { Database } from "./database.types";
 
 /**
@@ -24,6 +25,17 @@ export function isPublicPath(pathname: string): boolean {
 /** Futuras rutas /api/* reciben 401 JSON en vez de un redirect HTML. */
 export function isApiPath(pathname: string): boolean {
   return pathname === "/api" || pathname.startsWith("/api/");
+}
+
+/** Vercel Cron autentica este endpoint antes de que exista una sesión de usuario. */
+export function isAuthorizedWorkeraCronRequest(request: NextRequest): boolean {
+  if (request.method !== "GET" || request.nextUrl.pathname !== "/api/sync/workera") return false;
+  const configured = process.env.CRON_SECRET;
+  const header = request.headers.get("authorization");
+  if (!configured || !header?.startsWith("Bearer ")) return false;
+  const provided = Buffer.from(header.slice("Bearer ".length));
+  const expected = Buffer.from(configured);
+  return provided.length === expected.length && timingSafeEqual(provided, expected);
 }
 
 interface AuthClaimsResult {
@@ -94,6 +106,10 @@ export async function updateSession(
   const pathname = request.nextUrl.pathname;
   const isPublic = isPublicPath(pathname);
   const isApi = isApiPath(pathname);
+
+  if (isAuthorizedWorkeraCronRequest(request)) {
+    return responseRef.current;
+  }
 
   let isAuthenticated = false;
   try {
