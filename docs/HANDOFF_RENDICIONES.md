@@ -76,6 +76,29 @@ aserciones y 711 tests de aplicación en verde (2 opt-in omitidos). TypeScript,
 ESLint y lint de base sin errores. Bugbot y Security Review no encontraron
 problemas antes del commit.
 
+## Fase 1 cerrada en staging — 3 de septiembre de 2026
+
+La rama se concilió con `origin/master` (sin commits faltantes) y las 80
+migraciones quedaron desplegadas en `arcotex-workera-staging` hasta
+`20260902140000`. Antes del despliegue se generó un respaldo lógico fuera del
+repositorio.
+
+El primer intento descubrió un caso que el reset limpio no representaba: las
+marcaciones Workera históricas ya estaban protegidas por el trigger de
+inmutabilidad. La migración `20260902070000` ahora suspende ese trigger solo
+dentro de su transacción, completa `company_id` y lo restaura. El cambio se
+ensayó localmente partiendo desde `20260902060000` con una marcación histórica;
+la suite completa quedó en 56 archivos / 1.007 aserciones. Bugbot y Security
+Review no encontraron problemas. Commit: `f3485e4`.
+
+Comprobaciones remotas finales: cero marcaciones sin empresa o cruzadas entre
+empresas, trigger de inmutabilidad activo, permiso de logs de sincronización
+restringido, Rendiciones tenant-aware y RPC del control plane sin casos
+especiales. `db lint` y `db push --dry-run` pasaron; la compilación de producción
+con el entorno de staging también pasó y las rutas privadas se mantienen
+protegidas. Con esto, **la Fase 1 queda cerrada** y el próximo trabajo comienza
+en Fase 2.
+
 ## Otros hallazgos ya cerrados (no rehacer)
 
 - ✅ Link faltante `(platform)` → Rendiciones — hecho (`a638eb5`).

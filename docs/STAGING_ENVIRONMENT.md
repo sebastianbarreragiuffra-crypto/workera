@@ -26,7 +26,9 @@ Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base d
 > pero entre dos ramas en vez de dentro de una, y no se manifiesta en local
 > porque ahí las migraciones se ordenan por nombre y se aplican todas. Lo más
 > limpio es rebasar esa rama sobre master y hacer un solo push desde ahí.
-- **Datos maestros**: pendiente de importar (ver Fase 5 abajo)
+- **Datos maestros**: 97 registros de empleados presentes en staging al cierre
+  de la Fase 1. La depuración de posibles duplicados es una tarea de datos y no
+  forma parte del despliegue estructural.
 
 ## Cómo trabaja PC1 (o cualquiera, día a día)
 
@@ -53,16 +55,35 @@ Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base d
 
 ## Checklist de verificación estructural (ya ejecutada en la creación)
 
-- [x] Línea base y migraciones posteriores conciliadas hasta `20260901180000` (59 migraciones)
-- [ ] Aplicar EX-1/EX-2/EX-3 Rendiciones (`20260901190000`–`20260901192000`) después de revisión
-- [x] 47 tablas en `public`, RLS activo en las 47 (0 con RLS deshabilitado)
-- [x] 94 policies RLS — mismo número que el Docker local
-- [x] 44 triggers, mismas 6 extensiones que local
-- [x] 2 buckets de Storage (`supporting-documents`, `supplier-master-files`), ambos privados
+- [x] Las 80 migraciones conciliadas hasta `20260902140000`
+- [x] Rendiciones EX-1 a EX-8 y EX-13 p1 desplegados en staging
+- [x] 79 tablas en `public`; 78 usan RLS y la tabla de catálogo global conserva su tratamiento explícito
+- [x] 155 policies RLS y 65 triggers verificados en staging
+- [x] 4 buckets de Storage presentes
 - [x] `authorized_email_roles` con las 7 filas correctas (1 SUPER_ADMIN, 4 ADMIN_RRHH, 1 SUPERVISOR_PRODUCTION, 1 SUPERVISOR_INSTALLATION)
 - [x] Trigger `on_auth_user_created` presente y habilitado sobre `auth.users`, función `handle_new_auth_user()` referencia `authorized_email_roles` y crea el `profile` correcto
-- [ ] Login real de una persona autorizada (pendiente — requiere un click real en el navegador, no se puede ni se debe scriptear)
-- [ ] Roster de 44 empleados importado vía UI (pendiente — depende del paso anterior)
+- [x] Login real de una persona autorizada realizado
+- [x] Roster importado vía la aplicación (97 registros presentes al cierre; revisar duplicados por separado)
+
+## Cierre de Fase 1 — 3 de septiembre de 2026
+
+Antes del despliegue se guardó un respaldo lógico de los esquemas `public`
+y `storage` fuera del repositorio. La primera aplicación detectó correctamente
+que el trigger de inmutabilidad impedía completar el `company_id` de las
+marcaciones históricas de Workera. La migración se corrigió y se ensayó desde
+un estado anterior con datos históricos antes de reintentar staging.
+
+Validación final:
+
+- las 80 migraciones locales y remotas coinciden;
+- `supabase db lint --linked` no informa errores;
+- las ocho comprobaciones remotas de aislamiento por empresa pasan;
+- ninguna marcación Workera quedó sin empresa ni asociada a otra empresa;
+- el trigger de inmutabilidad quedó activo;
+- Rendiciones es el único módulo declarado `tenant_isolated`;
+- la compilación de producción contra staging finaliza correctamente;
+- `/login` responde, las rutas privadas redirigen al login sin sesión y el
+  endpoint de sincronización rechaza llamadas sin credenciales.
 
 ## Nota de seguridad encontrada durante la creación
 
