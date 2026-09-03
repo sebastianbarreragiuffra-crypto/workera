@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NextRequest, NextResponse } from "next/server";
-import { isApiPath, isPublicPath, updateSession } from "./middleware";
+import { isApiPath, isPublicPath, isAuthorizedWorkeraCronRequest, updateSession } from "./middleware";
+import { isValidCronSecretHeader } from "../auth/cron-secret";
 
 /**
  * Tests del guard de sesión de Gate B pre-UI. Cero llamadas reales a
@@ -432,4 +433,81 @@ test("isApiPath: reconoce /api y cualquier subruta", () => {
   assert.equal(isApiPath("/api/workera/sync"), true);
   assert.equal(isApiPath("/apinotreal"), false);
   assert.equal(isApiPath("/"), false);
+});
+
+// ---------------------------------------------------------------------------
+// Bypass del cron de Workera
+// ---------------------------------------------------------------------------
+
+/**
+ * Este camino deja pasar un request SIN sesión de usuario, así que su alcance
+ * tiene que ser exactamente un método y una ruta. El route handler revalida el
+ * secreto por su cuenta: esto solo evita el redirect al login.
+ */
+const CRON_SECRET_FAKE = "test-secret-fake-000000000000";
+
+function cronRequest(
+  options: { header?: string; method?: string; path?: string } = {}
+): NextRequest {
+  const headers = new Headers();
+  if (options.header !== undefined) headers.set("authorization", options.header);
+  return new NextRequest(`http://localhost${options.path ?? "/api/sync/workera"}`, {
+    headers,
+    method: options.method ?? "GET",
+  });
+}
+
+function withCronSecret(value: string | undefined, run: () => void): void {
+  const original = process.env.CRON_SECRET;
+  if (value === undefined) delete process.env.CRON_SECRET;
+  else process.env.CRON_SECRET = value;
+  try {
+    run();
+  } finally {
+    if (original === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = original;
+  }
+}
+
+test("cron: secreto correcto en GET /api/sync/workera -> autorizado", () => {
+  withCronSecret(CRON_SECRET_FAKE, () => {
+    assert.equal(isAuthorizedWorkeraCronRequest(cronRequest({ header: `Bearer ${CRON_SECRET_FAKE}` })), true);
+  });
+});
+
+test("cron: sin CRON_SECRET configurado -> nunca autoriza (fail-closed)", () => {
+  withCronSecret(undefined, () => {
+    assert.equal(isAuthorizedWorkeraCronRequest(cronRequest({ header: `Bearer ${CRON_SECRET_FAKE}` })), false);
+    assert.equal(isAuthorizedWorkeraCronRequest(cronRequest({ header: "Bearer " })), false);
+  });
+});
+
+test("cron: secreto incorrecto, ausente o sin prefijo Bearer -> no autoriza", () => {
+  withCronSecret(CRON_SECRET_FAKE, () => {
+    assert.equal(isAuthorizedWorkeraCronRequest(cronRequest({ header: "Bearer secreto-equivocado-00000" })), false);
+    assert.equal(isAuthorizedWorkeraCronRequest(cronRequest({ header: CRON_SECRET_FAKE })), false, "sin prefijo Bearer");
+    assert.equal(isAuthorizedWorkeraCronRequest(cronRequest({})), false, "sin header");
+    assert.equal(isAuthorizedWorkeraCronRequest(cronRequest({ header: "Bearer corto" })), false, "longitud distinta no revienta");
+  });
+});
+
+test("cron: el bypass NO se extiende a otra ruta ni a otro método", () => {
+  withCronSecret(CRON_SECRET_FAKE, () => {
+    const header = `Bearer ${CRON_SECRET_FAKE}`;
+    assert.equal(isAuthorizedWorkeraCronRequest(cronRequest({ header, path: "/dashboard" })), false);
+    assert.equal(isAuthorizedWorkeraCronRequest(cronRequest({ header, path: "/api/sync/workera/otra" })), false);
+    assert.equal(isAuthorizedWorkeraCronRequest(cronRequest({ header, method: "POST" })), false, "el rerun administrativo exige sesión, no el secreto de cron");
+  });
+});
+
+test("cron: middleware y route handler comparten la MISMA decisión", () => {
+  withCronSecret(CRON_SECRET_FAKE, () => {
+    for (const header of [`Bearer ${CRON_SECRET_FAKE}`, "Bearer equivocado", "sin-bearer", ""]) {
+      assert.equal(
+        isAuthorizedWorkeraCronRequest(cronRequest({ header })),
+        isValidCronSecretHeader(header),
+        `deben coincidir para ${JSON.stringify(header)}`
+      );
+    }
+  });
 });

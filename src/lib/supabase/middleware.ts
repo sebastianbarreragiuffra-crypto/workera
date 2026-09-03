@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { timingSafeEqual } from "node:crypto";
+import { isValidCronSecretHeader } from "../auth/cron-secret";
 import type { Database } from "./database.types";
 
 /**
@@ -27,15 +27,15 @@ export function isApiPath(pathname: string): boolean {
   return pathname === "/api" || pathname.startsWith("/api/");
 }
 
-/** Vercel Cron autentica este endpoint antes de que exista una sesión de usuario. */
+/**
+ * Vercel Cron autentica este endpoint antes de que exista sesión de usuario.
+ * Dejarlo pasar aquí solo evita el redirect al login: la autorización real la
+ * vuelve a hacer el route handler con el MISMO `isValidCronSecretHeader`.
+ * El método y la ruta se acotan para que este camino no cubra nada más.
+ */
 export function isAuthorizedWorkeraCronRequest(request: NextRequest): boolean {
   if (request.method !== "GET" || request.nextUrl.pathname !== "/api/sync/workera") return false;
-  const configured = process.env.CRON_SECRET;
-  const header = request.headers.get("authorization");
-  if (!configured || !header?.startsWith("Bearer ")) return false;
-  const provided = Buffer.from(header.slice("Bearer ".length));
-  const expected = Buffer.from(configured);
-  return provided.length === expected.length && timingSafeEqual(provided, expected);
+  return isValidCronSecretHeader(request.headers.get("authorization"));
 }
 
 interface AuthClaimsResult {

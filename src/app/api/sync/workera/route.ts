@@ -1,6 +1,6 @@
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
-import { timingSafeEqual } from "node:crypto";
+import { isValidCronSecretHeader } from "@/lib/auth/cron-secret";
 import {
   runScheduledWorkeraSync,
   rerunWorkeraSync,
@@ -33,18 +33,13 @@ import { runRuleEngineWithServiceRole } from "@/lib/rule-engine/service";
  * expone detalles internos/secretos en el cuerpo de la respuesta.
  */
 
+/**
+ * La comparación vive en `@/lib/auth/cron-secret` porque el middleware necesita
+ * exactamente la misma decisión. Este handler la revalida por su cuenta: es la
+ * autoridad, y nunca confía en que el middleware ya la hizo.
+ */
 export function isValidCronSecret(request: NextRequest): boolean {
-  const configured = process.env.CRON_SECRET;
-  if (!configured) return false; // fail-closed: sin secreto configurado, el camino cron nunca se acepta.
-
-  const header = request.headers.get("authorization");
-  if (!header || !header.startsWith("Bearer ")) return false;
-  const provided = header.slice("Bearer ".length);
-
-  const providedBuf = Buffer.from(provided);
-  const configuredBuf = Buffer.from(configured);
-  if (providedBuf.length !== configuredBuf.length) return false; // timingSafeEqual exige igual longitud.
-  return timingSafeEqual(providedBuf, configuredBuf);
+  return isValidCronSecretHeader(request.headers.get("authorization"));
 }
 
 /** Peor status entre los resultados de una tanda de fechas, para el código HTTP de la respuesta. */
