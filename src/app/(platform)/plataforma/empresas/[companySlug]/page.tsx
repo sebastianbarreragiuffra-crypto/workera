@@ -18,12 +18,14 @@ import {
 } from "@/components/platform";
 import { Badge } from "@/components/shell/Badge";
 import { SectionCard } from "@/components/shell/SectionCard";
+import { listExpenseCompaniesFromClient } from "@/lib/expenses/access";
 import { requirePlatformSession } from "@/lib/platform/authorization";
 import {
   getPlatformCompanyDetail,
   PlatformCompanyNotFoundError,
   type PlatformCompanyDetail,
 } from "@/lib/platform/portfolio";
+import { createClient } from "@/lib/supabase/server";
 import { presentOnboardingStatus } from "@/components/platform/status-presenters";
 
 const TAB_LABELS: Array<{ key: CompanyTabKey; label: string }> = [
@@ -220,16 +222,26 @@ function UsersTab({ detail, canManage }: { detail: PlatformCompanyDetail; canMan
   );
 }
 
-function ModulesTab({ detail, canManage }: { detail: PlatformCompanyDetail; canManage: boolean }) {
+function ModulesTab({ detail, canManage, canOpenExpenses }: { detail: PlatformCompanyDetail; canManage: boolean; canOpenExpenses: boolean }) {
   const manageableModules = detail.modules.filter((module) => !detail.workspaceEnabled || module.key === "expenses");
   const actionsByModule = canManage
     ? Object.fromEntries(manageableModules.map((module) => [module.key, <ModuleStatusForm key={module.key} companyId={detail.header.id} moduleKey={module.key} status={module.status} canManage />]))
     : undefined;
+  const expensesModule = detail.modules.find((module) => module.key === "expenses");
+  const expensesActive = expensesModule?.status === "ENABLED" || expensesModule?.status === "PILOT";
   return (
     <div className="space-y-4">
       {detail.workspaceEnabled && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-950">
           Rendiciones ya puede agregarse de forma independiente a esta empresa. Los módulos laborales existentes continúan en modo lectura hasta completar su aislamiento multiempresa.
+        </div>
+      )}
+      {expensesActive && canOpenExpenses && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
+          <span>Rendiciones está activo en {detail.header.name}. </span>
+          <Link href={`/empresas/${detail.header.slug}/rendiciones`} className="font-semibold underline underline-offset-2 hover:no-underline">
+            Abrir Rendiciones de esta empresa →
+          </Link>
         </div>
       )}
       <CompanyModuleMatrix modules={detail.modules} actionsByModule={actionsByModule} />
@@ -303,13 +315,28 @@ export default async function CompanyDetailPage({
   const rawInvitationPage = Array.isArray(query.invitationPage) ? query.invitationPage[0] : query.invitationPage;
   const parsedInvitationPage = Number.parseInt(rawInvitationPage ?? "", 10);
   const invitationPage = Number.isSafeInteger(parsedInvitationPage) && parsedInvitationPage > 0 ? parsedInvitationPage : 1;
-  let detail: PlatformCompanyDetail;
-  try {
-    detail = await getPlatformCompanyDetail(companySlug, selected, memberPage, invitationPage);
-  } catch (error) {
-    if (error instanceof PlatformCompanyNotFoundError) notFound();
-    throw error;
+  // Un rol de plataforma NO concede acceso automático a datos de una empresa
+  // (README, sección Pinned) -- así que el link a Rendiciones solo se
+  // muestra cuando esta persona además tiene una membresía de empresa real
+  // ahí, reusando la misma consulta que ya usa el propio módulo de
+  // Rendiciones (listExpenseCompaniesFromClient) en vez de inventar un
+  // chequeo paralelo. Se pide en paralelo con getPlatformCompanyDetail() --
+  // solo depende de session.userId, ya resuelto -- y se tolera que falle
+  // (banner opcional, nunca debe tumbar el resto de la pestaña Módulos).
+  const [detailResult, expenseCompaniesResult] = await Promise.allSettled([
+    getPlatformCompanyDetail(companySlug, selected, memberPage, invitationPage),
+    selected === "modules"
+      ? createClient().then((supabase) => listExpenseCompaniesFromClient(supabase, session.userId))
+      : Promise.resolve([]),
+  ]);
+
+  if (detailResult.status === "rejected") {
+    if (detailResult.reason instanceof PlatformCompanyNotFoundError) notFound();
+    throw detailResult.reason;
   }
+  const detail: PlatformCompanyDetail = detailResult.value;
+  const expenseCompanies = expenseCompaniesResult.status === "fulfilled" ? expenseCompaniesResult.value : [];
+  const canOpenExpenses = expenseCompanies.some((company) => company.slug === detail.header.slug);
 
   return (
     <div className="space-y-6">
@@ -317,7 +344,7 @@ export default async function CompanyDetailPage({
       <CompanyTabs tabs={buildTabs(detail.header.slug, selected, detail)} />
       {selected === "overview" && <OverviewTab detail={detail} canManage={session.canManage} />}
       {selected === "users" && <UsersTab detail={detail} canManage={session.canManage} />}
-      {selected === "modules" && <ModulesTab detail={detail} canManage={session.canManage} />}
+      {selected === "modules" && <ModulesTab detail={detail} canManage={session.canManage} canOpenExpenses={canOpenExpenses} />}
       {selected === "organization" && <OrganizationTab detail={detail} canManage={session.canManage} />}
       {selected === "audit" && <AuditTab detail={detail} />}
     </div>
