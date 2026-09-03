@@ -4,6 +4,9 @@ import { uploadMedicalLicense, listMedicalLicenses, approveMedicalLicense, rejec
 import { MAX_SUPPORTING_DOCUMENT_SIZE_BYTES } from "./documents";
 import { canApproveMedicalLicense } from "../supabase/authorize";
 
+/** `employees.id` es una columna uuid: el fixture debe parecerse al dato real. */
+const EMPLOYEE_ID_FIXTURE = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+
 /**
  * La autorización REAL (quién puede subir/aprobar/rechazar) la exige RLS y
  * las funciones `approve_medical_license`/`reject_medical_license`
@@ -115,7 +118,7 @@ const LIST_FIXTURE = [
 test("uploadMedicalLicense: crea absence_records (manual, MEDICAL_LEAVE) + supporting_documents + medical_license_approvals, en ese orden", async () => {
   const { client, calls, inserted } = mockSupabase();
   await uploadMedicalLicense(client, {
-    employeeId: "emp-1",
+    employeeId: EMPLOYEE_ID_FIXTURE,
     proposedStartDate: "2026-08-20",
     proposedEndDate: "2026-08-22",
     extractionStatus: "EXTRAIDO",
@@ -133,7 +136,7 @@ test("uploadMedicalLicense: crea absence_records (manual, MEDICAL_LEAVE) + suppo
 test("uploadMedicalLicense: la fila de aprobación nace SIN status explícito -- el default de la base de datos (PENDING_RRHH_APPROVAL) es quien decide, nunca la app", async () => {
   const { client, inserted } = mockSupabase();
   await uploadMedicalLicense(client, {
-    employeeId: "emp-1",
+    employeeId: EMPLOYEE_ID_FIXTURE,
     proposedStartDate: "2026-08-20",
     proposedEndDate: "2026-08-22",
     extractionStatus: "EXTRAIDO",
@@ -262,7 +265,7 @@ test("computeLicenseSummary: pendientes y rechazadas NUNCA cuentan como activas 
  */
 
 const VALID_UPLOAD = {
-  employeeId: "emp-1",
+  employeeId: EMPLOYEE_ID_FIXTURE,
   proposedStartDate: "2026-08-20",
   proposedEndDate: "2026-08-22",
   extractionStatus: "EXTRAIDO" as const,

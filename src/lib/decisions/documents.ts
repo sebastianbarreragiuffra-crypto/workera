@@ -18,6 +18,16 @@ import type { Database } from "../supabase/database.types";
 
 export type SupportingDocumentType = "MEDICAL_CERTIFICATE" | "TRANSPORT_PROOF" | "IDENTIFICATION" | "OTHER";
 
+/** Espejo del CHECK de `supporting_documents.document_type`. */
+export const SUPPORTING_DOCUMENT_TYPES: readonly SupportingDocumentType[] = [
+  "MEDICAL_CERTIFICATE",
+  "TRANSPORT_PROOF",
+  "IDENTIFICATION",
+  "OTHER",
+];
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export type SupportingDocumentRelation =
   | { kind: "ABSENCE"; absenceRecordId: string }
   | { kind: "LATE_ARRIVAL_DECISION"; lateArrivalDecisionId: string }
@@ -56,6 +66,26 @@ export async function uploadSupportingDocument(
 ): Promise<UploadSupportingDocumentResult> {
   if (input.fileBytes.byteLength > MAX_SUPPORTING_DOCUMENT_SIZE_BYTES) {
     throw new Error(`El archivo supera el tamaño máximo permitido (${MAX_SUPPORTING_DOCUMENT_SIZE_BYTES / (1024 * 1024)}MB).`);
+  }
+
+  // Todo lo que pueda hacer fallar el INSERT se valida ANTES de tocar Storage.
+  // El archivo se sube primero y la metadata después, así que un INSERT que
+  // falla deja el archivo huérfano: con datos personales dentro, sin ninguna
+  // fila que lo referencie y --como el bucket no tiene policy de DELETE para
+  // nadie, a propósito, porque los documentos son inmutables-- imposible de
+  // borrar desde la aplicación.
+  //
+  // `document_type` es el caso concreto y alcanzable: la columna tiene un
+  // CHECK en la base y las Server Actions lo reciben del formulario con un
+  // `as SupportingDocumentType` que nadie verifica.
+  if (!SUPPORTING_DOCUMENT_TYPES.includes(input.documentType)) {
+    throw new Error(`uploadSupportingDocument: tipo de documento no válido (${input.documentType}).`);
+  }
+  if (!UUID_PATTERN.test(input.employeeId)) {
+    // Además de romper el INSERT, el id es el primer segmento de la ruta y la
+    // policy de Storage lo castea a uuid: un valor no-UUID falla con un error
+    // de casteo en vez de una negación limpia.
+    throw new Error("uploadSupportingDocument: identificador de trabajador no válido.");
   }
 
   const storagePath = `${input.employeeId}/${crypto.randomUUID()}-${sanitizeFilename(input.originalFilename)}`;

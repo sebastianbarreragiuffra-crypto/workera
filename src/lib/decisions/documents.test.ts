@@ -2,6 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { uploadSupportingDocument, getSignedDocumentUrl, MAX_SUPPORTING_DOCUMENT_SIZE_BYTES } from "./documents";
 
+
+/** `employees.id` es una columna uuid: el fixture debe parecerse al dato real. */
+const EMPLOYEE_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 function mockSupabase({ insertedRows, docRow, signedUrlOk = true }: { insertedRows: Record<string, unknown>[]; docRow?: { storage_path: string } | null; signedUrlOk?: boolean }) {
   return {
     storage: {
@@ -55,7 +58,7 @@ test("uploadSupportingDocument: nunca llama .select() tras el insert -- una fila
   const supabase = mockSupabase({ insertedRows });
 
   const result = await uploadSupportingDocument(supabase, {
-    employeeId: "e1",
+    employeeId: EMPLOYEE_ID,
     documentType: "OTHER",
     originalFilename: "a.pdf",
     mimeType: "application/pdf",
@@ -93,7 +96,7 @@ test("uploadSupportingDocument: archivo más grande que MAX_SUPPORTING_DOCUMENT_
   await assert.rejects(
     () =>
       uploadSupportingDocument(supabase, {
-        employeeId: "e1",
+        employeeId: EMPLOYEE_ID,
         documentType: "OTHER",
         originalFilename: "foto.jpg",
         mimeType: "image/jpeg",
@@ -110,7 +113,7 @@ test("uploadSupportingDocument: relation ausente -> documento general sin FK a n
   const supabase = mockSupabase({ insertedRows });
 
   await uploadSupportingDocument(supabase, {
-    employeeId: "e1",
+    employeeId: EMPLOYEE_ID,
     documentType: "OTHER",
     originalFilename: "a.pdf",
     mimeType: "application/pdf",
@@ -131,4 +134,68 @@ test("getSignedDocumentUrl: con acceso -> URL firmada de Storage", async () => {
   const supabase = mockSupabase({ insertedRows: [], docRow: { storage_path: "e1/doc.pdf" } });
   const url = await getSignedDocumentUrl(supabase, "doc-1");
   assert.equal(url, "https://example.test/signed");
+});
+
+// ---------------------------------------------------------------------------
+// El archivo no puede llegar a Storage si el INSERT va a fallar
+// ---------------------------------------------------------------------------
+
+/**
+ * El archivo se sube primero y la metadata después. Un INSERT que falla deja
+ * el archivo huérfano: con datos personales dentro, sin fila que lo
+ * referencie, y --como el bucket no tiene policy de DELETE para nadie, a
+ * propósito-- imposible de borrar desde la aplicación.
+ */
+function trackingClient() {
+  const uploads: unknown[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase: any = {
+    storage: {
+      from: () => ({
+        upload: (...args: unknown[]) => {
+          uploads.push(args);
+          return Promise.resolve({ data: { path: "x" }, error: null });
+        },
+      }),
+    },
+    from: () => ({ insert: () => Promise.resolve({ data: null, error: null }) }),
+  };
+  return { supabase, uploads };
+}
+
+const VALID_DOC = {
+  employeeId: EMPLOYEE_ID,
+  originalFilename: "certificado.pdf",
+  mimeType: "application/pdf",
+  fileBytes: new Uint8Array([1, 2, 3]),
+};
+
+test("uploadSupportingDocument: un document_type fuera del CHECK se rechaza ANTES de subir el archivo", async () => {
+  const { supabase, uploads } = trackingClient();
+
+  await assert.rejects(
+    // Las Server Actions lo reciben del formulario con un `as` que nadie
+    // verifica, así que este valor llega de verdad hasta acá.
+    () => uploadSupportingDocument(supabase, { ...VALID_DOC, documentType: "INVENTADO" as never }),
+    /tipo de documento no válido/i
+  );
+  assert.equal(uploads.length, 0, "no debe quedar nada en Storage");
+});
+
+test("uploadSupportingDocument: un employeeId que no es UUID se rechaza ANTES de subir el archivo", async () => {
+  const { supabase, uploads } = trackingClient();
+
+  await assert.rejects(
+    () => uploadSupportingDocument(supabase, { ...VALID_DOC, employeeId: "e1", documentType: "OTHER" }),
+    /trabajador no válido/i
+  );
+  assert.equal(uploads.length, 0, "no debe quedar nada en Storage");
+});
+
+test("uploadSupportingDocument: con datos válidos sí sube y la ruta arranca con el employeeId", async () => {
+  const { supabase, uploads } = trackingClient();
+
+  const { storagePath } = await uploadSupportingDocument(supabase, { ...VALID_DOC, documentType: "MEDICAL_CERTIFICATE" });
+  assert.equal(uploads.length, 1);
+  assert.ok(storagePath.startsWith(`${EMPLOYEE_ID}/`), `ruta inesperada: ${storagePath}`);
 });
