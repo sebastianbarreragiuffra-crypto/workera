@@ -5,6 +5,7 @@ import { useFormStatus } from "react-dom";
 import {
   attachExpenseReceiptCaptureAction,
   captureExpenseReceiptAction,
+  configureExpenseReceiptEmailAction,
   discardExpenseReceiptCaptureAction,
   type ExpenseActionState,
 } from "@/app/(expenses)/empresas/[companySlug]/rendiciones/actions";
@@ -121,5 +122,56 @@ export function ExpenseCaptureDiscardForm({ companySlug, captureId }: { companyS
       <Feedback state={state} />
       <PendingButton tone="danger">Descartar</PendingButton>
     </form>
+  );
+}
+
+export function ExpenseEmailConnectorCard({
+  companySlug,
+  configured,
+  enabled,
+  address,
+}: {
+  companySlug: string;
+  configured: boolean;
+  enabled: boolean;
+  address: string | null;
+}) {
+  const [state, action] = useActionState(configureExpenseReceiptEmailAction, INITIAL_STATE);
+  return (
+    <section className="rounded-xl border border-blue-100 bg-blue-50 px-5 py-4 text-sm text-blue-950">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold">Recibir comprobantes por correo</p>
+          {!configured ? (
+            <p className="mt-1 text-blue-800">El administrador todavía debe configurar el dominio seguro de recepción.</p>
+          ) : address ? (
+            <>
+              <p className="mt-1 text-blue-800">Envía tus PDF, JPG o PNG como adjuntos a esta dirección privada:</p>
+              <input
+                aria-label="Dirección privada para comprobantes"
+                readOnly
+                value={address}
+                onFocus={(event) => event.currentTarget.select()}
+                className="mt-2 w-full rounded-lg border border-blue-200 bg-white px-3 py-2 font-mono text-xs text-slate-900"
+              />
+              <p className="mt-2 text-xs text-blue-800">
+                {enabled ? "Recepción activa. Los adjuntos válidos aparecerán en esta bandeja." : "Dirección preparada, pero la recepción permanece pausada por seguridad."}
+              </p>
+            </>
+          ) : (
+            <p className="mt-1 text-blue-800">Activa una dirección secreta exclusiva para esta empresa.</p>
+          )}
+        </div>
+        {configured && (
+          <form action={action} className="shrink-0 space-y-2">
+            <input type="hidden" name="companySlug" value={companySlug} />
+            <input type="hidden" name="intent" value={address ? "rotate" : "ensure"} />
+            <PendingButton tone={address ? "danger" : "primary"}>{address ? "Reemplazar dirección" : "Activar correo"}</PendingButton>
+          </form>
+        )}
+      </div>
+      <div className="mt-3"><Feedback state={state} /></div>
+      {address && <p className="mt-2 text-[11px] text-blue-700">No publiques esta dirección. Si se filtra, reemplázala para invalidar la anterior.</p>}
+    </section>
   );
 }

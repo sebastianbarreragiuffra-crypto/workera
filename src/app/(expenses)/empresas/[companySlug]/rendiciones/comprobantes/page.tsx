@@ -4,9 +4,11 @@ import {
   ExpenseCaptureAttachForm,
   ExpenseCaptureDiscardForm,
   ExpenseCaptureUploadForms,
+  ExpenseEmailConnectorCard,
 } from "@/components/expenses/ExpenseCaptureForms";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
 import { getExpenseReceiptInbox } from "@/lib/expenses/captures";
+import { getExpenseEmailConnector } from "@/lib/expenses/email-capture";
 import { createClient } from "@/lib/supabase/server";
 
 function captureDate(value: string): string {
@@ -33,7 +35,10 @@ export default async function ExpenseReceiptInboxPage({
   const context = await getExpenseCompanyContextFromClient(supabase, companySlug);
   if (!context?.canSubmit) notFound();
 
-  const { captures, draftItems } = await getExpenseReceiptInbox(supabase, context);
+  const [{ captures, draftItems }, emailConnector] = await Promise.all([
+    getExpenseReceiptInbox(supabase, context),
+    getExpenseEmailConnector(supabase, context),
+  ]);
   const base = `/empresas/${context.slug}/rendiciones`;
 
   return (
@@ -96,7 +101,7 @@ export default async function ExpenseReceiptInboxPage({
                     )}
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    {capture.source === "WEB_CAMERA" ? "Foto" : "Archivo"} · {fileSize(capture.fileSize)} · {captureDate(capture.createdAt)}
+                    {capture.source === "WEB_CAMERA" ? "Foto" : capture.source === "EMAIL" ? "Correo" : "Archivo"} · {fileSize(capture.fileSize)} · {captureDate(capture.createdAt)}
                   </p>
                 </div>
                 <ExpenseCaptureDiscardForm companySlug={context.slug} captureId={capture.id} />
@@ -107,9 +112,10 @@ export default async function ExpenseReceiptInboxPage({
         )}
       </section>
 
-      <aside className="rounded-xl border border-blue-100 bg-blue-50 px-5 py-4 text-sm text-blue-950">
-        <p className="font-semibold">Preparado para los próximos canales</p>
-        <p className="mt-1 text-blue-800">Correo y WhatsApp podrán depositar comprobantes en esta misma bandeja; todavía no están conectados ni reciben mensajes.</p>
+      <ExpenseEmailConnectorCard companySlug={context.slug} {...emailConnector} />
+
+      <aside className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-700">
+        WhatsApp será el siguiente canal. Todavía no recibe mensajes ni archivos.
       </aside>
     </div>
   );
