@@ -128,6 +128,7 @@ export interface ExpenseItemDetail {
   taxAmount: number;
   totalAmount: number;
   distanceKm: number | null;
+  perDiemDays: number | null;
   receiptStatus: Database["public"]["Enums"]["expense_receipt_status"];
   receipt: {
     id: string;
@@ -250,7 +251,7 @@ export async function getExpenseReportDetail(
       .maybeSingle(),
     supabase
       .from("expense_items")
-      .select("id, category_id, expense_date, merchant_name, description, net_amount, tax_amount, total_amount, receipt_status, distance_km")
+      .select("id, category_id, expense_date, merchant_name, description, net_amount, tax_amount, total_amount, receipt_status, distance_km, per_diem_days")
       .eq("company_id", context.id)
       .eq("report_id", reportId)
       .order("expense_date", { ascending: false }),
@@ -313,6 +314,7 @@ export async function getExpenseReportDetail(
         taxAmount: Number(item.tax_amount),
         totalAmount: Number(item.total_amount ?? 0),
         distanceKm: item.distance_km === null ? null : Number(item.distance_km),
+        perDiemDays: item.per_diem_days === null ? null : Number(item.per_diem_days),
         receiptStatus: item.receipt_status,
         receipt: receipt ? {
           id: receipt.id,
@@ -453,6 +455,7 @@ export interface ExpensePolicySettings {
   categoryLimits: Record<string, number>;
   secondApproverThreshold: number | null;
   mileageRatePerKm: number | null;
+  perDiemDailyRate: number | null;
   categories: ExpenseCategoryOption[];
 }
 
@@ -471,9 +474,9 @@ function parseSecondApproverThreshold(rules: unknown): number | null {
   return typeof raw === "number" && raw > 0 ? raw : null;
 }
 
-function parseMileageRatePerKm(rules: unknown): number | null {
+function parseNumericRate(rules: unknown, key: "mileageRatePerKm" | "perDiemDailyRate"): number | null {
   if (!rules || typeof rules !== "object" || Array.isArray(rules)) return null;
-  const raw = (rules as Record<string, unknown>).mileageRatePerKm;
+  const raw = (rules as Record<string, unknown>)[key];
   return typeof raw === "number" && raw > 0 ? raw : null;
 }
 
@@ -483,14 +486,19 @@ function parseMileageRatePerKm(rules: unknown): number | null {
  * no hay límites ni segundo paso -- comportamiento retrocompatible con toda
  * empresa que activó Rendiciones antes de esto.
  */
-/** Solo la tarifa de kilometraje vigente -- más liviano que getExpensePolicySettings cuando no hace falta el resto (categorías, límites). */
-export async function getMileageRatePerKm(
+export interface ExpenseSpecialRates {
+  mileageRatePerKm: number | null;
+  perDiemDailyRate: number | null;
+}
+
+/** Solo las tarifas de kilometraje/viático vigentes -- más liviano que getExpensePolicySettings cuando no hace falta el resto (categorías, límites). */
+export async function getExpenseSpecialRates(
   supabase: SupabaseClient<Database>,
   context: ExpenseCompanyContext
-): Promise<number | null> {
+): Promise<ExpenseSpecialRates> {
   const { data, error } = await supabase.from("expense_policies").select("rules").eq("company_id", context.id).eq("active", true).maybeSingle();
-  if (error) throw new Error("No se pudo cargar la tarifa de kilometraje.");
-  return parseMileageRatePerKm(data?.rules);
+  if (error) throw new Error("No se pudieron cargar las tarifas de kilometraje/viático.");
+  return { mileageRatePerKm: parseNumericRate(data?.rules, "mileageRatePerKm"), perDiemDailyRate: parseNumericRate(data?.rules, "perDiemDailyRate") };
 }
 
 export async function getExpensePolicySettings(
@@ -507,7 +515,8 @@ export async function getExpensePolicySettings(
     policyId: policyResult.data?.id ?? null,
     categoryLimits: parseCategoryLimits(policyResult.data?.rules),
     secondApproverThreshold: parseSecondApproverThreshold(policyResult.data?.rules),
-    mileageRatePerKm: parseMileageRatePerKm(policyResult.data?.rules),
+    mileageRatePerKm: parseNumericRate(policyResult.data?.rules, "mileageRatePerKm"),
+    perDiemDailyRate: parseNumericRate(policyResult.data?.rules, "perDiemDailyRate"),
     categories: (categoriesResult.data ?? []).map((category) => ({
       id: category.id,
       name: category.name,
