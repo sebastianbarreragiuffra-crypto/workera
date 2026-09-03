@@ -87,24 +87,54 @@ export function AddExpenseItemForm({
   currencyCode,
   categories,
   defaultDate,
+  mileageRatePerKm,
 }: {
   companySlug: string;
   reportId: string;
   currencyCode: string;
   categories: ExpenseCategoryOption[];
   defaultDate: string;
+  mileageRatePerKm: number | null;
 }) {
   const [state, action] = useActionState(addExpenseItemAction, INITIAL_STATE);
   const formRef = useRef<HTMLFormElement>(null);
+  const [isMileage, setIsMileage] = useState(false);
+  const [distanceKm, setDistanceKm] = useState("");
   useEffect(() => {
     if (state.status === "success") formRef.current?.reset();
   }, [state]);
+  // form.reset() no alcanza a isMileage/distanceKm porque son estado de
+  // React (controlado), no del DOM. Se ajustan durante el render -- el
+  // patrón que React recomienda para "resetear estado cuando cambia un
+  // valor" -- en vez de en el effect de arriba, para no encadenar un
+  // segundo setState ahí.
+  const [lastHandledState, setLastHandledState] = useState(state);
+  if (state !== lastHandledState) {
+    setLastHandledState(state);
+    if (state.status === "success") {
+      setIsMileage(false);
+      setDistanceKm("");
+    }
+  }
+
+  // Solo una vista previa -- el monto real siempre se calcula en el
+  // servidor con la tarifa vigente al momento de guardar, nunca se confía
+  // de este cálculo hecho en el navegador.
+  const distanceValue = Number(distanceKm);
+  const previewAmount = isMileage && mileageRatePerKm && Number.isFinite(distanceValue) && distanceValue > 0
+    ? Math.round(distanceValue * mileageRatePerKm * 100) / 100
+    : null;
 
   return (
     <form ref={formRef} action={action} className="space-y-4">
       <input type="hidden" name="companySlug" value={companySlug} />
       <input type="hidden" name="reportId" value={reportId} />
       <input type="hidden" name="currencyCode" value={currencyCode} />
+      <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+        <input type="checkbox" checked={isMileage} onChange={(event) => setIsMileage(event.target.checked)} disabled={!mileageRatePerKm} />
+        Es un gasto de kilometraje
+        {!mileageRatePerKm && <span className="text-xs font-normal text-slate-400">(configura la tarifa por km en Políticas)</span>}
+      </label>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-sm font-medium text-slate-700">
           Fecha
@@ -123,16 +153,40 @@ export function AddExpenseItemForm({
         </label>
         <label className="text-sm font-medium text-slate-700 sm:col-span-2">
           Descripción
-          <input name="description" required minLength={2} maxLength={240} className={INPUT} placeholder="Ej. Almuerzo con cliente" />
+          <input name="description" required minLength={2} maxLength={240} className={INPUT} placeholder={isMileage ? "Ej. Visita a cliente en Rancagua" : "Ej. Almuerzo con cliente"} />
         </label>
+        {isMileage ? (
+          <label className="text-sm font-medium text-slate-700">
+            Kilómetros recorridos
+            <input
+              name="distanceKm"
+              type="number"
+              required
+              min="0.1"
+              step="0.1"
+              inputMode="decimal"
+              value={distanceKm}
+              onChange={(event) => setDistanceKm(event.target.value)}
+              className={INPUT}
+            />
+          </label>
+        ) : null}
         <label className="text-sm font-medium text-slate-700">
           Neto ({currencyCode})
-          <input name="netAmount" type="number" required min="0.01" step="0.01" inputMode="decimal" className={INPUT} placeholder="0" />
+          {isMileage ? (
+            <input name="netAmount" type="number" required readOnly value={previewAmount ?? ""} placeholder="Se calcula con la tarifa" className={`${INPUT} bg-slate-50`} />
+          ) : (
+            <input name="netAmount" type="number" required min="0.01" step="0.01" inputMode="decimal" className={INPUT} placeholder="0" />
+          )}
         </label>
-        <label className="text-sm font-medium text-slate-700">
-          Impuesto ({currencyCode})
-          <input name="taxAmount" type="number" min="0" step="0.01" inputMode="decimal" defaultValue="0" className={INPUT} />
-        </label>
+        {isMileage ? (
+          <input type="hidden" name="taxAmount" value="0" />
+        ) : (
+          <label className="text-sm font-medium text-slate-700">
+            Impuesto ({currencyCode})
+            <input name="taxAmount" type="number" min="0" step="0.01" inputMode="decimal" defaultValue="0" className={INPUT} />
+          </label>
+        )}
       </div>
       <Feedback state={state} />
       <div className="flex justify-end"><SubmitButton>Agregar gasto</SubmitButton></div>
@@ -198,12 +252,14 @@ export function CategoryLimitsForm({
   categories,
   categoryLimits,
   secondApproverThreshold,
+  mileageRatePerKm,
 }: {
   companySlug: string;
   policyId: string;
   categories: ExpenseCategoryOption[];
   categoryLimits: Record<string, number>;
   secondApproverThreshold: number | null;
+  mileageRatePerKm: number | null;
 }) {
   const [state, action] = useActionState(updateCategoryLimitsAction, INITIAL_STATE);
   return (
@@ -243,6 +299,24 @@ export function CategoryLimitsForm({
         <p className="mt-2 text-xs text-slate-500">
           Si el total de la rendición supera este monto, se necesitan dos aprobaciones de personas distintas antes de
           aprobarla. Deja vacío para requerir siempre un solo paso.
+        </p>
+      </div>
+      <div className="border-t border-slate-200 pt-4">
+        <label className="flex items-center justify-between gap-3 text-sm font-medium text-slate-700">
+          Tarifa por kilómetro (kilometraje)
+          <input
+            type="number"
+            name="mileageRatePerKm"
+            min={1}
+            step={1}
+            placeholder="Sin tarifa configurada"
+            defaultValue={mileageRatePerKm ?? ""}
+            className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-right text-sm shadow-sm focus:border-arcotex-blue focus:outline-none focus:ring-2 focus:ring-blue-100"
+          />
+        </label>
+        <p className="mt-2 text-xs text-slate-500">
+          Monto por kilómetro recorrido, en la moneda de la política. Sin tarifa, nadie puede cargar un gasto de
+          kilometraje -- el monto siempre se calcula acá, nunca se ingresa a mano.
         </p>
       </div>
       <SubmitButton>Guardar política</SubmitButton>

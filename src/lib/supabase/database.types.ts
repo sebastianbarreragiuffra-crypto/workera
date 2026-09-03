@@ -2018,6 +2018,7 @@ export type Database = {
           created_at: string
           currency_code: string
           description: string
+          distance_km: number | null
           duplicate_fingerprint: string | null
           expense_date: string
           extraction: Json
@@ -2037,6 +2038,7 @@ export type Database = {
           created_at?: string
           currency_code?: string
           description: string
+          distance_km?: number | null
           duplicate_fingerprint?: string | null
           expense_date: string
           extraction?: Json
@@ -2056,6 +2058,7 @@ export type Database = {
           created_at?: string
           currency_code?: string
           description?: string
+          distance_km?: number | null
           duplicate_fingerprint?: string | null
           expense_date?: string
           extraction?: Json
