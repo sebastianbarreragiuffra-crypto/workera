@@ -46,7 +46,14 @@ test("ningún archivo fuente usa NEXT_PUBLIC_SUPABASE_SERVICE_ROLE (la service_r
  * Los directorios server-only donde `createAdminClient` puede aparecer. Es la
  * misma allowlist cerrada que verifica el test siguiente, escrita una sola vez.
  */
-const SERVICE_ROLE_DIRECTORIES = ["supabase", "admin", "sync", "rule-engine", "expense-ocr"];
+const SERVICE_ROLE_DIRECTORIES = [
+  "supabase",
+  "admin",
+  "sync",
+  "rule-engine",
+  "expense-ocr",
+  "expense-capture",
+];
 
 test("los límites que usan privilegios administrativos declaran server-only", () => {
   // La lista se DERIVA de quién referencia `createAdminClient`, en vez de
@@ -104,7 +111,7 @@ test("createAdminClient nunca se importa fuera de los límites server-only audit
   assert.deepEqual(
     offenders,
     [],
-    `createAdminClient (service_role) referenciado fuera de src/lib/supabase|admin|sync|rule-engine en: ${offenders.join(", ")}`
+    `createAdminClient (service_role) referenciado fuera de los límites auditados en: ${offenders.join(", ")}`
   );
 });
 
@@ -118,6 +125,19 @@ test("el límite OCR privilegiado es server-only y ninguna ruta obtiene createAd
     appFiles.filter((filePath) => /createAdminClient/.test(readFileSync(filePath, "utf8"))),
     [],
     "ningún Route Handler ni Server Action debe obtener service_role directamente"
+  );
+});
+
+test("el límite privilegiado de comprobantes es server-only y ninguna acción obtiene createAdminClient", () => {
+  const captureRoot = path.join(SRC_ROOT, "lib", "expense-capture");
+  for (const filePath of listFilesRecursively(captureRoot)) {
+    assert.match(readFileSync(filePath, "utf8"), /import\s+["']server-only["']/, `${filePath} debe ser server-only`);
+  }
+  const appFiles = listFilesRecursively(path.join(SRC_ROOT, "app"));
+  assert.deepEqual(
+    appFiles.filter((filePath) => /createAdminClient/.test(readFileSync(filePath, "utf8"))),
+    [],
+    "ninguna Server Action debe obtener service_role directamente"
   );
 });
 
