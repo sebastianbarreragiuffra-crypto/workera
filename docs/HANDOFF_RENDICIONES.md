@@ -25,28 +25,36 @@ por fases chicas, y después se hizo una **auditoría técnica en dos vueltas**.
 | `af47e4a` | Fase 1 b1: `error/loading/not-found` de Rendiciones + fix `retry()` |
 | `ecb363c` | Fase 1 b2: 13 tests de `access.ts` (verificados por mutación) |
 
-## ⚠️ LO PRIMERO QUE HAY QUE HACER EN PC 2
+## Validación completada en PC 2 — 3 de septiembre de 2026
 
-Las migraciones SQL nuevas **nunca corrieron contra una base real** (el
-entorno remoto no tiene Docker). Antes de seguir con nada:
+Las migraciones y tipos que habían quedado pendientes ya fueron validados
+contra una instancia Supabase local reconstruida desde cero:
 
 ```bash
-git fetch origin claude/hola-e040lp && git checkout claude/hola-e040lp
 npx supabase db reset
 npx supabase gen types typescript --local > src/lib/supabase/database.types.ts
 npx supabase test db
 ```
 
-**Por qué importa el `gen types`:** las entradas de `expense_advances`,
-`expense_reports.advance_id`, `expense_items.distance_km` / `per_diem_days`
-y 4 RPC fueron escritas **a mano** en `database.types.ts`. Se auditaron
-columna por columna contra el SQL y coinciden, pero un typo ahí compila
-igual y solo falla en runtime. El `git diff` después de regenerar es la
-prueba definitiva.
+Resultado: `db reset` correcto, 55 suites pgTAP / 986 aserciones en verde,
+711 tests de aplicación aprobados (2 opt-in omitidos), TypeScript, ESLint y
+`supabase db lint` sin errores.
+
+Los tipos se regeneraron desde la base. Se conservaron tres ajustes que el
+generador no puede inferir desde PostgreSQL: `p_purpose` acepta `null`,
+`p_advance_id` acepta `null` para desvincular y
+`workera_attendance_events.company_id` es opcional al insertar porque el
+trigger lo deriva en el servidor desde `employees.company_id`.
 
 Migraciones a validar: `20260902090000` (anticipos), `100000` (centro de
 costo), `110000` (kilometraje), `120000` (viáticos).
 Tests pgTAP nuevos: `051`, `052`, `053`, `054`.
+
+La validación también corrigió las policies tenant-aware de Workera y del
+motor de reglas. Su bitácora técnica usa el permiso separado
+`attendance.sync.read`, otorgado solo a `COMPANY_OWNER` y `HR_ADMIN`; la
+prueba `055` confirma que supervisores y auditores conservan la lectura de
+marcaciones, pero no ven reintentos ni `error_summary`.
 
 ## Dónde seguir (Fase 1, bloque 3)
 

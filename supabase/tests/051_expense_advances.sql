@@ -79,6 +79,14 @@ select throws_ok(
 );
 reset role;
 
+-- Conserva los IDs generados por grant_expense_advance fuera de RLS. El
+-- submitter no puede leer el anticipo de otra persona (correcto), pero el
+-- test necesita su ID para comprobar que el RPC también rechaza vincularlo.
+create temporary table expense_advance_fixture_ids as
+select id, recipient_id, currency_code
+from public.expense_advances;
+grant select on expense_advance_fixture_ids to authenticated;
+
 -- Empleado A crea una rendición en borrador (misma empresa/moneda CLP) y
 -- vincula su anticipo CLP -- pero no puede vincular el anticipo CLP de
 -- Empleado B, ni su propio anticipo USD contra una rendición CLP.
@@ -90,7 +98,7 @@ values ('ee000000-0000-0000-0000-000000000301', 'ee000000-0000-0000-0000-0000000
 select throws_ok(
   format(
     $$select public.link_expense_report_to_advance('ee000000-0000-0000-0000-000000000301', %L)$$,
-    (select id from public.expense_advances where recipient_id = 'ee000000-0000-0000-0000-000000000104')
+    (select id from pg_temp.expense_advance_fixture_ids where recipient_id = 'ee000000-0000-0000-0000-000000000104')
   ),
   '42501', 'Solo puedes vincular un anticipo otorgado a la persona que envía esta rendición.',
   'no se puede vincular el anticipo de otra persona'

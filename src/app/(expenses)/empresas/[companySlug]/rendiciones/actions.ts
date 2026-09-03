@@ -102,7 +102,7 @@ export async function createExpenseReportAction(
   const { data: reportId, error } = await supabase.rpc("create_expense_report", {
     p_company_id: context.id,
     p_title: parsed.data.title,
-    p_purpose: parsed.data.purpose ?? undefined,
+    p_purpose: parsed.data.purpose ?? null,
     p_currency_code: parsed.data.currencyCode,
     p_client_request_id: parsed.data.clientRequestId,
   });
