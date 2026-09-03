@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 import { resolveEffectiveSchedule } from "./schedule";
+import { WORKERA_COMPANY_ID } from "../tenant/company-scope";
 
 /**
  * Deriva `attendance_records` (Fase 2A, resumen diario) a partir de
@@ -55,8 +56,10 @@ export async function deriveDailyAttendanceRecord(
   employeeId: string,
   workDate: string,
   /** El día es feriado legal. Lo resuelve el orquestador con una sola consulta a `holidays` para toda la fecha, en vez de 44 veces desde acá. */
-  isHoliday = false
+  isHoliday = false,
+  companyId?: string
 ): Promise<DeriveDailyAttendanceResult> {
+  const tenantCompanyId = companyId ?? WORKERA_COMPANY_ID;
   const schedule = await resolveEffectiveSchedule(supabase, employeeId, workDate);
 
   if (schedule.kind === "EXEMPT") {
@@ -72,6 +75,7 @@ export async function deriveDailyAttendanceRecord(
   const { data: events, error: eventsError } = await supabase
     .from("workera_attendance_events")
     .select("attendance_type_code, attendance_timestamp_interpreted, attendance_timestamp_raw, external_fingerprint")
+    .eq("company_id", tenantCompanyId)
     .eq("employee_id", employeeId)
     .eq("work_date", workDate)
     .eq("is_current", true)
@@ -105,6 +109,7 @@ export async function deriveDailyAttendanceRecord(
   const { data: current, error: currentError } = await supabase
     .from("attendance_records")
     .select("id, source_hash, source_version")
+    .eq("company_id", tenantCompanyId)
     .eq("employee_id", employeeId)
     .eq("work_date", workDate)
     .eq("is_current", true)
@@ -122,6 +127,7 @@ export async function deriveDailyAttendanceRecord(
     const { error: updateError } = await supabase
       .from("attendance_records")
       .update({ is_current: false })
+      .eq("company_id", tenantCompanyId)
       .eq("id", current.id);
     if (updateError) {
       throw new Error(`deriveDailyAttendanceRecord: fallo marcando versión anterior no vigente: ${updateError.message}`);
@@ -131,6 +137,7 @@ export async function deriveDailyAttendanceRecord(
   const { data: inserted, error: insertError } = await supabase
     .from("attendance_records")
     .insert({
+      company_id: tenantCompanyId,
       employee_id: employeeId,
       work_date: workDate,
       actual_clock_in: clockIn,

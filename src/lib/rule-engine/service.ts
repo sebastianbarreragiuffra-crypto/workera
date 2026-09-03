@@ -7,6 +7,7 @@ import {
   type ProcessAttendanceDayOptions,
   type ProcessAttendanceDayResult,
 } from "../business-rules/process-attendance-day";
+import { WORKERA_COMPANY_ID } from "../tenant/company-scope";
 
 /**
  * Único punto de entrada del motor de reglas bajo `service_role` (MB-2).
@@ -36,7 +37,7 @@ export async function runRuleEngineWithServiceRole(
   }
 ): Promise<RuleEngineRunOutcome> {
   const supabase = createAdminClient();
-  return runRuleEngineForDate(supabase, date, params);
+  return runRuleEngineForDate(supabase, date, { ...params, companyId: WORKERA_COMPANY_ID });
 }
 
 /**
@@ -57,5 +58,5 @@ export async function runRuleEngineWithServiceRole(
  */
 export async function reprocessEmployeeDay(employeeId: string, date: string): Promise<ProcessAttendanceDayResult> {
   const supabase = createAdminClient();
-  return processAttendanceDay(supabase, date, { employeeIds: [employeeId] });
+  return processAttendanceDay(supabase, date, { companyId: WORKERA_COMPANY_ID, employeeIds: [employeeId] });
 }

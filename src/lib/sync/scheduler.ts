@@ -6,6 +6,7 @@ import { resolveTargetDate, resolveReconciliationWindow } from "./target-date";
 import { requireCurrentRole, AuthorizationError } from "../supabase/authorize";
 import { createAdminClient } from "../supabase/admin-client";
 import type { Database } from "../supabase/database.types";
+import { WORKERA_COMPANY_ID } from "../tenant/company-scope";
 
 /**
  * Orquestación de la automatización de Fase 6B. Reutiliza
@@ -101,14 +102,24 @@ export async function runWorkeraSyncForDate(
   // índice único -- una fila RUNNING de un intento nuestro previo en esta
   // misma secuencia ya no está RUNNING (terminó FAILED), así que esto solo
   // afecta corridas de OTROS procesos que nunca terminaron limpio.
-  await supabaseAdmin.rpc("reclaim_stale_workera_sync_runs", { p_stale_after_seconds: STALE_RUNNING_SECONDS });
+  await supabaseAdmin.rpc("reclaim_stale_workera_sync_runs", {
+    p_company_id: WORKERA_COMPANY_ID,
+    p_stale_after_seconds: STALE_RUNNING_SECONDS,
+  });
 
   let lastResult: SyncWorkeraAttendanceResult | null = null;
   let retryOf: string | null = null;
 
   for (let attempt = 1; attempt <= MAX_SYNC_ATTEMPTS; attempt += 1) {
     const result = await syncWorkeraAttendance(
-      { startDate: date, endDate: date, triggeredBy: opts.triggeredBy, attempt, retryOf },
+      {
+        companyId: WORKERA_COMPANY_ID,
+        startDate: date,
+        endDate: date,
+        triggeredBy: opts.triggeredBy,
+        attempt,
+        retryOf,
+      },
       { supabaseAdmin, workeraClient: opts.deps?.workeraClient }
     );
     lastResult = result;
@@ -267,18 +278,21 @@ export async function getWorkeraSyncHealth(
     supabaseAdmin
       .from("sync_runs")
       .select("id, target_period_start, finished_at")
+      .eq("company_id", WORKERA_COMPANY_ID)
       .eq("status", "SUCCEEDED")
       .order("finished_at", { ascending: false })
       .limit(1),
     supabaseAdmin
       .from("sync_runs")
       .select("id, target_period_start, finished_at, error_category")
+      .eq("company_id", WORKERA_COMPANY_ID)
       .eq("status", "FAILED")
       .order("started_at", { ascending: false })
       .limit(1),
     supabaseAdmin
       .from("sync_runs")
       .select("id, target_period_start, started_at")
+      .eq("company_id", WORKERA_COMPANY_ID)
       .eq("status", "RUNNING")
       .order("started_at", { ascending: false }),
   ]);

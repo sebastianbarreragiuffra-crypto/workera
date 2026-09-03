@@ -25,6 +25,8 @@ import { classifySyncError, type SyncErrorCategory } from "./errors";
 const MAX_DAYS_PER_SYNC = 1;
 
 export interface SyncWorkeraAttendanceParams {
+  /** Tenant explícito al que pertenecen las credenciales Workera usadas. */
+  companyId: string;
   /** yyyy-MM-dd */
   startDate: string;
   /** yyyy-MM-dd */
@@ -212,6 +214,7 @@ export async function syncWorkeraAttendance(
   const { data: existingEmployees, error: employeesLookupError } = await supabaseAdmin
     .from("employees")
     .select("id, external_workera_id")
+    .eq("company_id", params.companyId)
     .in("external_workera_id", distinctCodes.length > 0 ? distinctCodes : ["__none__"]);
 
   if (employeesLookupError) {
@@ -242,6 +245,7 @@ export async function syncWorkeraAttendance(
     const firstName = detail.name?.trim() || "(sin nombre Workera)";
     const lastName = detail.lastName?.trim() || "(sin apellido Workera)";
     return {
+      company_id: params.companyId,
       external_workera_id: code,
       first_name: firstName,
       last_name: lastName,
@@ -283,6 +287,7 @@ export async function syncWorkeraAttendance(
   const { data: existingCurrentRows, error: existingLookupError } = await supabaseAdmin
     .from("workera_attendance_events")
     .select("id, external_fingerprint, external_attendance_status, checksum, device_name, origin, origin_code, source_version")
+    .eq("company_id", params.companyId)
     .in("external_fingerprint", fingerprints.length > 0 ? fingerprints : ["__none__"])
     .eq("is_current", true);
 
@@ -361,6 +366,7 @@ export async function syncWorkeraAttendance(
   const { data: syncRun, error: syncRunError } = await supabaseAdmin
     .from("sync_runs")
     .insert({
+      company_id: params.companyId,
       status: "RUNNING",
       target_period_start: params.startDate,
       target_period_end: params.endDate,
@@ -423,12 +429,14 @@ export async function syncWorkeraAttendance(
       const { error } = await supabaseAdmin
         .from("workera_attendance_events")
         .update({ is_current: false })
+        .eq("company_id", params.companyId)
         .eq("id", existingId);
       if (error) throw new Error(`Fallo marcando versión anterior no vigente (${existingId}): ${error.message}`);
     }
 
     const rows = [
       ...toInsert.map((e) => ({
+        company_id: params.companyId,
         employee_id: codeToEmployeeId.get(e.employeeExternalId)!,
         external_employee_code: e.employeeExternalId,
         work_date: e.attendanceTimestampRaw.slice(0, 10),
@@ -445,6 +453,7 @@ export async function syncWorkeraAttendance(
         sync_run_id: syncRun.id as string,
       })),
       ...toVersion.map(({ event: e, nextVersion }) => ({
+        company_id: params.companyId,
         employee_id: codeToEmployeeId.get(e.employeeExternalId)!,
         external_employee_code: e.employeeExternalId,
         work_date: e.attendanceTimestampRaw.slice(0, 10),
@@ -477,6 +486,7 @@ export async function syncWorkeraAttendance(
         records_updated: toVersion.length,
         records_unchanged: unchangedCount,
       })
+      .eq("company_id", params.companyId)
       .eq("id", syncRun.id);
 
     return {
@@ -507,6 +517,7 @@ export async function syncWorkeraAttendance(
         error_summary: { message },
         error_category: "DATABASE",
       })
+      .eq("company_id", params.companyId)
       .eq("id", syncRun.id);
 
     return {
