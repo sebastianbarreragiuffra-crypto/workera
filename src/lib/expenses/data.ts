@@ -127,6 +127,7 @@ export interface ExpenseItemDetail {
   netAmount: number;
   taxAmount: number;
   totalAmount: number;
+  distanceKm: number | null;
   receiptStatus: Database["public"]["Enums"]["expense_receipt_status"];
   receipt: {
     id: string;
@@ -249,7 +250,7 @@ export async function getExpenseReportDetail(
       .maybeSingle(),
     supabase
       .from("expense_items")
-      .select("id, category_id, expense_date, merchant_name, description, net_amount, tax_amount, total_amount, receipt_status")
+      .select("id, category_id, expense_date, merchant_name, description, net_amount, tax_amount, total_amount, receipt_status, distance_km")
       .eq("company_id", context.id)
       .eq("report_id", reportId)
       .order("expense_date", { ascending: false }),
@@ -311,6 +312,7 @@ export async function getExpenseReportDetail(
         netAmount: Number(item.net_amount),
         taxAmount: Number(item.tax_amount),
         totalAmount: Number(item.total_amount ?? 0),
+        distanceKm: item.distance_km === null ? null : Number(item.distance_km),
         receiptStatus: item.receipt_status,
         receipt: receipt ? {
           id: receipt.id,
@@ -450,6 +452,7 @@ export interface ExpensePolicySettings {
   policyId: string | null;
   categoryLimits: Record<string, number>;
   secondApproverThreshold: number | null;
+  mileageRatePerKm: number | null;
   categories: ExpenseCategoryOption[];
 }
 
@@ -468,12 +471,28 @@ function parseSecondApproverThreshold(rules: unknown): number | null {
   return typeof raw === "number" && raw > 0 ? raw : null;
 }
 
+function parseMileageRatePerKm(rules: unknown): number | null {
+  if (!rules || typeof rules !== "object" || Array.isArray(rules)) return null;
+  const raw = (rules as Record<string, unknown>).mileageRatePerKm;
+  return typeof raw === "number" && raw > 0 ? raw : null;
+}
+
 /**
  * Primer uso real de expense_policies.rules (EX-5): monto máximo por
  * categoría y umbral que exige un segundo aprobador. Sin política activa,
  * no hay límites ni segundo paso -- comportamiento retrocompatible con toda
  * empresa que activó Rendiciones antes de esto.
  */
+/** Solo la tarifa de kilometraje vigente -- más liviano que getExpensePolicySettings cuando no hace falta el resto (categorías, límites). */
+export async function getMileageRatePerKm(
+  supabase: SupabaseClient<Database>,
+  context: ExpenseCompanyContext
+): Promise<number | null> {
+  const { data, error } = await supabase.from("expense_policies").select("rules").eq("company_id", context.id).eq("active", true).maybeSingle();
+  if (error) throw new Error("No se pudo cargar la tarifa de kilometraje.");
+  return parseMileageRatePerKm(data?.rules);
+}
+
 export async function getExpensePolicySettings(
   supabase: SupabaseClient<Database>,
   context: ExpenseCompanyContext
@@ -488,6 +507,7 @@ export async function getExpensePolicySettings(
     policyId: policyResult.data?.id ?? null,
     categoryLimits: parseCategoryLimits(policyResult.data?.rules),
     secondApproverThreshold: parseSecondApproverThreshold(policyResult.data?.rules),
+    mileageRatePerKm: parseMileageRatePerKm(policyResult.data?.rules),
     categories: (categoriesResult.data ?? []).map((category) => ({
       id: category.id,
       name: category.name,
