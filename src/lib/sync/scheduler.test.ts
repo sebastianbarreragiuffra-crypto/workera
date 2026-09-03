@@ -9,6 +9,7 @@ import {
   MAX_SYNC_ATTEMPTS,
   MAX_MANUAL_SYNC_DAYS,
   RerunAuthorizationError,
+  RerunRangeError,
 } from "./scheduler";
 import type { HttpWorkeraClient } from "../workera/http-client";
 import { WorkeraTimeoutError, WorkeraNetworkError, WorkeraValidationError } from "../workera/errors";
@@ -525,4 +526,30 @@ test("getWorkeraSyncHealth: SUCCEEDED reciente pero hay un FAILED más nuevo -> 
   const health = await getWorkeraSyncHealth({ supabaseAdmin: mock as never });
   assert.equal(health.status, "DEGRADED");
   assert.equal(health.lastFailure?.errorCategory, "WORKERA_TIMEOUT");
+});
+
+test("rerunWorkeraSync: el rechazo de rango es RerunRangeError, para que el handler no lo reconozca por su texto", async () => {
+  await assert.rejects(
+    () =>
+      rerunWorkeraSync(
+        { startDate: "2026-01-01", endDate: "2026-12-31" },
+        undefined,
+        async () => {},
+        async () => ({ actorId: "u1", actorRole: "SUPER_ADMIN" })
+      ),
+    RerunRangeError
+  );
+});
+
+test("rerunWorkeraSync: un rango invertido o ilegible también es RerunRangeError, no un Error suelto", async () => {
+  for (const params of [
+    { startDate: "2026-03-10", endDate: "2026-03-01" },
+    { startDate: "basura", endDate: "2026-03-01" },
+  ]) {
+    await assert.rejects(
+      () => rerunWorkeraSync(params, undefined, async () => {}, async () => ({ actorId: "u1", actorRole: "SUPER_ADMIN" })),
+      RerunRangeError,
+      `debería tipar el rechazo de ${JSON.stringify(params)}`
+    );
+  }
 });

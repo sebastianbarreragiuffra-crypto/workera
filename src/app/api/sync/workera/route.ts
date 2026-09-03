@@ -5,7 +5,7 @@ import {
   runScheduledWorkeraSync,
   rerunWorkeraSync,
   RerunAuthorizationError,
-  MAX_MANUAL_SYNC_DAYS,
+  RerunRangeError,
 } from "@/lib/sync/scheduler";
 import { runRuleEngineWithServiceRole } from "@/lib/rule-engine/service";
 
@@ -172,9 +172,13 @@ export async function POST(request: NextRequest) {
       const status = err.message.includes("sesión autenticada") ? 401 : 403;
       return NextResponse.json({ error: "No autorizado." }, { status });
     }
-    if (err instanceof Error && err.message.includes(String(MAX_MANUAL_SYNC_DAYS))) {
+    // Se reconoce por TIPO, no por el texto del mensaje: `includes("31")`
+    // devolvía crudo cualquier error interno cuyo mensaje contuviera ese
+    // número, y una fecha como 2026-01-31 lo contiene.
+    if (err instanceof RerunRangeError) {
       return NextResponse.json({ error: err.message }, { status: 422 });
     }
+    console.error("[sync/workera] fallo procesando el rerun", err instanceof Error ? err.message : "error desconocido");
     return NextResponse.json({ error: "Fallo interno procesando el rerun." }, { status: 500 });
   }
 }

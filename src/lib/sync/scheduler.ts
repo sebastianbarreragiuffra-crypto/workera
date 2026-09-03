@@ -212,11 +212,11 @@ export async function rerunWorkeraSync(
   const start = new Date(`${params.startDate}T00:00:00Z`);
   const end = new Date(`${params.endDate}T00:00:00Z`);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
-    throw new Error(`Rango inválido: startDate="${params.startDate}", endDate="${params.endDate}".`);
+    throw new RerunRangeError(`Rango inválido: startDate="${params.startDate}", endDate="${params.endDate}".`);
   }
   const spanDays = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
   if (spanDays > MAX_MANUAL_SYNC_DAYS) {
-    throw new Error(
+    throw new RerunRangeError(
       `Rango solicitado (${spanDays} días) excede el máximo permitido para rerun manual (${MAX_MANUAL_SYNC_DAYS} días).`
     );
   }
@@ -236,6 +236,16 @@ export async function rerunWorkeraSync(
 }
 
 export { AuthorizationError as RerunAuthorizationError };
+
+/**
+ * Rango de rerun rechazado por la propia validación, con un mensaje escrito
+ * acá y seguro de mostrarle a quien hizo la petición. Existe para que el route
+ * handler NO tenga que reconocerlo por el texto: clasificar con
+ * `message.includes(String(MAX_MANUAL_SYNC_DAYS))` hacía que cualquier fallo
+ * interno cuyo mensaje contuviera "31" -- una fecha como 2026-01-31, por
+ * ejemplo -- se devolviera crudo al cliente.
+ */
+export class RerunRangeError extends Error {}
 
 // ---------------------------------------------------------------------------
 // Salud/estado (Fase 6B, PASO 24/25) -- sin UI, sin notificaciones. Solo
