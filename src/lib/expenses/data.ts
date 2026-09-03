@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ExpenseCompanyContext } from "./access";
 import type { Database } from "@/lib/supabase/database.types";
-import { nextDate, santiagoDayStartIso } from "@/lib/view-models/date-utils";
+import { isCalendarDate, nextDate, santiagoDayStartIso } from "@/lib/view-models/date-utils";
 
 export type ExpenseReportStatus = Database["public"]["Enums"]["expense_report_status"];
 
@@ -38,8 +38,13 @@ function resolvePage(page: number | undefined): number {
   return Math.max(1, Math.trunc(page ?? 1));
 }
 
+/**
+ * El formato por sí solo no basta: "2026-13-45" lo cumple y no existe. Como
+ * estas fechas terminan en `santiagoDayStartIso` --que valida el día real y
+ * LANZA-- dejar pasar una imposible convertía `?desde=` en un 500.
+ */
 function parseCalendarDate(value: string | undefined): string | null {
-  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+  return value && isCalendarDate(value) ? value : null;
 }
 
 /**
@@ -58,7 +63,10 @@ export function parseExpenseListFilters(query: {
   const from = parseCalendarDate(query.desde);
   const to = parseCalendarDate(query.hasta);
   return {
-    page: Number.isFinite(page) ? page : 1,
+    // `isFinite` acepta 0 y negativos: `?pagina=0` daba el rango [-20, -1],
+    // que PostgREST rechaza y termina en un 500 provocable desde la URL.
+    // Mismo criterio que ya usa /plataforma/empresas.
+    page: Number.isSafeInteger(page) && page > 0 ? page : 1,
     status,
     // Un rango invertido no devuelve nada y confunde; se ignora el extremo malo.
     from,
