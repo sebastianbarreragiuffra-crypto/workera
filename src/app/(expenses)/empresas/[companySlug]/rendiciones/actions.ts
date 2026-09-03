@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
-import { getMileageRatePerKm } from "@/lib/expenses/data";
+import { getExpenseSpecialRates } from "@/lib/expenses/data";
 import { validateExpenseReceiptFile } from "@/lib/expenses/receipts";
 import { createClient } from "@/lib/supabase/server";
 import { unwrapEmbed } from "@/lib/supabase/embed";
@@ -35,10 +35,13 @@ const addItemInput = z.object({
   netAmount: z.coerce.number().finite().positive().max(999999999999.99),
   taxAmount: z.coerce.number().finite().min(0).max(999999999999.99),
   currencyCode: z.enum(["CLP", "USD", "EUR"]),
-  // Tope alineado con distance_km numeric(10,2): nunca dejar que la
-  // validación real de rango la haga recién la base de datos.
+  // Topes alineados con distance_km/per_diem_days numeric(10,2)/(6,2):
+  // nunca dejar que la validación real de rango la haga recién la base de
+  // datos.
   distanceKm: z.string().optional().transform((value) => (value && value.trim() !== "" ? Number(value) : null))
     .refine((value) => value === null || (Number.isFinite(value) && value > 0 && value <= 100000), "Kilómetros inválidos"),
+  perDiemDays: z.string().optional().transform((value) => (value && value.trim() !== "" ? Number(value) : null))
+    .refine((value) => value === null || (Number.isFinite(value) && value > 0 && value <= 9999), "Días de viático inválidos"),
 });
 const reportActionInput = z.object({ companySlug: slug, reportId: uuid });
 const policyLimitsInput = z.object({ companySlug: slug, policyId: uuid });
@@ -128,15 +131,25 @@ export async function addExpenseItemAction(
     .maybeSingle();
   if (!report || report.status !== "DRAFT") return failed("La rendición ya no está disponible para edición.");
   if (report.currency_code !== parsed.data.currencyCode) return failed("El gasto debe usar la misma moneda de la rendición.");
+  if (parsed.data.distanceKm !== null && parsed.data.perDiemDays !== null) {
+    return failed("Un gasto no puede ser kilometraje y viático a la vez.");
+  }
 
-  // Kilometraje (EX-8): el monto NUNCA se confía del cliente para este
-  // caso -- se recalcula acá desde la tarifa vigente de la política, igual
-  // que cualquier otro dato que determina cuánto se le paga a alguien.
+  // Kilometraje/viático (EX-8): el monto NUNCA se confía del cliente para
+  // estos casos -- se recalcula acá desde la tarifa vigente de la
+  // política, igual que cualquier otro dato que determina cuánto se le
+  // paga a alguien.
   let netAmount = parsed.data.netAmount;
-  if (parsed.data.distanceKm !== null) {
-    const rate = await getMileageRatePerKm(supabase, context);
-    if (!rate) return failed("Configura la tarifa por kilómetro en Políticas antes de cargar un gasto de kilometraje.");
-    netAmount = Math.round(parsed.data.distanceKm * rate * 100) / 100;
+  const isSpecialRate = parsed.data.distanceKm !== null || parsed.data.perDiemDays !== null;
+  if (isSpecialRate) {
+    const rates = await getExpenseSpecialRates(supabase, context);
+    if (parsed.data.distanceKm !== null) {
+      if (!rates.mileageRatePerKm) return failed("Configura la tarifa por kilómetro en Políticas antes de cargar un gasto de kilometraje.");
+      netAmount = Math.round(parsed.data.distanceKm * rates.mileageRatePerKm * 100) / 100;
+    } else if (parsed.data.perDiemDays !== null) {
+      if (!rates.perDiemDailyRate) return failed("Configura la tarifa diaria de viático en Políticas antes de cargar un gasto de viático.");
+      netAmount = Math.round(parsed.data.perDiemDays * rates.perDiemDailyRate * 100) / 100;
+    }
   }
 
   const { error } = await supabase.from("expense_items").insert({
@@ -147,9 +160,10 @@ export async function addExpenseItemAction(
     merchant_name: parsed.data.merchantName,
     description: parsed.data.description,
     net_amount: netAmount,
-    tax_amount: parsed.data.distanceKm !== null ? 0 : parsed.data.taxAmount,
+    tax_amount: isSpecialRate ? 0 : parsed.data.taxAmount,
     currency_code: parsed.data.currencyCode,
     distance_km: parsed.data.distanceKm,
+    per_diem_days: parsed.data.perDiemDays,
   });
   if (error) return failed("No pudimos agregar el gasto. Verifica la categoría y los montos.");
 
@@ -272,12 +286,30 @@ export async function updateCategoryLimitsAction(
     .single();
   if (readError || !current) return failed("No se pudo leer la política vigente.");
 
+  // Mismo tope que netAmount/taxAmount (999999999999.99): una tarifa mal
+  // tipeada (un cero de más) se atrapa acá, con un mensaje claro, en vez de
+  // dejar que se guarde y recién falle -- genérico y confuso -- el día que
+  // alguien cargue un gasto real contra ella.
+  const rateMax = 999999999999.99;
+  function parsePositiveRate(raw: FormDataEntryValue | null): number | null {
+    if (typeof raw !== "string" || raw.trim() === "") return null;
+    const amount = Number(raw.trim());
+    if (!Number.isFinite(amount) || amount <= 0 || amount > rateMax) return null;
+    return Math.round(amount);
+  }
+
   const mileageRateRaw = formData.get("mileageRatePerKm");
   let mileageRatePerKm: number | null = null;
   if (typeof mileageRateRaw === "string" && mileageRateRaw.trim() !== "") {
-    const amount = Number(mileageRateRaw.trim());
-    if (!Number.isFinite(amount) || amount <= 0) return failed("La tarifa por kilómetro debe ser un número positivo.");
-    mileageRatePerKm = Math.round(amount);
+    mileageRatePerKm = parsePositiveRate(mileageRateRaw);
+    if (mileageRatePerKm === null) return failed("La tarifa por kilómetro debe ser un número positivo válido.");
+  }
+
+  const perDiemRateRaw = formData.get("perDiemDailyRate");
+  let perDiemDailyRate: number | null = null;
+  if (typeof perDiemRateRaw === "string" && perDiemRateRaw.trim() !== "") {
+    perDiemDailyRate = parsePositiveRate(perDiemRateRaw);
+    if (perDiemDailyRate === null) return failed("La tarifa diaria de viático debe ser un número positivo válido.");
   }
 
   const nextRules: Record<string, unknown> = { ...(current.rules as Record<string, unknown>), categoryLimits };
@@ -285,6 +317,8 @@ export async function updateCategoryLimitsAction(
   else nextRules.secondApproverThreshold = secondApproverThreshold;
   if (mileageRatePerKm === null) delete nextRules.mileageRatePerKm;
   else nextRules.mileageRatePerKm = mileageRatePerKm;
+  if (perDiemDailyRate === null) delete nextRules.perDiemDailyRate;
+  else nextRules.perDiemDailyRate = perDiemDailyRate;
   const rules = nextRules as unknown as Json;
 
   const { error } = await supabase
