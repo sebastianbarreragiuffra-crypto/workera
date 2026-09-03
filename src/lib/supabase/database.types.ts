@@ -2378,6 +2378,192 @@ export type Database = {
           },
         ]
       }
+      expense_receipt_email_aliases: {
+        Row: {
+          active: boolean
+          alias_token: string
+          company_id: string
+          created_at: string
+          id: string
+          rotated_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          alias_token?: string
+          company_id: string
+          created_at?: string
+          id?: string
+          rotated_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          alias_token?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          rotated_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_receipt_email_aliases_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_email_aliases_company_id_user_id_fkey"
+            columns: ["company_id", "user_id"]
+            isOneToOne: true
+            referencedRelation: "company_memberships"
+            referencedColumns: ["company_id", "user_id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_email_aliases_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_receipt_email_events: {
+        Row: {
+          attempt_count: number
+          claim_token: string | null
+          company_id: string
+          completed_at: string | null
+          consumed_slots: number
+          created_at: string
+          lease_expires_at: string | null
+          provider_email_id: string
+          provider_event_id: string
+          reserved_bytes: number
+          reserved_slots: number
+          status: string
+          updated_at: string
+          usage_window_started_at: string
+          user_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          claim_token?: string | null
+          company_id: string
+          completed_at?: string | null
+          consumed_slots?: number
+          created_at?: string
+          lease_expires_at?: string | null
+          provider_email_id: string
+          provider_event_id: string
+          reserved_bytes?: number
+          reserved_slots: number
+          status: string
+          updated_at?: string
+          usage_window_started_at: string
+          user_id: string
+        }
+        Update: {
+          attempt_count?: number
+          claim_token?: string | null
+          company_id?: string
+          completed_at?: string | null
+          consumed_slots?: number
+          created_at?: string
+          lease_expires_at?: string | null
+          provider_email_id?: string
+          provider_event_id?: string
+          reserved_bytes?: number
+          reserved_slots?: number
+          status?: string
+          updated_at?: string
+          usage_window_started_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_receipt_email_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_email_events_company_id_user_id_fkey"
+            columns: ["company_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "company_memberships"
+            referencedColumns: ["company_id", "user_id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_email_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_receipt_email_usage_windows: {
+        Row: {
+          company_id: string
+          event_count: number
+          rejected_count: number
+          reserved_bytes: number
+          reserved_slots: number
+          updated_at: string
+          user_id: string
+          window_started_at: string
+        }
+        Insert: {
+          company_id: string
+          event_count?: number
+          rejected_count?: number
+          reserved_bytes?: number
+          reserved_slots?: number
+          updated_at?: string
+          user_id: string
+          window_started_at: string
+        }
+        Update: {
+          company_id?: string
+          event_count?: number
+          rejected_count?: number
+          reserved_bytes?: number
+          reserved_slots?: number
+          updated_at?: string
+          user_id?: string
+          window_started_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_receipt_email_usage_windows_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_email_usage_windows_company_id_user_id_fkey"
+            columns: ["company_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "company_memberships"
+            referencedColumns: ["company_id", "user_id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_email_usage_windows_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expense_receipts: {
         Row: {
           checksum_sha256: string
@@ -4784,6 +4970,19 @@ export type Database = {
           total_amount: number
         }[]
       }
+      claim_expense_receipt_email_event: {
+        Args: {
+          p_actor_id: string
+          p_company_id: string
+          p_provider_email_id: string
+          p_provider_event_id: string
+          p_reserved_slots: number
+        }
+        Returns: {
+          claim_token: string
+          result: string
+        }[]
+      }
       classify_overtime_type_id: {
         Args: { p_work_date: string }
         Returns: string
@@ -4805,6 +5004,15 @@ export type Database = {
       }
       complete_expense_ocr_job: {
         Args: { p_extraction: Json; p_job_id: string; p_worker_id: string }
+        Returns: undefined
+      }
+      complete_expense_receipt_email_event: {
+        Args: {
+          p_actor_id: string
+          p_claim_token: string
+          p_company_id: string
+          p_provider_email_id: string
+        }
         Returns: undefined
       }
       create_expense_report: {
@@ -4843,11 +5051,7 @@ export type Database = {
         Returns: undefined
       }
       discard_expense_receipt_capture: {
-        Args: {
-          p_actor_id: string
-          p_capture_id: string
-          p_company_id: string
-        }
+        Args: { p_actor_id: string; p_capture_id: string; p_company_id: string }
         Returns: string
       }
       employee_belongs_to_active_company: {
@@ -4858,6 +5062,10 @@ export type Database = {
       employee_group_belongs_to_active_company: {
         Args: { p_employee_group_id: string }
         Returns: boolean
+      }
+      ensure_expense_receipt_email_alias: {
+        Args: { p_company_id: string }
+        Returns: string
       }
       expense_actor_has_permission: {
         Args: {
@@ -5143,11 +5351,52 @@ export type Database = {
         }
         Returns: string
       }
+      register_inbound_expense_receipt_capture: {
+        Args: {
+          p_actor_id: string
+          p_checksum_sha256: string
+          p_claim_token: string
+          p_company_id: string
+          p_external_message_id: string
+          p_file_size: number
+          p_mime_type: string
+          p_original_filename: string
+          p_provider_email_id: string
+          p_storage_path: string
+        }
+        Returns: string
+      }
       reject_medical_license: {
         Args: { p_approval_id: string; p_reason: string }
         Returns: undefined
       }
       request_is_aal2: { Args: never; Returns: boolean }
+      release_expense_receipt_email_event: {
+        Args: {
+          p_actor_id: string
+          p_claim_token: string
+          p_company_id: string
+          p_provider_email_id: string
+        }
+        Returns: undefined
+      }
+      reserve_expense_receipt_email_bytes: {
+        Args: {
+          p_actor_id: string
+          p_claim_token: string
+          p_company_id: string
+          p_provider_email_id: string
+          p_reserved_bytes: number
+        }
+        Returns: boolean
+      }
+      resolve_expense_receipt_email_alias: {
+        Args: { p_alias_token: string }
+        Returns: {
+          company_id: string
+          user_id: string
+        }[]
+      }
       review_expense_receipt_extraction: {
         Args: {
           p_comment?: string
@@ -5157,6 +5406,10 @@ export type Database = {
         Returns: string
       }
       session_requires_mfa: { Args: never; Returns: boolean }
+      rotate_expense_receipt_email_alias: {
+        Args: { p_company_id: string }
+        Returns: string
+      }
       set_time_control_exemption: {
         Args: {
           p_actor_id: string

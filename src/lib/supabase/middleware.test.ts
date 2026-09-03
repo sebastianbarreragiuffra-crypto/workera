@@ -235,6 +235,21 @@ test("/api/example sin sesión responde 401 JSON genérico", async () => {
   assert.deepEqual(body, { error: "unauthorized" });
 });
 
+test("solo el webhook exacto de Resend llega sin sesión para validar su firma", async () => {
+  const calls = { count: 0 };
+  const allowed = await updateSession(
+    makeRequest("/api/webhooks/resend/expense-receipts"),
+    unauthenticatedFactory(calls)
+  );
+  assert.equal(allowed.status, 200);
+
+  const nearMatch = await updateSession(
+    makeRequest("/api/webhooks/resend/expense-receipts/extra"),
+    unauthenticatedFactory({ count: 0 })
+  );
+  assert.equal(nearMatch.status, 401);
+});
+
 // 7. /api/example con claims válidos -> permitido
 test("/api/example con claims válidos es permitido", async () => {
   const calls = { count: 0 };
@@ -418,13 +433,15 @@ test("el matcher de proxy.ts excluye _next/static, _next/image, favicon y extens
 });
 
 // Cobertura directa de los helpers de clasificación de rutas.
-test("isPublicPath: /login y /auth/callback (OAuth) son públicas, nada más", () => {
+test("isPublicPath: login, callback OAuth y el webhook exacto de Resend son públicos", () => {
   assert.equal(isPublicPath("/login"), true);
   assert.equal(isPublicPath("/auth/callback"), true);
+  assert.equal(isPublicPath("/api/webhooks/resend/expense-receipts"), true);
   assert.equal(isPublicPath("/"), false);
   assert.equal(isPublicPath("/login/"), false);
   assert.equal(isPublicPath("/dashboard"), false);
   assert.equal(isPublicPath("/auth/callback/"), false);
+  assert.equal(isPublicPath("/api/webhooks/resend/expense-receipts/extra"), false);
 });
 
 test("isApiPath: reconoce /api y cualquier subruta", () => {

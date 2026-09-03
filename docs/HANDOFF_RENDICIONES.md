@@ -158,6 +158,46 @@ Bugbot encontró seis bordes de concurrencia/ciclo de vida y Security Review tre
 riesgos de confianza, limpieza de Storage y conservación de evidencia; todos
 quedaron corregidos antes del commit.
 
+## Fase 2, bloque 3 — recepción segura por correo
+
+Se conectó la bandeja al canal de correo mediante Resend, manteniéndolo
+**deshabilitado por defecto** hasta configurar dominio, API key y webhook en el
+entorno. Cada usuario puede activar una dirección opaca distinta por empresa y
+reemplazarla si se filtra; rotar el token invalida la dirección anterior.
+
+El endpoint público verifica la firma Svix sobre el cuerpo crudo y solo procesa
+`email.received`. Nunca confía en `From`: el token del destinatario se resuelve
+con una función `service_role` que revalida en tiempo real empresa, membresía,
+módulo y permisos. Se rechazan alias ambiguos, cuerpos sobredimensionados y
+descargas fuera del host HTTPS exacto de Resend, sin redirecciones.
+
+El cuerpo se limita por streaming antes de almacenarse en memoria. Tras resolver
+el alias, un ledger server-only reclama el evento y reserva cupo antes de llamar
+a la API externa; las leases recuperables evitan trabajo duplicado, replays
+simultáneos y descargas que no podrían registrarse. Un token de fencing por
+intento impide que un worker antiguo consuma o cierre una lease renovada. Las
+cuotas horarias de eventos, adjuntos y bytes cuentan incluso contenido inválido.
+Los correos sin adjuntos compatibles también entran al ledger y al límite de 20
+eventos, pero se completan sin consultar la API del proveedor.
+Cada reintento vuelve a contabilizar sus bytes en la ventana vigente, incluso
+si el intento anterior falló después de descargar.
+Fallos transitorios devuelven 5xx para conservar los reintentos del proveedor y
+una URL expirada se renueva una vez antes de fallar.
+
+Los adjuntos se consultan mediante la API del proveedor. Solo se aceptan hasta
+10 PDF/JPG/PNG explícitos de 10 MiB o menos, con MIME y firma binaria
+coincidentes. El cuerpo y las imágenes inline se ignoran. Una clave SHA-256 por
+correo/adjunto hace los reintentos idempotentes, comparte el cupo estricto de 50
+pendientes con la captura web y limpia el objeto no canónico ante carreras.
+
+La migración `20260902170000` y el test pgTAP `059` cubren RLS, permisos,
+aislamiento, rotación, revocación por membresía, Storage, ruta tenant-aware,
+idempotencia, reservas y recuperación de reintentos. Validación local posterior
+a correcciones de revisión: reset completo, 59 suites pgTAP / 1.145 aserciones,
+735 tests de aplicación aprobados (2 opt-in omitidos), TypeScript, ESLint, lint
+de base, auditoría de dependencias y build de producción en verde. La operación
+y variables requeridas están documentadas en `docs/EXPENSE_EMAIL_CAPTURE.md`.
+
 ## Otros hallazgos ya cerrados (no rehacer)
 
 - ✅ Link faltante `(platform)` → Rendiciones — hecho (`a638eb5`).

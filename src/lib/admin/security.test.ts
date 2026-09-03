@@ -53,6 +53,7 @@ const SERVICE_ROLE_DIRECTORIES = [
   "rule-engine",
   "expense-ocr",
   "expense-capture",
+  "expense-email",
 ];
 
 test("los límites que usan privilegios administrativos declaran server-only", () => {
@@ -139,6 +140,13 @@ test("el límite privilegiado de comprobantes es server-only y ninguna acción o
     [],
     "ninguna Server Action debe obtener service_role directamente"
   );
+});
+
+test("el conector privilegiado de correo es server-only", () => {
+  const emailRoot = path.join(SRC_ROOT, "lib", "expense-email");
+  for (const filePath of listFilesRecursively(emailRoot)) {
+    assert.match(readFileSync(filePath, "utf8"), /import\s+["']server-only["']/, `${filePath} debe ser server-only`);
+  }
 });
 
 test(".env.example no contiene un valor real para SUPABASE_SERVICE_ROLE_KEY", () => {
