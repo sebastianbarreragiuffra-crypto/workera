@@ -197,6 +197,8 @@ a correcciones de revisión: reset completo, 59 suites pgTAP / 1.145 aserciones,
 735 tests de aplicación aprobados (2 opt-in omitidos), TypeScript, ESLint, lint
 de base, auditoría de dependencias y build de producción en verde. La operación
 y variables requeridas están documentadas en `docs/EXPENSE_EMAIL_CAPTURE.md`.
+La migración quedó aplicada y verificada en `arcotex-workera-staging`; el
+proveedor continúa deshabilitado hasta configurar dominio y secretos de Resend.
 
 ## Otros hallazgos ya cerrados (no rehacer)
 
