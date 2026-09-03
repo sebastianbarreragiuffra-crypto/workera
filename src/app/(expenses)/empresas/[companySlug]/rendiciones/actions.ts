@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
+import { getMileageRatePerKm } from "@/lib/expenses/data";
 import { validateExpenseReceiptFile } from "@/lib/expenses/receipts";
 import { createClient } from "@/lib/supabase/server";
 import { unwrapEmbed } from "@/lib/supabase/embed";
@@ -34,6 +35,10 @@ const addItemInput = z.object({
   netAmount: z.coerce.number().finite().positive().max(999999999999.99),
   taxAmount: z.coerce.number().finite().min(0).max(999999999999.99),
   currencyCode: z.enum(["CLP", "USD", "EUR"]),
+  // Tope alineado con distance_km numeric(10,2): nunca dejar que la
+  // validación real de rango la haga recién la base de datos.
+  distanceKm: z.string().optional().transform((value) => (value && value.trim() !== "" ? Number(value) : null))
+    .refine((value) => value === null || (Number.isFinite(value) && value > 0 && value <= 100000), "Kilómetros inválidos"),
 });
 const reportActionInput = z.object({ companySlug: slug, reportId: uuid });
 const policyLimitsInput = z.object({ companySlug: slug, policyId: uuid });
@@ -124,6 +129,16 @@ export async function addExpenseItemAction(
   if (!report || report.status !== "DRAFT") return failed("La rendición ya no está disponible para edición.");
   if (report.currency_code !== parsed.data.currencyCode) return failed("El gasto debe usar la misma moneda de la rendición.");
 
+  // Kilometraje (EX-8): el monto NUNCA se confía del cliente para este
+  // caso -- se recalcula acá desde la tarifa vigente de la política, igual
+  // que cualquier otro dato que determina cuánto se le paga a alguien.
+  let netAmount = parsed.data.netAmount;
+  if (parsed.data.distanceKm !== null) {
+    const rate = await getMileageRatePerKm(supabase, context);
+    if (!rate) return failed("Configura la tarifa por kilómetro en Políticas antes de cargar un gasto de kilometraje.");
+    netAmount = Math.round(parsed.data.distanceKm * rate * 100) / 100;
+  }
+
   const { error } = await supabase.from("expense_items").insert({
     company_id: context.id,
     report_id: report.id,
@@ -131,9 +146,10 @@ export async function addExpenseItemAction(
     expense_date: parsed.data.expenseDate,
     merchant_name: parsed.data.merchantName,
     description: parsed.data.description,
-    net_amount: parsed.data.netAmount,
-    tax_amount: parsed.data.taxAmount,
+    net_amount: netAmount,
+    tax_amount: parsed.data.distanceKm !== null ? 0 : parsed.data.taxAmount,
     currency_code: parsed.data.currencyCode,
+    distance_km: parsed.data.distanceKm,
   });
   if (error) return failed("No pudimos agregar el gasto. Verifica la categoría y los montos.");
 
@@ -256,9 +272,19 @@ export async function updateCategoryLimitsAction(
     .single();
   if (readError || !current) return failed("No se pudo leer la política vigente.");
 
+  const mileageRateRaw = formData.get("mileageRatePerKm");
+  let mileageRatePerKm: number | null = null;
+  if (typeof mileageRateRaw === "string" && mileageRateRaw.trim() !== "") {
+    const amount = Number(mileageRateRaw.trim());
+    if (!Number.isFinite(amount) || amount <= 0) return failed("La tarifa por kilómetro debe ser un número positivo.");
+    mileageRatePerKm = Math.round(amount);
+  }
+
   const nextRules: Record<string, unknown> = { ...(current.rules as Record<string, unknown>), categoryLimits };
   if (secondApproverThreshold === null) delete nextRules.secondApproverThreshold;
   else nextRules.secondApproverThreshold = secondApproverThreshold;
+  if (mileageRatePerKm === null) delete nextRules.mileageRatePerKm;
+  else nextRules.mileageRatePerKm = mileageRatePerKm;
   const rules = nextRules as unknown as Json;
 
   const { error } = await supabase

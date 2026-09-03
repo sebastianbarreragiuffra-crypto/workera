@@ -28,6 +28,7 @@ export default async function ExpensePoliciesPage({ params }: { params: Promise<
             categories={settings.categories}
             categoryLimits={settings.categoryLimits}
             secondApproverThreshold={settings.secondApproverThreshold}
+            mileageRatePerKm={settings.mileageRatePerKm}
           />
         ) : (
           <p className="text-sm text-slate-500">Todavía no hay una política activa para esta empresa.</p>
