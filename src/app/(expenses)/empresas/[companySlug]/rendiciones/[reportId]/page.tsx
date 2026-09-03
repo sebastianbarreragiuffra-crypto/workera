@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AddExpenseItemForm, ExpenseDecisionForm, ExpenseOcrReviewForm, ExpenseReceiptUploadForm, LinkExpenseAdvanceForm, ReconcileExpenseReportForm, SubmitExpenseReportForm, WithdrawExpenseReportForm } from "@/components/expenses/ExpenseForms";
+import { AddExpenseItemForm, ExpenseDecisionForm, ExpenseOcrReviewForm, ExpenseReceiptUploadForm, LinkExpenseAdvanceForm, ReconcileExpenseReportForm, SubmitExpenseReportForm, UpdateCostCenterForm, WithdrawExpenseReportForm } from "@/components/expenses/ExpenseForms";
 import { ExpenseStatusBadge } from "@/components/expenses/ExpenseStatusBadge";
 import { deleteExpenseItemAction } from "../actions";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
-import { getExpenseReportDetail, getOwnPendingExpenseAdvances } from "@/lib/expenses/data";
+import { getActiveOrganizationUnits, getExpenseReportDetail, getOwnPendingExpenseAdvances } from "@/lib/expenses/data";
 import { formatExpenseMoney } from "@/lib/expenses/presentation";
 import { createClient } from "@/lib/supabase/server";
 import { todayInSantiago } from "@/lib/view-models/date-utils";
@@ -35,7 +35,10 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
   const report = await getExpenseReportDetail(supabase, context, reportId);
   if (!report) notFound();
   const editable = report.status === "DRAFT" && (report.isOwn || context.canManage);
-  const ownPendingAdvances = editable && report.isOwn ? await getOwnPendingExpenseAdvances(supabase, context, report.currencyCode, report.advanceId) : [];
+  const [ownPendingAdvances, organizationUnits] = await Promise.all([
+    editable && report.isOwn ? getOwnPendingExpenseAdvances(supabase, context, report.currencyCode, report.advanceId) : Promise.resolve([]),
+    editable ? getActiveOrganizationUnits(supabase, context, report.organizationUnitId) : Promise.resolve([]),
+  ]);
   const categoryNames = new Map(report.categories.map((category) => [category.id, category.name]));
   const receiptRequired = new Map(report.categories.map((category) => [category.id, category.requiresReceipt]));
   const missingRequiredReceipts = report.items.some((item) => item.categoryId && receiptRequired.get(item.categoryId) && !item.receipt);
@@ -118,6 +121,14 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
         </section>
 
         <aside className="space-y-4">
+          {editable && organizationUnits.length > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="font-semibold text-slate-900">Centro de costo</h2>
+              <div className="mt-4">
+                <UpdateCostCenterForm companySlug={context.slug} reportId={report.id} currentOrganizationUnitId={report.organizationUnitId} options={organizationUnits} />
+              </div>
+            </div>
+          )}
           {editable && report.isOwn && (ownPendingAdvances.length > 0 || report.advanceId) && (
             <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
               <h2 className="font-semibold text-slate-900">Anticipo</h2>
