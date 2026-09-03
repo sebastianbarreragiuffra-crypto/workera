@@ -107,10 +107,23 @@ create policy rule_engine_runs_select on public.rule_engine_runs
 alter table public.workera_attendance_events
   add column company_id uuid references public.companies(id);
 
+-- Las filas históricas están protegidas por el trigger genérico de
+-- inmutabilidad. Se retira solo durante este backfill transaccional y se
+-- reinstala inmediatamente con exactamente las mismas columnas mutables.
+-- Si cualquier sentencia de la migración falla, PostgreSQL revierte también
+-- el DROP y nunca deja la tabla sin protección.
+drop trigger workera_attendance_events_immutable
+  on public.workera_attendance_events;
+
 update public.workera_attendance_events wae
 set company_id = e.company_id
 from public.employees e
 where wae.employee_id = e.id;
+
+create trigger workera_attendance_events_immutable
+  before update on public.workera_attendance_events
+  for each row
+  execute function public.enforce_immutable_columns('is_current', 'external_fingerprint');
 
 alter table public.workera_attendance_events alter column company_id set not null;
 create index workera_attendance_events_company_id_idx
