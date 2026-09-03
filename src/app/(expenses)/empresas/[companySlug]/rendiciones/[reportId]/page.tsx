@@ -4,7 +4,7 @@ import { AddExpenseItemForm, ExpenseDecisionForm, ExpenseOcrReviewForm, ExpenseR
 import { ExpenseStatusBadge } from "@/components/expenses/ExpenseStatusBadge";
 import { deleteExpenseItemAction } from "../actions";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
-import { getActiveOrganizationUnits, getExpenseReportDetail, getMileageRatePerKm, getOwnPendingExpenseAdvances } from "@/lib/expenses/data";
+import { getActiveOrganizationUnits, getExpenseReportDetail, getExpenseSpecialRates, getOwnPendingExpenseAdvances } from "@/lib/expenses/data";
 import { formatExpenseMoney } from "@/lib/expenses/presentation";
 import { createClient } from "@/lib/supabase/server";
 import { todayInSantiago } from "@/lib/view-models/date-utils";
@@ -35,10 +35,10 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
   const report = await getExpenseReportDetail(supabase, context, reportId);
   if (!report) notFound();
   const editable = report.status === "DRAFT" && (report.isOwn || context.canManage);
-  const [ownPendingAdvances, organizationUnits, mileageRatePerKm] = await Promise.all([
+  const [ownPendingAdvances, organizationUnits, specialRates] = await Promise.all([
     editable && report.isOwn ? getOwnPendingExpenseAdvances(supabase, context, report.currencyCode, report.advanceId) : Promise.resolve([]),
     editable ? getActiveOrganizationUnits(supabase, context, report.organizationUnitId) : Promise.resolve([]),
-    editable ? getMileageRatePerKm(supabase, context) : Promise.resolve(null),
+    editable ? getExpenseSpecialRates(supabase, context) : Promise.resolve({ mileageRatePerKm: null, perDiemDailyRate: null }),
   ]);
   const categoryNames = new Map(report.categories.map((category) => [category.id, category.name]));
   const receiptRequired = new Map(report.categories.map((category) => [category.id, category.requiresReceipt]));
@@ -66,7 +66,15 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
       {editable && (
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4"><h2 className="font-semibold text-slate-900">Agregar gasto</h2><p className="mt-1 text-xs text-slate-500">Después de guardar el gasto podrás adjuntar su comprobante privado.</p></div>
-          <AddExpenseItemForm companySlug={context.slug} reportId={report.id} currencyCode={report.currencyCode} categories={report.categories} defaultDate={todayInSantiago()} mileageRatePerKm={mileageRatePerKm} />
+          <AddExpenseItemForm
+            companySlug={context.slug}
+            reportId={report.id}
+            currencyCode={report.currencyCode}
+            categories={report.categories}
+            defaultDate={todayInSantiago()}
+            mileageRatePerKm={specialRates.mileageRatePerKm}
+            perDiemDailyRate={specialRates.perDiemDailyRate}
+          />
         </section>
       )}
 
@@ -78,7 +86,7 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
               {report.items.map((item) => (
                 <li key={item.id} className="px-5 py-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-medium text-slate-900">{item.description}</span>{item.categoryId && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{categoryNames.get(item.categoryId)}</span>}{item.categoryId && receiptRequired.get(item.categoryId) && <span className="text-[11px] font-medium text-amber-700">Comprobante obligatorio</span>}</div><p className="mt-1 text-xs text-slate-500">{shortDate(item.expenseDate)}{item.merchantName ? ` · ${item.merchantName}` : ""}{item.distanceKm !== null ? ` · ${item.distanceKm} km` : ""}</p></div>
+                    <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-medium text-slate-900">{item.description}</span>{item.categoryId && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{categoryNames.get(item.categoryId)}</span>}{item.categoryId && receiptRequired.get(item.categoryId) && <span className="text-[11px] font-medium text-amber-700">Comprobante obligatorio</span>}</div><p className="mt-1 text-xs text-slate-500">{shortDate(item.expenseDate)}{item.merchantName ? ` · ${item.merchantName}` : ""}{item.distanceKm !== null ? ` · ${item.distanceKm} km` : ""}{item.perDiemDays !== null ? ` · ${item.perDiemDays} día(s) de viático` : ""}</p></div>
                     <div className="flex items-center justify-between gap-4 sm:justify-end"><span className="font-semibold tabular-nums text-slate-900">{formatExpenseMoney(item.totalAmount, report.currencyCode)}</span>{editable && <form action={deleteExpenseItemAction}><input type="hidden" name="companySlug" value={context.slug} /><input type="hidden" name="reportId" value={report.id} /><input type="hidden" name="itemId" value={item.id} /><button type="submit" className="text-xs font-medium text-critical hover:underline">Quitar</button></form>}</div>
                   </div>
                   {item.receipt && (() => {

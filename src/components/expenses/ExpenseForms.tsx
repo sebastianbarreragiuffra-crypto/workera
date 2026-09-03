@@ -81,6 +81,8 @@ export function CreateExpenseReportForm({ companySlug }: { companySlug: string }
   );
 }
 
+type ExpenseItemMode = "normal" | "mileage" | "perDiem";
+
 export function AddExpenseItemForm({
   companySlug,
   reportId,
@@ -88,6 +90,7 @@ export function AddExpenseItemForm({
   categories,
   defaultDate,
   mileageRatePerKm,
+  perDiemDailyRate,
 }: {
   companySlug: string;
   reportId: string;
@@ -95,25 +98,28 @@ export function AddExpenseItemForm({
   categories: ExpenseCategoryOption[];
   defaultDate: string;
   mileageRatePerKm: number | null;
+  perDiemDailyRate: number | null;
 }) {
   const [state, action] = useActionState(addExpenseItemAction, INITIAL_STATE);
   const formRef = useRef<HTMLFormElement>(null);
-  const [isMileage, setIsMileage] = useState(false);
+  const [mode, setMode] = useState<ExpenseItemMode>("normal");
   const [distanceKm, setDistanceKm] = useState("");
+  const [perDiemDays, setPerDiemDays] = useState("");
   useEffect(() => {
     if (state.status === "success") formRef.current?.reset();
   }, [state]);
-  // form.reset() no alcanza a isMileage/distanceKm porque son estado de
-  // React (controlado), no del DOM. Se ajustan durante el render -- el
-  // patrón que React recomienda para "resetear estado cuando cambia un
-  // valor" -- en vez de en el effect de arriba, para no encadenar un
-  // segundo setState ahí.
+  // form.reset() no alcanza al estado de React (mode/distanceKm/
+  // perDiemDays son controlados, no del DOM). Se ajustan durante el
+  // render -- el patrón que React recomienda para "resetear estado cuando
+  // cambia un valor" -- en vez de en el effect de arriba, para no
+  // encadenar un segundo setState ahí.
   const [lastHandledState, setLastHandledState] = useState(state);
   if (state !== lastHandledState) {
     setLastHandledState(state);
     if (state.status === "success") {
-      setIsMileage(false);
+      setMode("normal");
       setDistanceKm("");
+      setPerDiemDays("");
     }
   }
 
@@ -121,20 +127,34 @@ export function AddExpenseItemForm({
   // servidor con la tarifa vigente al momento de guardar, nunca se confía
   // de este cálculo hecho en el navegador.
   const distanceValue = Number(distanceKm);
-  const previewAmount = isMileage && mileageRatePerKm && Number.isFinite(distanceValue) && distanceValue > 0
+  const perDiemValue = Number(perDiemDays);
+  const previewAmount = mode === "mileage" && mileageRatePerKm && Number.isFinite(distanceValue) && distanceValue > 0
     ? Math.round(distanceValue * mileageRatePerKm * 100) / 100
-    : null;
+    : mode === "perDiem" && perDiemDailyRate && Number.isFinite(perDiemValue) && perDiemValue > 0
+      ? Math.round(perDiemValue * perDiemDailyRate * 100) / 100
+      : null;
 
   return (
     <form ref={formRef} action={action} className="space-y-4">
       <input type="hidden" name="companySlug" value={companySlug} />
       <input type="hidden" name="reportId" value={reportId} />
       <input type="hidden" name="currencyCode" value={currencyCode} />
-      <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-        <input type="checkbox" checked={isMileage} onChange={(event) => setIsMileage(event.target.checked)} disabled={!mileageRatePerKm} />
-        Es un gasto de kilometraje
-        {!mileageRatePerKm && <span className="text-xs font-normal text-slate-400">(configura la tarifa por km en Políticas)</span>}
-      </label>
+      <fieldset className="flex flex-wrap gap-4 text-sm font-medium text-slate-700">
+        <label className="flex items-center gap-2">
+          <input type="radio" name="mode" checked={mode === "normal"} onChange={() => setMode("normal")} />
+          Gasto normal
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="radio" name="mode" checked={mode === "mileage"} onChange={() => setMode("mileage")} disabled={!mileageRatePerKm} />
+          Kilometraje
+          {!mileageRatePerKm && <span className="text-xs font-normal text-slate-400">(configura la tarifa en Políticas)</span>}
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="radio" name="mode" checked={mode === "perDiem"} onChange={() => setMode("perDiem")} disabled={!perDiemDailyRate} />
+          Viático
+          {!perDiemDailyRate && <span className="text-xs font-normal text-slate-400">(configura la tarifa en Políticas)</span>}
+        </label>
+      </fieldset>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-sm font-medium text-slate-700">
           Fecha
@@ -153,9 +173,16 @@ export function AddExpenseItemForm({
         </label>
         <label className="text-sm font-medium text-slate-700 sm:col-span-2">
           Descripción
-          <input name="description" required minLength={2} maxLength={240} className={INPUT} placeholder={isMileage ? "Ej. Visita a cliente en Rancagua" : "Ej. Almuerzo con cliente"} />
+          <input
+            name="description"
+            required
+            minLength={2}
+            maxLength={240}
+            className={INPUT}
+            placeholder={mode === "mileage" ? "Ej. Visita a cliente en Rancagua" : mode === "perDiem" ? "Ej. Viaje a Concepción" : "Ej. Almuerzo con cliente"}
+          />
         </label>
-        {isMileage ? (
+        {mode === "mileage" && (
           <label className="text-sm font-medium text-slate-700">
             Kilómetros recorridos
             <input
@@ -170,22 +197,38 @@ export function AddExpenseItemForm({
               className={INPUT}
             />
           </label>
-        ) : null}
+        )}
+        {mode === "perDiem" && (
+          <label className="text-sm font-medium text-slate-700">
+            Días de viático
+            <input
+              name="perDiemDays"
+              type="number"
+              required
+              min="0.5"
+              step="0.5"
+              inputMode="decimal"
+              value={perDiemDays}
+              onChange={(event) => setPerDiemDays(event.target.value)}
+              className={INPUT}
+            />
+          </label>
+        )}
         <label className="text-sm font-medium text-slate-700">
           Neto ({currencyCode})
-          {isMileage ? (
-            <input name="netAmount" type="number" required readOnly value={previewAmount ?? ""} placeholder="Se calcula con la tarifa" className={`${INPUT} bg-slate-50`} />
-          ) : (
+          {mode === "normal" ? (
             <input name="netAmount" type="number" required min="0.01" step="0.01" inputMode="decimal" className={INPUT} placeholder="0" />
+          ) : (
+            <input name="netAmount" type="number" required readOnly value={previewAmount ?? ""} placeholder="Se calcula con la tarifa" className={`${INPUT} bg-slate-50`} />
           )}
         </label>
-        {isMileage ? (
-          <input type="hidden" name="taxAmount" value="0" />
-        ) : (
+        {mode === "normal" ? (
           <label className="text-sm font-medium text-slate-700">
             Impuesto ({currencyCode})
             <input name="taxAmount" type="number" min="0" step="0.01" inputMode="decimal" defaultValue="0" className={INPUT} />
           </label>
+        ) : (
+          <input type="hidden" name="taxAmount" value="0" />
         )}
       </div>
       <Feedback state={state} />
@@ -253,6 +296,7 @@ export function CategoryLimitsForm({
   categoryLimits,
   secondApproverThreshold,
   mileageRatePerKm,
+  perDiemDailyRate,
 }: {
   companySlug: string;
   policyId: string;
@@ -260,6 +304,7 @@ export function CategoryLimitsForm({
   categoryLimits: Record<string, number>;
   secondApproverThreshold: number | null;
   mileageRatePerKm: number | null;
+  perDiemDailyRate: number | null;
 }) {
   const [state, action] = useActionState(updateCategoryLimitsAction, INITIAL_STATE);
   return (
@@ -317,6 +362,24 @@ export function CategoryLimitsForm({
         <p className="mt-2 text-xs text-slate-500">
           Monto por kilómetro recorrido, en la moneda de la política. Sin tarifa, nadie puede cargar un gasto de
           kilometraje -- el monto siempre se calcula acá, nunca se ingresa a mano.
+        </p>
+      </div>
+      <div className="border-t border-slate-200 pt-4">
+        <label className="flex items-center justify-between gap-3 text-sm font-medium text-slate-700">
+          Tarifa diaria de viático (per diem)
+          <input
+            type="number"
+            name="perDiemDailyRate"
+            min={1}
+            step={1}
+            placeholder="Sin tarifa configurada"
+            defaultValue={perDiemDailyRate ?? ""}
+            className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-right text-sm shadow-sm focus:border-arcotex-blue focus:outline-none focus:ring-2 focus:ring-blue-100"
+          />
+        </label>
+        <p className="mt-2 text-xs text-slate-500">
+          Monto fijo por día de viaje. Sin tarifa, nadie puede cargar un gasto de viático -- el monto siempre se
+          calcula acá, nunca se ingresa a mano.
         </p>
       </div>
       <SubmitButton>Guardar política</SubmitButton>

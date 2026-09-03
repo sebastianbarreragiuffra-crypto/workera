@@ -2025,6 +2025,7 @@ export type Database = {
           id: string
           merchant_name: string | null
           net_amount: number
+          per_diem_days: number | null
           receipt_status: Database["public"]["Enums"]["expense_receipt_status"]
           receipt_storage_path: string | null
           report_id: string
@@ -2045,6 +2046,7 @@ export type Database = {
           id?: string
           merchant_name?: string | null
           net_amount?: number
+          per_diem_days?: number | null
           receipt_status?: Database["public"]["Enums"]["expense_receipt_status"]
           receipt_storage_path?: string | null
           report_id: string
@@ -2065,6 +2067,7 @@ export type Database = {
           id?: string
           merchant_name?: string | null
           net_amount?: number
+          per_diem_days?: number | null
           receipt_status?: Database["public"]["Enums"]["expense_receipt_status"]
           receipt_storage_path?: string | null
           report_id?: string
