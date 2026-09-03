@@ -1,12 +1,12 @@
 "use server";
 
-import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
 import { getExpenseSpecialRates } from "@/lib/expenses/data";
 import { validateExpenseReceiptFile } from "@/lib/expenses/receipts";
+import { discardExpenseCapture, storeExpenseCapture, storeExpenseReceipt } from "@/lib/expense-capture/service";
 import { createClient } from "@/lib/supabase/server";
 import { unwrapEmbed } from "@/lib/supabase/embed";
 import type { Json } from "@/lib/supabase/database.types";
@@ -46,6 +46,12 @@ const addItemInput = z.object({
 const reportActionInput = z.object({ companySlug: slug, reportId: uuid });
 const policyLimitsInput = z.object({ companySlug: slug, policyId: uuid });
 const itemActionInput = reportActionInput.extend({ itemId: uuid });
+const captureUploadInput = z.object({
+  companySlug: slug,
+  source: z.enum(["WEB_UPLOAD", "WEB_CAMERA"]),
+});
+const captureActionInput = z.object({ companySlug: slug, captureId: uuid });
+const attachCaptureInput = captureActionInput.extend({ itemId: uuid });
 const reconcileInput = reportActionInput.extend({
   paymentReference: z.string().trim().min(1).max(160),
 });
@@ -384,45 +390,116 @@ export async function uploadExpenseReceiptAction(
     return failed("El gasto ya no está disponible para adjuntar comprobantes.");
   }
 
-  const bytes = await file.arrayBuffer();
-  const checksum = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
-  const objectId = randomUUID();
-  const storagePath = `${context.id}/${context.userId}/${parsed.data.reportId}/${parsed.data.itemId}/${objectId}.${validation.extension}`;
-  const { error: uploadError } = await supabase.storage.from("expense-receipts").upload(storagePath, bytes, {
-    contentType: validation.mimeType,
-    cacheControl: "3600",
-    upsert: false,
+  const stored = await storeExpenseReceipt({
+    actorId: context.userId,
+    companyId: context.id,
+    reportId: parsed.data.reportId,
+    itemId: parsed.data.itemId,
+    originalFilename: file.name.slice(0, 240) || `comprobante.${validation.extension}`,
+    mimeType: validation.mimeType,
+    extension: validation.extension,
+    bytes: await file.arrayBuffer(),
   });
-  if (uploadError) return failed("No pudimos guardar el comprobante en el almacenamiento privado.");
-
-  const { error: registerError } = await supabase.rpc("register_expense_receipt", {
-    p_item_id: parsed.data.itemId,
-    p_storage_path: storagePath,
-    p_original_filename: file.name.slice(0, 240) || `comprobante.${validation.extension}`,
-    p_mime_type: validation.mimeType,
-    p_file_size: file.size,
-    p_checksum_sha256: checksum,
-  });
-  if (registerError) {
-    // El archivo ya se subió a Storage pero nunca quedó referenciado --
-    // limpieza inmediata en vez de dejarlo huérfano indefinidamente
-    // (hallazgo de la auditoría). La policy "expense_receipts_storage_
-    // delete_orphan" solo permite borrar acá porque todavía no existe fila
-    // en expense_receipts para esta ruta. Debe ser vía Storage API (este
-    // .remove() del SDK) -- Supabase bloquea cualquier DELETE por SQL
-    // directo sobre storage.objects (storage.protect_delete()).
-    const { error: cleanupError } = await supabase.storage.from("expense-receipts").remove([storagePath]);
-    if (cleanupError) {
-      console.error("uploadExpenseReceiptAction: no se pudo limpiar un comprobante huérfano tras fallo de registro.", {
-        companyId: context.id,
-        itemId: parsed.data.itemId,
-      });
-    }
-    return failed("No pudimos asociar el comprobante al gasto. Intenta nuevamente.");
-  }
+  if (!stored.ok && stored.reason === "STORAGE") return failed("No pudimos guardar el comprobante en el almacenamiento privado.");
+  if (!stored.ok) return failed("No pudimos asociar el comprobante al gasto. Intenta nuevamente.");
 
   revalidatePath(reportPath(context.slug, parsed.data.reportId));
   return { status: "success", message: "Comprobante adjuntado de forma privada." };
+}
+
+export async function captureExpenseReceiptAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = captureUploadInput.safeParse(entries(formData));
+  const file = formData.get("receipt");
+  if (!parsed.success || !(file instanceof File)) return failed("Selecciona un comprobante válido.");
+
+  const validation = await validateExpenseReceiptFile(file);
+  if (!validation.ok || !validation.mimeType || !validation.extension) return failed(validation.message);
+  if (parsed.data.source === "WEB_CAMERA" && !validation.mimeType.startsWith("image/")) {
+    return failed("La captura de cámara debe ser una imagen JPG o PNG.");
+  }
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canSubmit) return failed("Tu rol no permite capturar comprobantes.");
+
+  // Evita transferir y hashear hasta 10 MB cuando la bandeja ya está llena.
+  // El RPC repite el control bajo advisory lock porque este pre-chequeo solo
+  // optimiza recursos; la base sigue siendo la autoridad ante concurrencia.
+  const { count: pendingCount, error: pendingError } = await supabase
+    .from("expense_receipt_captures")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", context.id)
+    .eq("uploaded_by", context.userId)
+    .eq("status", "PENDING");
+  if (pendingError) return failed("No pudimos verificar tu bandeja de comprobantes.");
+  if ((pendingCount ?? 0) >= 50) return failed("Tu bandeja alcanzó el máximo de 50 comprobantes pendientes.");
+
+  const stored = await storeExpenseCapture({
+    actorId: context.userId,
+    companyId: context.id,
+    source: parsed.data.source,
+    originalFilename: file.name.slice(0, 240) || `comprobante.${validation.extension}`,
+    mimeType: validation.mimeType,
+    extension: validation.extension,
+    bytes: await file.arrayBuffer(),
+  });
+  if (!stored.ok && stored.reason === "LIMIT") return failed("Tu bandeja alcanzó el máximo de 50 comprobantes pendientes.");
+  if (!stored.ok && stored.reason === "STORAGE") return failed("No pudimos guardar el comprobante en el almacenamiento privado.");
+  if (!stored.ok) return failed("No pudimos registrar el comprobante. Intenta nuevamente.");
+
+  revalidatePath(`/empresas/${context.slug}/rendiciones/comprobantes`);
+  return { status: "success", message: "Comprobante guardado en tu bandeja privada." };
+}
+
+export async function attachExpenseReceiptCaptureAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = attachCaptureInput.safeParse(entries(formData));
+  if (!parsed.success) return failed("Selecciona un gasto válido.");
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canSubmit) return failed("Tu rol no permite adjuntar comprobantes.");
+
+  const { data: receiptId, error } = await supabase.rpc("attach_expense_receipt_capture", {
+    p_capture_id: parsed.data.captureId,
+    p_item_id: parsed.data.itemId,
+  });
+  if (error || !receiptId) {
+    if (error?.code === "23514") return failed("El comprobante o el gasto ya no están disponibles.");
+    if (error?.code === "42501") return failed("No puedes asociar este comprobante al gasto seleccionado.");
+    return failed("No pudimos asociar el comprobante. Intenta nuevamente.");
+  }
+
+  revalidatePath(`/empresas/${context.slug}/rendiciones/comprobantes`);
+  revalidatePath(`/empresas/${context.slug}/rendiciones`);
+  return { status: "success", message: "Comprobante asociado al gasto y enviado a procesamiento." };
+}
+
+export async function discardExpenseReceiptCaptureAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = captureActionInput.safeParse(entries(formData));
+  if (!parsed.success) return failed("El comprobante ya no está disponible.");
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canSubmit) return failed("Tu rol no permite descartar comprobantes.");
+
+  const discarded = await discardExpenseCapture({
+    actorId: context.userId,
+    companyId: context.id,
+    captureId: parsed.data.captureId,
+  });
+  if (!discarded) return failed("El comprobante ya no está disponible.");
+
+  revalidatePath(`/empresas/${context.slug}/rendiciones/comprobantes`);
+  return { status: "success", message: "Comprobante descartado de tu bandeja." };
 }
 
 export async function decideExpenseReportAction(

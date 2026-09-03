@@ -2,11 +2,11 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(46);
+select plan(47);
 
 select has_table('public', 'expense_receipts', 'existe historial de comprobantes');
 select has_column('public', 'expense_reports', 'review_round', 'el informe registra su ronda de revisión');
-select has_function('public', 'register_expense_receipt', array['uuid','text','text','text','integer','text'], 'existe registro seguro de comprobante');
+select has_function('public', 'register_expense_receipt_trusted', array['uuid','uuid','uuid','text','text','text','integer','text'], 'existe registro seguro server-only de comprobante');
 select has_function('public', 'decide_expense_report', array['uuid','expense_approval_decision','text'], 'existe flujo cerrado de aprobación');
 select ok(not (select public from storage.buckets where id = 'expense-receipts'), 'el bucket de comprobantes es privado');
 select is((select file_size_limit from storage.buckets where id = 'expense-receipts'), 10485760::bigint, 'Storage limita cada comprobante a 10 MiB');
@@ -14,6 +14,7 @@ select ok(not has_table_privilege('authenticated', 'public.expense_receipts', 'I
 select ok(not has_table_privilege('authenticated', 'public.expense_approval_decisions', 'INSERT'), 'decisiones solo se registran mediante RPC');
 select ok(not has_column_privilege('authenticated', 'public.expense_items', 'receipt_status', 'UPDATE'), 'el navegador no puede fingir el estado de un comprobante');
 select ok(not has_function_privilege('anon', 'public.decide_expense_report(uuid, public.expense_approval_decision, text)', 'EXECUTE'), 'anon no decide rendiciones');
+select ok(not has_function_privilege('authenticated', 'public.register_expense_receipt(uuid, text, text, text, integer, text)', 'EXECUTE'), 'el navegador no registra hashes de comprobantes directamente');
 
 insert into public.companies (id, name, legal_name, slug, active, status, workspace_enabled)
 values
@@ -68,14 +69,19 @@ select ok(not public.can_upload_expense_receipt_path(
   '97000000-0000-0000-0000-000000000002/97000000-0000-0000-0000-000000000102/97000000-0000-0000-0000-000000000301/97000000-0000-0000-0000-000000000401/97000000-0000-0000-0000-000000000501.pdf'
 ), 'la ruta no puede cambiar de tenant');
 
+reset role;
+
 insert into storage.objects (id, bucket_id, name, owner_id, metadata)
 values (
   '97000000-0000-0000-0000-000000000501', 'expense-receipts',
   '97000000-0000-0000-0000-000000000001/97000000-0000-0000-0000-000000000102/97000000-0000-0000-0000-000000000301/97000000-0000-0000-0000-000000000401/97000000-0000-0000-0000-000000000501.pdf',
   '97000000-0000-0000-0000-000000000102', '{"mimetype":"application/pdf","size":1234}'::jsonb
 );
+set local role service_role;
 select lives_ok(
-  $$select public.register_expense_receipt(
+  $$select public.register_expense_receipt_trusted(
+    '97000000-0000-0000-0000-000000000102',
+    '97000000-0000-0000-0000-000000000001',
     '97000000-0000-0000-0000-000000000401',
     '97000000-0000-0000-0000-000000000001/97000000-0000-0000-0000-000000000102/97000000-0000-0000-0000-000000000301/97000000-0000-0000-0000-000000000401/97000000-0000-0000-0000-000000000501.pdf',
     'boleta.pdf', 'application/pdf', 1234,
@@ -83,6 +89,9 @@ select lives_ok(
   )$$,
   'el RPC registra metadata después de existir el objeto privado'
 );
+reset role;
+set local role authenticated;
+set local request.jwt.claim.sub = '97000000-0000-0000-0000-000000000102';
 select ok((select receipt_status = 'UPLOADED' and receipt_storage_path is not null from public.expense_items where id = '97000000-0000-0000-0000-000000000401'), 'el ítem refleja su comprobante vigente');
 select lives_ok($$select public.submit_expense_report('97000000-0000-0000-0000-000000000301')$$, 'con comprobante puede enviarse');
 select is((select review_round from public.expense_reports where id = '97000000-0000-0000-0000-000000000301'), 1, 'el envío abre la primera ronda');
@@ -107,25 +116,16 @@ select lives_ok(
 select ok((select status = 'DRAFT' and submitted_at is null and resolved_at is null from public.expense_reports where id = '97000000-0000-0000-0000-000000000301'), 'la devolución reabre el borrador sin borrar historial');
 reset role;
 
--- expense_receipts_storage_delete_orphan (hallazgo de la auditoría, P1): NO
--- se puede ejercer con un DELETE real acá -- storage.protect_delete()
--- bloquea CUALQUIER DELETE directo por SQL sobre storage.objects, sin
--- importar RLS ni quién lo intente (verificado empíricamente: hasta el
--- dueño legítimo de un objeto nunca registrado lo recibe). Es a propósito:
--- Supabase exige pasar por la Storage API real para que la baja de
--- metadata y el borrado del archivo en el backend de objetos queden
--- sincronizados. uploadExpenseReceiptAction() ya usa esa API
--- (`supabase.storage.from(...).remove(...)`), nunca SQL directo, así que el
--- borrado real no pasa por este trigger. Lo que sí se puede probar por SQL
--- es que la policy existe y que su condición ("todavía nadie lo registró")
--- es exactamente la correcta.
+-- Desde Fase 2 toda escritura y limpieza usa el servicio server-only. El
+-- navegador autenticado conserva solo SELECT y no puede crear ni borrar
+-- objetos, ni siquiera huérfanos.
 select ok(
-  exists (
+  not exists (
     select 1 from pg_policies
     where schemaname = 'storage' and tablename = 'objects'
       and policyname = 'expense_receipts_storage_delete_orphan' and cmd = 'DELETE'
   ),
-  'existe la policy de borrado acotado a comprobantes huérfanos'
+  'el navegador no puede borrar objetos del bucket de comprobantes'
 );
 select ok(
   not exists (

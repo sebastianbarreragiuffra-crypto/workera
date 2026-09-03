@@ -126,6 +126,38 @@ ahora considera solo rendiciones abiertas y las consultas temporales tienen
 endurecer `categoryLimits`: valores malformados o sobredimensionados se rechazan
 al guardar la política y el agregado evita conversiones numéricas inseguras.
 
+## Fase 2, bloque 2 — bandeja segura de comprobantes
+
+Se agregó una bandeja personal para capturar comprobantes desde un archivo o
+directamente con la cámara del teléfono antes de asociarlos a un gasto. Acepta
+PDF, JPG y PNG de hasta 10 MiB, ofrece vista previa temporal, indica posibles
+duplicados y permite asociar o descartar cada captura. El modelo reserva las
+fuentes `EMAIL` y `WHATSAPP` y una clave idempotente para conectores futuros,
+pero esos canales externos todavía no están conectados.
+
+La carga ya no escribe directamente desde el navegador en Storage. Un servicio
+`server-only` verifica sesión, empresa, módulo y permisos, calcula SHA-256 sobre
+los bytes reales y usa `service_role` únicamente después de esas comprobaciones.
+Las funciones privilegiadas vuelven a validar actor, empresa, gasto y estado en
+PostgreSQL. La lectura sigue siendo privada mediante URL firmada de 60 segundos.
+
+La asociación a un gasto es atómica y exige una rendición `DRAFT`. Se cerraron
+las carreras con el envío de la rendición y con cargas simultáneas, se impuso un
+máximo estricto de 50 capturas pendientes por persona/empresa y al borrar un
+gasto la captura vuelve a la bandeja solo si queda cupo; con la bandeja llena el
+borrado se bloquea para no perder evidencia ni dejar archivos huérfanos. El
+descarte exige además el `company_id` correcto, por lo que un identificador de
+otra empresa no puede cambiar su estado.
+
+La migración `20260902160000` y el test pgTAP `058` cubren privacidad, permisos,
+aislamiento entre empresas, IDOR, asociación única, eliminación, límite de la
+bandeja y descarte cruzado. Validación local final: reconstrucción completa,
+58 suites pgTAP / 1.068 aserciones, 717 tests de aplicación aprobados (2 opt-in
+omitidos), TypeScript, ESLint, lint de base y compilación de producción en verde.
+Bugbot encontró seis bordes de concurrencia/ciclo de vida y Security Review tres
+riesgos de confianza, limpieza de Storage y conservación de evidencia; todos
+quedaron corregidos antes del commit.
+
 ## Otros hallazgos ya cerrados (no rehacer)
 
 - ✅ Link faltante `(platform)` → Rendiciones — hecho (`a638eb5`).
