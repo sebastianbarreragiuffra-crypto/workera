@@ -19,17 +19,6 @@ import { buildAttendanceExportData, buildAttendanceExportWorkbook } from "../../
  * anterior al 15). Los otros tres se conservan porque son útiles para revisar
  * ventanas más cortas durante la marcha blanca.
  */
-
-/**
- * La planilla de referencia de RRHH lleva nombres reales y por eso vive fuera
- * del repo. Si el camino de plantilla dependiera solo de que el archivo exista,
- * el mismo período generaría un Excel distinto en cada ambiente según quién lo
- * ejecute. El flag lo vuelve una decisión explícita y apagada por defecto,
- * igual que `WORKERA_SYNC_ENABLED` y `EXPENSE_OCR_ENABLED`.
- */
-function referenceTemplateEnabled(): boolean {
-  return process.env.ATTENDANCE_EXPORT_TEMPLATE_ENABLED === "true";
-}
 export async function GET(request: NextRequest) {
   const profile = await getCurrentProfile();
   if (!profile?.role) {
@@ -65,16 +54,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Parámetros de período inválidos." }, { status: 400 });
   }
 
-  const useReferenceTemplate = referenceTemplateEnabled();
   const supabase = await createClient();
   let data;
   try {
-    data = await buildAttendanceExportData(supabase, profile.role, period, useReferenceTemplate);
+    data = await buildAttendanceExportData(supabase, profile.role, period);
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "No pudimos generar el archivo." }, { status: 500 });
   }
 
-  const workbook = buildAttendanceExportWorkbook(data, useReferenceTemplate);
+  const workbook = buildAttendanceExportWorkbook(data);
   const filename = `asistencia-${period.type.toLowerCase()}-${period.startDate}-al-${period.endDate}.xlsx`;
 
   return new NextResponse(Buffer.from(workbook), {

@@ -2,13 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
 import {
-  applyTemplateWorkerScope,
   buildAttendanceExportData,
   buildAttendanceExportWorkbook,
   calendarDaysBetween,
   isWeekend,
-  type AttendanceExportWorker,
-  type TemplateWorker,
 } from "./attendance-export";
 import type { AttendanceExportPeriod } from "./attendance-export-periods";
 
@@ -340,60 +337,4 @@ test("libro: Asistencia no cuenta el feriado como día trabajado", async () => {
   const sinFeriado = await buildSheet({ employees: ONE_WORKER });
   assert.equal(sinFeriado[14][2], 5);
   assert.equal(conFeriado[14][2], 4);
-});
-
-// ---------------------------------------------------------------------------
-// Alcance de la plantilla de referencia (mockup de RRHH)
-// ---------------------------------------------------------------------------
-
-/**
- * La plantilla solo aporta ORDEN y ETIQUETA de las filas. El padrón lo define
- * siempre la consulta a `employees`: si el mockup pudiera recortarlo, una
- * contratación posterior desaparecería en silencio de un documento que
- * alimenta remuneraciones.
- */
-function worker(id: string, workerName: string): AttendanceExportWorker {
-  return { employeeId: id, workerName, area: "PRODUCTION", days: new Map() };
-}
-
-function templateEntry(label: string, tokens: string[]): TemplateWorker {
-  return { label, tokens: new Set(tokens) };
-}
-
-test("plantilla: un trabajador vigente ausente del mockup NO se pierde del export", () => {
-  const workers = [worker("e1", "JUAN PEREZ"), worker("e2", "MARIA SOTO")];
-  const template = [templateEntry("JUAN PEREZ\nLUNES A VIERNES", ["JUAN", "PEREZ"])];
-
-  const scoped = applyTemplateWorkerScope(workers, template, false);
-
-  assert.deepEqual(
-    scoped.map((w) => w.employeeId).sort(),
-    ["e1", "e2"],
-    "MARIA SOTO no está en el mockup, pero sigue siendo personal vigente"
-  );
-});
-
-test("plantilla: el trabajador que sí coincide conserva el orden y la etiqueta del mockup", () => {
-  const workers = [worker("e2", "MARIA SOTO"), worker("e1", "JUAN PEREZ")];
-  const template = [templateEntry("JUAN PEREZ\nLUNES A VIERNES", ["JUAN", "PEREZ"])];
-
-  const scoped = applyTemplateWorkerScope(workers, template, false);
-
-  assert.equal(scoped[0].employeeId, "e1", "el orden del mockup manda para quien sí figura");
-  assert.equal(scoped[0].workerName, "JUAN PEREZ\nLUNES A VIERNES", "conserva la etiqueta con horario");
-  assert.equal(scoped[1].workerName, "MARIA SOTO", "el no listado conserva su nombre real");
-});
-
-test("plantilla: sin plantilla disponible el padrón queda intacto", () => {
-  const workers = [worker("e1", "JUAN PEREZ"), worker("e2", "MARIA SOTO")];
-  assert.deepEqual(applyTemplateWorkerScope(workers, null, true), workers);
-});
-
-test("plantilla: una misma fila del mockup nunca consume dos veces al mismo empleado", () => {
-  const workers = [worker("e1", "JUAN PEREZ")];
-  const template = [templateEntry("JUAN PEREZ", ["JUAN", "PEREZ"]), templateEntry("JUAN PEREZ", ["JUAN", "PEREZ"])];
-
-  const scoped = applyTemplateWorkerScope(workers, template, false);
-
-  assert.equal(scoped.length, 1, "la segunda fila no encuentra un empleado libre y no se duplica");
 });
