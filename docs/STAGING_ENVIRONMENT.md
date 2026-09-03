@@ -55,10 +55,10 @@ Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base d
 
 ## Checklist de verificación estructural (ya ejecutada en la creación)
 
-- [x] Las 80 migraciones conciliadas hasta `20260902140000`
-- [x] Rendiciones EX-1 a EX-8 y EX-13 p1 desplegados en staging
-- [x] 79 tablas en `public`; 78 usan RLS y la tabla de catálogo global conserva su tratamiento explícito
-- [x] 155 policies RLS y 65 triggers verificados en staging
+- [x] Las 83 migraciones conciliadas hasta `20260902170000`
+- [x] Rendiciones EX-1 a EX-8, EX-13 p1 y Fase 2 bloques 1-3 desplegados en staging
+- [x] 83 tablas en `public`; 82 usan RLS y la tabla de catálogo global conserva su tratamiento explícito
+- [x] 157 policies RLS y 71 triggers verificados en staging
 - [x] 4 buckets de Storage presentes
 - [x] `authorized_email_roles` con las 7 filas correctas (1 SUPER_ADMIN, 4 ADMIN_RRHH, 1 SUPERVISOR_PRODUCTION, 1 SUPERVISOR_INSTALLATION)
 - [x] Trigger `on_auth_user_created` presente y habilitado sobre `auth.users`, función `handle_new_auth_user()` referencia `authorized_email_roles` y crea el `profile` correcto
@@ -84,6 +84,20 @@ Validación final:
 - la compilación de producción contra staging finaliza correctamente;
 - `/login` responde, las rutas privadas redirigen al login sin sesión y el
   endpoint de sincronización rechaza llamadas sin credenciales.
+
+## Fase 2, bloque 3 en staging — 3 de septiembre de 2026
+
+Antes del despliegue de la recepción por correo se guardaron respaldos lógicos
+de esquema y datos fuera del repositorio, en
+`C:\Users\SEBAS\Desktop\workera-staging-backups\pre-phase2-email-e5df877`.
+La simulación mostró únicamente la migración `20260902170000`; luego se aplicó
+y se verificó que local/remoto coinciden, el dry-run quedó sin pendientes y el
+lint remoto de `public`/`private` no informa errores.
+
+El conector real permanece deshabilitado. No se configuraron API key, secreto
+de webhook ni dominio receptor en staging; debe activarse solo después de
+verificar el dominio y el webhook en Resend siguiendo
+`docs/EXPENSE_EMAIL_CAPTURE.md`.
 
 ## Nota de seguridad encontrada durante la creación
 
