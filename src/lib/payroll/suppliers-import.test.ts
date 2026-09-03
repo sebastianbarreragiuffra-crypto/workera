@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
 import { parseSuppliersExcel, importSuppliers } from "./suppliers-import";
 
+const COMPANY_ID = "0a4c0000-0000-0000-0000-000000000001";
+
 function buildWorkbookBytes(rows: (string | number | null)[][]): Uint8Array {
   const sheetRows: (string | number | null)[][] = [["Rut", "Nombre Beneficiario", "FP", "BCO", "N° Cuenta Cte."], ...rows];
   const sheet = XLSX.utils.aoa_to_sheet(sheetRows);
@@ -79,7 +81,11 @@ function mockSupabase(existingNormalizedNames: string[], inserted: { upserted?: 
     from() {
       return {
         select() {
-          return { data: existingNormalizedNames.map((n) => ({ normalized_name: n })), error: null };
+          return {
+            eq() {
+              return Promise.resolve({ data: existingNormalizedNames.map((n) => ({ normalized_name: n })), error: null });
+            },
+          };
         },
         upsert(rows: unknown[]) {
           inserted.upserted = rows;
@@ -96,6 +102,7 @@ test("importSuppliers: proveedor nuevo se cuenta como imported, no updated", asy
   const supabase = mockSupabase([], inserted);
   const result = await importSuppliers(
     supabase,
+    COMPANY_ID,
     [{ rowNumber: 2, rut: "11111111", name: "PROVEEDOR NUEVO", paymentMethod: "OTC", bankCode: "1", accountNumber: "12345678" }],
     "admin-1"
   );
@@ -109,6 +116,7 @@ test("importSuppliers: proveedor ya existente (mismo nombre normalizado) se cuen
   const supabase = mockSupabase(["PROVEEDOR EXISTENTE"]);
   const result = await importSuppliers(
     supabase,
+    COMPANY_ID,
     [{ rowNumber: 2, rut: "11111111", name: "Proveedor Existente", paymentMethod: "OTC", bankCode: "1", accountNumber: "12345678" }],
     "admin-1"
   );
@@ -120,6 +128,7 @@ test("importSuppliers: mismo nombre normalizado con datos bancarios distintos de
   const supabase = mockSupabase([]);
   const result = await importSuppliers(
     supabase,
+    COMPANY_ID,
     [
       { rowNumber: 2, rut: "11111111", name: "PROVEEDOR AMBIGUO", paymentMethod: "OTC", bankCode: "1", accountNumber: "111" },
       { rowNumber: 3, rut: "22222222", name: "Proveedor Ambiguo", paymentMethod: "OTC", bankCode: "1", accountNumber: "222" },
@@ -138,6 +147,7 @@ test("importSuppliers: filas exactamente duplicadas (mismo nombre y mismos datos
   const row = { rut: "11111111", name: "PROVEEDOR DUPLICADO", paymentMethod: "OTC", bankCode: "1", accountNumber: "111" };
   const result = await importSuppliers(
     supabase,
+    COMPANY_ID,
     [
       { rowNumber: 2, ...row },
       { rowNumber: 3, ...row },

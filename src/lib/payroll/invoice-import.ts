@@ -249,6 +249,7 @@ function findSupplier(row: ParsedInvoiceRow, bySuppliersRut: Map<string, Supplie
  */
 export async function generatePayrollBatch(
   supabase: SupabaseClient<Database>,
+  companyId: string,
   rows: ParsedInvoiceRow[],
   sourceFilename: string,
   generatedBy: string
@@ -256,6 +257,7 @@ export async function generatePayrollBatch(
   const { data: suppliers, error: suppliersError } = await supabase
     .from("suppliers")
     .select("id, rut, name, normalized_name, normalized_rut, payment_method, bank_code, account_number")
+    .eq("company_id", companyId)
     .eq("active", true);
   if (suppliersError) throw new Error(`generatePayrollBatch: fallo leyendo suppliers: ${suppliersError.message}`);
 
@@ -281,12 +283,13 @@ export async function generatePayrollBatch(
 
   const { data: batch, error: batchError } = await supabase
     .from("payroll_batches")
-    .insert({ source_filename: sourceFilename, generated_by: generatedBy, matched_count: matchedCount, unmatched_count: unmatchedCount, total_amount: totalAmount })
+    .insert({ company_id: companyId, source_filename: sourceFilename, generated_by: generatedBy, matched_count: matchedCount, unmatched_count: unmatchedCount, total_amount: totalAmount })
     .select("id")
     .single();
   if (batchError || !batch) throw new Error(`generatePayrollBatch: fallo creando lote: ${batchError?.message}`);
 
   const itemRows = resolved.map(({ row, supplier }) => ({
+    company_id: companyId,
     batch_id: batch.id,
     nro_docto: row.nroDocto,
     nombre_cliente: row.nombreCliente,

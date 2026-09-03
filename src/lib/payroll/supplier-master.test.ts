@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
 import { validateFileMeta, computeSupplierMasterPreview, applySupplierMasterImport } from "./supplier-master";
 
+const COMPANY_ID = "0a4c0000-0000-0000-0000-000000000001";
+
 function buildWorkbookBytes(rows: (string | number | null)[][]): Uint8Array {
   const sheetRows: (string | number | null)[][] = [["Rut", "Nombre Beneficiario", "FP", "BCO", "N° Cuenta Cte."], ...rows];
   const sheet = XLSX.utils.aoa_to_sheet(sheetRows);
@@ -35,7 +37,10 @@ function mockSupabase(opts: { currentSuppliers?: CurrentSupplierRow[]; failAt?: 
       if (table === "suppliers") {
         return {
           select() {
-            return { eq: () => Promise.resolve({ data: currentSuppliers, error: null }) };
+            return {
+              eq() { return this; },
+              then(resolve: (value: unknown) => void) { resolve({ data: currentSuppliers, error: null }); },
+            };
           },
         };
       }
@@ -89,7 +94,7 @@ test("validateFileMeta: acepta un .xlsx dentro del límite", () => {
 test("computeSupplierMasterPreview: proveedor sin coincidencia en el maestro actual -> NEW", async () => {
   const { client } = mockSupabase({ currentSuppliers: [] });
   const bytes = buildWorkbookBytes([["11.111.111-1", "PROVEEDOR NUEVO", "OTC", "1", "12345"]]);
-  const preview = await computeSupplierMasterPreview(client, bytes);
+  const preview = await computeSupplierMasterPreview(client, COMPANY_ID, bytes);
   assert.equal(preview.ok, true);
   assert.equal(preview.newCount, 1);
   assert.equal(preview.rows[0].status, "NEW");
@@ -100,7 +105,7 @@ test("computeSupplierMasterPreview: mismo RUT, mismos datos bancarios -> UNCHANG
     currentSuppliers: [{ normalized_rut: "111111111", name: "PROVEEDOR IGUAL", payment_method: "OTC", bank_code: "1", account_number: "12345" }],
   });
   const bytes = buildWorkbookBytes([["11.111.111-1", "PROVEEDOR IGUAL", "OTC", "1", "12345"]]);
-  const preview = await computeSupplierMasterPreview(client, bytes);
+  const preview = await computeSupplierMasterPreview(client, COMPANY_ID, bytes);
   assert.equal(preview.unchangedCount, 1);
   assert.equal(preview.rows[0].status, "UNCHANGED");
 });
@@ -110,7 +115,7 @@ test("computeSupplierMasterPreview: mismo RUT, cuenta bancaria distinta -> UPDAT
     currentSuppliers: [{ normalized_rut: "111111111", name: "PROVEEDOR CAMBIO", payment_method: "OTC", bank_code: "1", account_number: "OLD-999" }],
   });
   const bytes = buildWorkbookBytes([["11.111.111-1", "PROVEEDOR CAMBIO", "OTC", "1", "NEW-000"]]);
-  const preview = await computeSupplierMasterPreview(client, bytes);
+  const preview = await computeSupplierMasterPreview(client, COMPANY_ID, bytes);
   assert.equal(preview.updatedCount, 1);
   assert.equal(preview.rows[0].status, "UPDATED");
 });
@@ -119,7 +124,7 @@ test("computeSupplierMasterPreview: mismo RUT repetido con datos idénticos en e
   const { client } = mockSupabase({ currentSuppliers: [] });
   const row = ["11.111.111-1", "PROVEEDOR REPETIDO", "OTC", "1", "12345"];
   const bytes = buildWorkbookBytes([row, row]);
-  const preview = await computeSupplierMasterPreview(client, bytes);
+  const preview = await computeSupplierMasterPreview(client, COMPANY_ID, bytes);
   assert.equal(preview.ok, true);
   assert.equal(preview.totalFound, 1);
 });
@@ -130,7 +135,7 @@ test("computeSupplierMasterPreview: mismo RUT repetido con datos bancarios disti
     ["11.111.111-1", "PROVEEDOR AMBIGUO", "OTC", "1", "111"],
     ["11.111.111-1", "PROVEEDOR AMBIGUO", "OTC", "1", "222"],
   ]);
-  const preview = await computeSupplierMasterPreview(client, bytes);
+  const preview = await computeSupplierMasterPreview(client, COMPANY_ID, bytes);
   assert.equal(preview.ok, false);
   assert.match(preview.blockingError ?? "", /aparece más de una vez/);
 });
@@ -142,7 +147,7 @@ test("computeSupplierMasterPreview: archivo sin las columnas esperadas -> bloque
   XLSX.utils.book_append_sheet(workbook, sheet, "Hoja1");
   const bytes = XLSX.write(workbook, { type: "array", bookType: "xlsx" }) as Uint8Array;
 
-  const preview = await computeSupplierMasterPreview(client, bytes);
+  const preview = await computeSupplierMasterPreview(client, COMPANY_ID, bytes);
   assert.equal(preview.ok, false);
   assert.match(preview.blockingError ?? "", /columnas esperadas/);
 });
@@ -153,7 +158,7 @@ test("computeSupplierMasterPreview: fila con campo faltante se reporta como erro
     ["11.111.111-1", "PROVEEDOR OK", "OTC", "1", "12345"],
     ["22.222.222-2", "", "OTC", "1", "999"],
   ]);
-  const preview = await computeSupplierMasterPreview(client, bytes);
+  const preview = await computeSupplierMasterPreview(client, COMPANY_ID, bytes);
   assert.equal(preview.ok, true);
   assert.equal(preview.newCount, 1);
   assert.equal(preview.errorCount, 1);
@@ -162,7 +167,7 @@ test("computeSupplierMasterPreview: fila con campo faltante se reporta como erro
 test("applySupplierMasterImport: primer maestro -- sube el archivo y aplica todo en una sola llamada atómica (RPC)", async () => {
   const { client, calls } = mockSupabase({ currentSuppliers: [] });
   const bytes = buildWorkbookBytes([["11.111.111-1", "PROVEEDOR NUEVO", "OTC", "1", "12345"]]);
-  const result = await applySupplierMasterImport(client, { fileBytes: bytes, filename: "maestro.xlsx", uploadedBy: "admin-1" });
+  const result = await applySupplierMasterImport(client, { companyId: COMPANY_ID, fileBytes: bytes, filename: "maestro.xlsx", uploadedBy: "admin-1" });
 
   assert.equal(result.insertedCount, 1);
   assert.deepEqual(calls, ["upload", "apply_supplier_master_import"]);
@@ -171,7 +176,7 @@ test("applySupplierMasterImport: primer maestro -- sube el archivo y aplica todo
 test("applySupplierMasterImport: si falla la subida a Storage, nunca se llega a llamar la función de persistencia", async () => {
   const { client, calls } = mockSupabase({ currentSuppliers: [], failAt: "upload" });
   const bytes = buildWorkbookBytes([["11.111.111-1", "PROVEEDOR NUEVO", "OTC", "1", "12345"]]);
-  await assert.rejects(() => applySupplierMasterImport(client, { fileBytes: bytes, filename: "maestro.xlsx", uploadedBy: "admin-1" }));
+  await assert.rejects(() => applySupplierMasterImport(client, { companyId: COMPANY_ID, fileBytes: bytes, filename: "maestro.xlsx", uploadedBy: "admin-1" }));
   assert.deepEqual(calls, ["upload"]);
 });
 
@@ -179,7 +184,7 @@ test("applySupplierMasterImport: si la función de persistencia (transacción) f
   const { client, calls } = mockSupabase({ currentSuppliers: [], failAt: "apply" });
   const bytes = buildWorkbookBytes([["11.111.111-1", "PROVEEDOR NUEVO", "OTC", "1", "12345"]]);
   await assert.rejects(
-    () => applySupplierMasterImport(client, { fileBytes: bytes, filename: "maestro.xlsx", uploadedBy: "admin-1" }),
+    () => applySupplierMasterImport(client, { companyId: COMPANY_ID, fileBytes: bytes, filename: "maestro.xlsx", uploadedBy: "admin-1" }),
     /transacción revertida/
   );
   assert.deepEqual(calls, ["upload", "apply_supplier_master_import"]);
@@ -192,6 +197,6 @@ test("applySupplierMasterImport: archivo inválido (encabezado no encontrado) nu
   XLSX.utils.book_append_sheet(workbook, sheet, "Hoja1");
   const bytes = XLSX.write(workbook, { type: "array", bookType: "xlsx" }) as Uint8Array;
 
-  await assert.rejects(() => applySupplierMasterImport(client, { fileBytes: bytes, filename: "maestro.xlsx", uploadedBy: "admin-1" }));
+  await assert.rejects(() => applySupplierMasterImport(client, { companyId: COMPANY_ID, fileBytes: bytes, filename: "maestro.xlsx", uploadedBy: "admin-1" }));
   assert.deepEqual(calls, []);
 });

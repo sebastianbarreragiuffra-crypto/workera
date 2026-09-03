@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "../../../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../../../lib/auth/session";
+import { requireSingleOperationalCompany } from "../../../../../lib/tenant/resolve-active-company";
 
 /**
  * Descarga del archivo maestro de proveedores ACTUALMENTE ACTIVO. Genera
@@ -15,8 +16,14 @@ export async function GET() {
   }
 
   const supabase = await createClient();
+  const company = await requireSingleOperationalCompany(supabase);
 
-  const { data: active, error: activeError } = await supabase.from("supplier_master_imports").select("storage_path, original_filename").eq("status", "ACTIVE").maybeSingle();
+  const { data: active, error: activeError } = await supabase
+    .from("supplier_master_imports")
+    .select("storage_path, original_filename")
+    .eq("company_id", company.companyId)
+    .eq("status", "ACTIVE")
+    .maybeSingle();
   if (activeError) {
     return NextResponse.json({ error: "No pudimos leer el maestro de proveedores." }, { status: 500 });
   }

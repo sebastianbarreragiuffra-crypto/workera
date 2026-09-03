@@ -3,6 +3,7 @@ import { createClient } from "../../../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../../../lib/auth/session";
 import { buildPayrollExportWorkbook } from "../../../../../lib/payroll/payroll-export";
 import type { PayrollBatchItemResult } from "../../../../../lib/payroll/invoice-import";
+import { requireSingleOperationalCompany } from "../../../../../lib/tenant/resolve-active-company";
 
 /**
  * Descarga del Excel final de un lote de nómina ya generado -- vuelve a
@@ -18,10 +19,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ bat
 
   const { batchId } = await params;
   const supabase = await createClient();
+  const company = await requireSingleOperationalCompany(supabase);
 
   const { data: rows, error } = await supabase
     .from("payroll_batch_items")
     .select("nro_docto, nombre_cliente, valor_total, status, suppliers(rut, name, payment_method, bank_code, account_number)")
+    .eq("company_id", company.companyId)
     .eq("batch_id", batchId);
 
   if (error) {

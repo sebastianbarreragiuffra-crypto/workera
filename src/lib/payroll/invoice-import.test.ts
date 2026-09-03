@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
 import { parseInvoiceExcel, generatePayrollBatch, type ParsedInvoiceRow } from "./invoice-import";
 
+const COMPANY_ID = "0a4c0000-0000-0000-0000-000000000001";
+
 function buildWorkbookBytes(headerRow: (string | number | null)[], headerRowIndex: number, rows: (string | number | null)[][]): Uint8Array {
   const junkRows: (string | number | null)[][] = Array.from({ length: headerRowIndex }, () => [null]);
   const sheetRows: (string | number | null)[][] = [...junkRows, headerRow, ...rows];
@@ -173,7 +175,11 @@ function mockSupabase(suppliers: FakeSupplier[]) {
   return {
     from(table: string) {
       if (table === "suppliers") {
-        return { select() { return this; }, eq() { return { data: suppliers, error: null }; } };
+        return {
+          select() { return this; },
+          eq() { return this; },
+          then(resolve: (value: unknown) => void) { resolve({ data: suppliers, error: null }); },
+        };
       }
       if (table === "payroll_batches") {
         return {
@@ -218,7 +224,7 @@ function row(overrides: Partial<ParsedInvoiceRow>): ParsedInvoiceRow {
 
 test("generatePayrollBatch: nombre con match exacto (normalizado) queda MATCHED con los datos bancarios del proveedor", async () => {
   const supabase = mockSupabase([SAMPLE_SUPPLIER]);
-  const result = await generatePayrollBatch(supabase, [row({ nombreCliente: "proveedor   conocido" })], "facturas.xlsx", "admin-1");
+  const result = await generatePayrollBatch(supabase, COMPANY_ID, [row({ nombreCliente: "proveedor   conocido" })], "facturas.xlsx", "admin-1");
   assert.equal(result.matchedCount, 1);
   assert.equal(result.unmatchedCount, 0);
   assert.equal(result.items[0].status, "MATCHED");
@@ -227,26 +233,26 @@ test("generatePayrollBatch: nombre con match exacto (normalizado) queda MATCHED 
 
 test("generatePayrollBatch: RUT con match exacto queda MATCHED aunque el nombre en la factura sea distinto al del maestro", async () => {
   const supabase = mockSupabase([SAMPLE_SUPPLIER]);
-  const result = await generatePayrollBatch(supabase, [row({ rut: "11.111.111-1", nombreCliente: "Nombre Distinto En La Factura" })], "facturas.xlsx", "admin-1");
+  const result = await generatePayrollBatch(supabase, COMPANY_ID, [row({ rut: "11.111.111-1", nombreCliente: "Nombre Distinto En La Factura" })], "facturas.xlsx", "admin-1");
   assert.equal(result.items[0].status, "MATCHED");
   assert.equal(result.items[0].supplier?.rut, "11111111");
 });
 
 test("generatePayrollBatch: RUT se prefiere sobre nombre -- un RUT que matchea gana aunque el nombre de la fila no matchee", async () => {
   const supabase = mockSupabase([SAMPLE_SUPPLIER]);
-  const result = await generatePayrollBatch(supabase, [row({ rut: "11.111.111-1", nombreCliente: "PROVEEDOR TOTALMENTE DISTINTO" })], "facturas.xlsx", "admin-1");
+  const result = await generatePayrollBatch(supabase, COMPANY_ID, [row({ rut: "11.111.111-1", nombreCliente: "PROVEEDOR TOTALMENTE DISTINTO" })], "facturas.xlsx", "admin-1");
   assert.equal(result.items[0].status, "MATCHED", "el RUT es el identificador canónico preferido");
 });
 
 test("generatePayrollBatch: RUT sin match cae a nombre como respaldo (formato histórico ya permitido por el negocio)", async () => {
   const supabase = mockSupabase([SAMPLE_SUPPLIER]);
-  const result = await generatePayrollBatch(supabase, [row({ rut: "99.999.999-9", nombreCliente: "Proveedor Conocido" })], "facturas.xlsx", "admin-1");
+  const result = await generatePayrollBatch(supabase, COMPANY_ID, [row({ rut: "99.999.999-9", nombreCliente: "Proveedor Conocido" })], "facturas.xlsx", "admin-1");
   assert.equal(result.items[0].status, "MATCHED");
 });
 
 test("generatePayrollBatch: proveedor SIN match -> la factura se conserva en la nómina (nunca se descarta)", async () => {
   const supabase = mockSupabase([SAMPLE_SUPPLIER]);
-  const result = await generatePayrollBatch(supabase, [row({ nroDocto: "6051", nombreCliente: "PROVEEDOR DESCONOCIDO", valorTotal: 50000 })], "facturas.xlsx", "admin-1");
+  const result = await generatePayrollBatch(supabase, COMPANY_ID, [row({ nroDocto: "6051", nombreCliente: "PROVEEDOR DESCONOCIDO", valorTotal: 50000 })], "facturas.xlsx", "admin-1");
   assert.equal(result.items.length, 1);
   assert.equal(result.matchedCount, 0);
   assert.equal(result.unmatchedCount, 1);
@@ -255,13 +261,13 @@ test("generatePayrollBatch: proveedor SIN match -> la factura se conserva en la 
 
 test("generatePayrollBatch: proveedor SIN match -> los campos bancarios quedan en blanco, nunca inventados", async () => {
   const supabase = mockSupabase([SAMPLE_SUPPLIER]);
-  const result = await generatePayrollBatch(supabase, [row({ nombreCliente: "PROVEEDOR DESCONOCIDO" })], "facturas.xlsx", "admin-1");
+  const result = await generatePayrollBatch(supabase, COMPANY_ID, [row({ nombreCliente: "PROVEEDOR DESCONOCIDO" })], "facturas.xlsx", "admin-1");
   assert.equal(result.items[0].supplier, null);
 });
 
 test("generatePayrollBatch: proveedor SIN match -> el monto y el número de documento de la factura se conservan íntegros", async () => {
   const supabase = mockSupabase([SAMPLE_SUPPLIER]);
-  const result = await generatePayrollBatch(supabase, [row({ nroDocto: "F-999", nombreCliente: "Desconocido", valorTotal: 1250000 })], "facturas.xlsx", "admin-1");
+  const result = await generatePayrollBatch(supabase, COMPANY_ID, [row({ nroDocto: "F-999", nombreCliente: "Desconocido", valorTotal: 1250000 })], "facturas.xlsx", "admin-1");
   assert.equal(result.items[0].nroDocto, "F-999");
   assert.equal(result.items[0].valorTotal, 1250000);
 });
@@ -270,6 +276,7 @@ test("generatePayrollBatch: el monto total del lote se calcula sobre TODAS las f
   const supabase = mockSupabase([SAMPLE_SUPPLIER]);
   const result = await generatePayrollBatch(
     supabase,
+    COMPANY_ID,
     [row({ nroDocto: "1", nombreCliente: "Proveedor Conocido", valorTotal: 100000 }), row({ nroDocto: "2", nombreCliente: "Desconocido", valorTotal: 50000 })],
     "facturas.xlsx",
     "admin-1"
@@ -281,6 +288,7 @@ test("generatePayrollBatch: monto total se preserva íntegro cuando NINGÚN prov
   const supabase = mockSupabase([SAMPLE_SUPPLIER]);
   const result = await generatePayrollBatch(
     supabase,
+    COMPANY_ID,
     [row({ nroDocto: "1", nombreCliente: "Desconocido A", valorTotal: 500000 }), row({ nroDocto: "2", nombreCliente: "Desconocido B", valorTotal: 750000 })],
     "facturas.xlsx",
     "admin-1"
@@ -293,6 +301,7 @@ test("generatePayrollBatch: varios proveedores sin match se marcan de forma inde
   const supabase = mockSupabase([SAMPLE_SUPPLIER]);
   const result = await generatePayrollBatch(
     supabase,
+    COMPANY_ID,
     [row({ nroDocto: "A", nombreCliente: "Desconocido Uno", valorTotal: 100 }), row({ nroDocto: "B", nombreCliente: "Desconocido Dos", valorTotal: 200 })],
     "facturas.xlsx",
     "admin-1"
@@ -303,18 +312,18 @@ test("generatePayrollBatch: varios proveedores sin match se marcan de forma inde
 
 test("generatePayrollBatch: todos los proveedores matchean -> lote sin ninguna bandera roja", async () => {
   const supabase = mockSupabase([SAMPLE_SUPPLIER]);
-  const result = await generatePayrollBatch(supabase, [row({ nombreCliente: "Proveedor Conocido" }), row({ nroDocto: "2", rut: "11.111.111-1" })], "facturas.xlsx", "admin-1");
+  const result = await generatePayrollBatch(supabase, COMPANY_ID, [row({ nombreCliente: "Proveedor Conocido" }), row({ nroDocto: "2", rut: "11.111.111-1" })], "facturas.xlsx", "admin-1");
   assert.equal(result.unmatchedCount, 0);
   assert.ok(result.items.every((i) => i.status === "MATCHED"));
 });
 
 test("generatePayrollBatch: la generación se completa exitosamente aunque haya proveedores sin match (nunca es un error fatal)", async () => {
   const supabase = mockSupabase([SAMPLE_SUPPLIER]);
-  await assert.doesNotReject(() => generatePayrollBatch(supabase, [row({ nombreCliente: "Desconocido" })], "facturas.xlsx", "admin-1"));
+  await assert.doesNotReject(() => generatePayrollBatch(supabase, COMPANY_ID, [row({ nombreCliente: "Desconocido" })], "facturas.xlsx", "admin-1"));
 });
 
 test("generatePayrollBatch: nunca hace match parcial/fuzzy -- un nombre distinto no calza aunque se parezca", async () => {
   const supabase = mockSupabase([SAMPLE_SUPPLIER]);
-  const result = await generatePayrollBatch(supabase, [row({ nroDocto: "6052", nombreCliente: "Proveedor Conocido SPA", valorTotal: 10000 })], "facturas.xlsx", "admin-1");
+  const result = await generatePayrollBatch(supabase, COMPANY_ID, [row({ nroDocto: "6052", nombreCliente: "Proveedor Conocido SPA", valorTotal: 10000 })], "facturas.xlsx", "admin-1");
   assert.equal(result.items[0].status, "UNMATCHED", "un nombre con texto adicional no conocido nunca debe matchear automáticamente");
 });
