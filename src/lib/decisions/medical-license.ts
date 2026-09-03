@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
-import { uploadSupportingDocument } from "./documents";
+import { uploadSupportingDocument, MAX_SUPPORTING_DOCUMENT_SIZE_BYTES } from "./documents";
 
 /**
  * Flujo de dos etapas para licencias médicas: subir documento -> pendiente
@@ -51,6 +51,15 @@ export async function uploadMedicalLicense(
   supabase: SupabaseClient<Database>,
   input: UploadMedicalLicenseInput
 ): Promise<UploadMedicalLicenseResult> {
+  // El tamaño se valida ANTES de escribir nada. `uploadSupportingDocument` ya
+  // lo rechaza, pero para entonces la ausencia de más abajo ya existe: como
+  // Next.js acepta hasta 12MB de body y el tope del documento son 10MB, un
+  // archivo en esa franja creaba una ausencia médica huérfana, sin documento
+  // ni fila de aprobación, que queda como caso pendiente para siempre.
+  if (input.fileBytes.byteLength > MAX_SUPPORTING_DOCUMENT_SIZE_BYTES) {
+    throw new Error(`El archivo supera el tamaño máximo permitido (${MAX_SUPPORTING_DOCUMENT_SIZE_BYTES / (1024 * 1024)}MB).`);
+  }
+
   const { data: absenceType, error: absenceTypeError } = await supabase
     .from("absence_types")
     .select("id")
@@ -78,30 +87,48 @@ export async function uploadMedicalLicense(
     throw new Error(`uploadMedicalLicense: fallo creando el registro de ausencia: ${absenceError?.message ?? "sin fila devuelta"}`);
   }
 
-  const { documentId } = await uploadSupportingDocument(supabase, {
-    employeeId: input.employeeId,
-    documentType: "MEDICAL_CERTIFICATE",
-    originalFilename: input.originalFilename,
-    mimeType: input.mimeType,
-    fileBytes: input.fileBytes,
-    relation: { kind: "ABSENCE", absenceRecordId: absenceRecord.id },
-  });
+  // Los tres pasos no comparten transacción: si algo falla después de crear la
+  // ausencia hay que deshacerla, o queda un caso pendiente sin documento ni
+  // aprobación que nadie puede resolver desde la UI.
+  try {
+    const { documentId } = await uploadSupportingDocument(supabase, {
+      employeeId: input.employeeId,
+      documentType: "MEDICAL_CERTIFICATE",
+      originalFilename: input.originalFilename,
+      mimeType: input.mimeType,
+      fileBytes: input.fileBytes,
+      relation: { kind: "ABSENCE", absenceRecordId: absenceRecord.id },
+    });
 
-  const approvalId = crypto.randomUUID();
-  const { error: approvalError } = await supabase.from("medical_license_approvals").insert({
-    id: approvalId,
-    absence_record_id: absenceRecord.id,
-    supporting_document_id: documentId,
-    proposed_start_date: input.proposedStartDate,
-    proposed_end_date: input.proposedEndDate,
-    extraction_status: input.extractionStatus,
-    uploaded_by: input.uploadedBy,
-  });
-  if (approvalError) {
-    throw new Error(`uploadMedicalLicense: fallo creando la fila de aprobación: ${approvalError.message}`);
+    const approvalId = crypto.randomUUID();
+    const { error: approvalError } = await supabase.from("medical_license_approvals").insert({
+      id: approvalId,
+      absence_record_id: absenceRecord.id,
+      supporting_document_id: documentId,
+      proposed_start_date: input.proposedStartDate,
+      proposed_end_date: input.proposedEndDate,
+      extraction_status: input.extractionStatus,
+      uploaded_by: input.uploadedBy,
+    });
+    if (approvalError) {
+      throw new Error(`uploadMedicalLicense: fallo creando la fila de aprobación: ${approvalError.message}`);
+    }
+
+    return { approvalId, absenceRecordId: absenceRecord.id, documentId };
+  } catch (err) {
+    // Compensación de mejor esfuerzo. Si ni siquiera esto se puede, se deja
+    // constancia con el id concreto: es preferible un log accionable a un
+    // registro fantasma silencioso.
+    const { error: cleanupError } = await supabase.from("absence_records").delete().eq("id", absenceRecord.id);
+    if (cleanupError) {
+      console.error(
+        "[licencias] quedó una ausencia huérfana tras fallar la subida",
+        `absence_record_id=${absenceRecord.id}`,
+        cleanupError.message
+      );
+    }
+    throw err;
   }
-
-  return { approvalId, absenceRecordId: absenceRecord.id, documentId };
 }
 
 export interface LicenseSummary {

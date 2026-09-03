@@ -7,6 +7,7 @@ import { getCurrentProfile } from "../../../lib/auth/session";
 import { requireMedicalLicenseApprover } from "../../../lib/supabase/authorize";
 import { assertEmployeeAccessAllowed, type CallerRole } from "../../../lib/access/scope";
 import { uploadMedicalLicense, approveMedicalLicense, rejectMedicalLicense, MAX_MEDICAL_LICENSE_DAYS } from "../../../lib/decisions/medical-license";
+import { MAX_SUPPORTING_DOCUMENT_SIZE_BYTES } from "../../../lib/decisions/documents";
 import { extractMedicalLicenseDates } from "../../../lib/decisions/medical-license-extraction";
 import { todayInSantiago, isCalendarDate } from "../../../lib/view-models/date-utils";
 
@@ -51,6 +52,13 @@ export async function uploadMedicalLicenseAction(_prev: UploadMedicalLicenseActi
   }
   if (!file || file.size === 0) {
     return { status: "error", message: "Adjunta el documento de la licencia médica.", extractionStatus: null };
+  }
+  if (file.size > MAX_SUPPORTING_DOCUMENT_SIZE_BYTES) {
+    return {
+      status: "error",
+      message: `El archivo supera el máximo permitido (${MAX_SUPPORTING_DOCUMENT_SIZE_BYTES / (1024 * 1024)} MB).`,
+      extractionStatus: null,
+    };
   }
 
   try {

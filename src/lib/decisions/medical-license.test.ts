@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { uploadMedicalLicense, listMedicalLicenses, approveMedicalLicense, rejectMedicalLicense, computeLicenseSummary, type MedicalLicenseListItem } from "./medical-license";
+import { MAX_SUPPORTING_DOCUMENT_SIZE_BYTES } from "./documents";
 import { canApproveMedicalLicense } from "../supabase/authorize";
 
 /**
@@ -31,6 +32,14 @@ function mockSupabase(opts: { failAt?: string } = {}) {
             (inserted.absence_records ??= []).push(row);
             if (opts.failAt === "absence_records") return { select: () => ({ single: () => Promise.resolve({ data: null, error: { message: "boom" } }) }) };
             return { select: () => ({ single: () => Promise.resolve({ data: { id: "absence-record-1" }, error: null }) }) };
+          },
+          delete() {
+            return {
+              eq(_column: string, value: string) {
+                calls.push(`delete:absence_records:${value}`);
+                return Promise.resolve({ error: null });
+              },
+            };
           },
         };
       }
@@ -239,4 +248,62 @@ test("computeLicenseSummary: pendientes y rechazadas NUNCA cuentan como activas 
   const licenses = [license({ status: "PENDING_RRHH_APPROVAL" }), license({ status: "REJECTED" })];
   const summary = computeLicenseSummary(licenses, "2026-08-20");
   assert.equal(summary.activeNowCount, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Atomicidad: la ausencia no puede sobrevivir a una subida fallida
+// ---------------------------------------------------------------------------
+
+/**
+ * Los tres pasos no comparten transacción. Si la ausencia queda escrita y el
+ * documento no, el trabajador arrastra una ausencia médica sin documento ni
+ * fila de aprobación: aparece como caso pendiente y nadie puede resolverlo
+ * desde la UI, porque no hay licencia que aprobar ni rechazar.
+ */
+
+const VALID_UPLOAD = {
+  employeeId: "emp-1",
+  proposedStartDate: "2026-08-20",
+  proposedEndDate: "2026-08-22",
+  extractionStatus: "EXTRAIDO" as const,
+  originalFilename: "certificado.pdf",
+  mimeType: "application/pdf",
+  uploadedBy: "profile-1",
+};
+
+test("uploadMedicalLicense: un archivo sobre el máximo se rechaza ANTES de crear la ausencia", async () => {
+  const { client, calls } = mockSupabase();
+  // Next.js acepta hasta 12MB de body y el tope del documento son 10MB, así
+  // que esta franja llega de verdad a la función.
+  const tooBig = new Uint8Array(MAX_SUPPORTING_DOCUMENT_SIZE_BYTES + 1);
+
+  await assert.rejects(() => uploadMedicalLicense(client, { ...VALID_UPLOAD, fileBytes: tooBig }), /máximo/i);
+  assert.deepEqual(calls, [], "no se tocó la base: ni siquiera se creó la ausencia");
+});
+
+test("uploadMedicalLicense: si falla el documento, la ausencia recién creada se borra", async () => {
+  const { client, calls } = mockSupabase({ failAt: "supporting_documents" });
+
+  await assert.rejects(() => uploadMedicalLicense(client, { ...VALID_UPLOAD, fileBytes: new Uint8Array([1, 2, 3]) }));
+  assert.ok(
+    calls.includes("delete:absence_records:absence-record-1"),
+    `la ausencia debía compensarse; llamadas: ${calls.join(", ")}`
+  );
+});
+
+test("uploadMedicalLicense: si falla la fila de aprobación, la ausencia también se borra", async () => {
+  const { client, calls } = mockSupabase({ failAt: "medical_license_approvals" });
+
+  await assert.rejects(() => uploadMedicalLicense(client, { ...VALID_UPLOAD, fileBytes: new Uint8Array([1, 2, 3]) }));
+  assert.ok(
+    calls.includes("delete:absence_records:absence-record-1"),
+    `la ausencia debía compensarse; llamadas: ${calls.join(", ")}`
+  );
+});
+
+test("uploadMedicalLicense: en el camino feliz NO se borra nada", async () => {
+  const { client, calls } = mockSupabase();
+
+  await uploadMedicalLicense(client, { ...VALID_UPLOAD, fileBytes: new Uint8Array([1, 2, 3]) });
+  assert.ok(!calls.some((call) => call.startsWith("delete:")), "una subida correcta nunca compensa");
 });
