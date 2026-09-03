@@ -39,6 +39,52 @@ predeterminados `5432x`. Si existe una colisión real, no se edita
 `config.toml` solo en ese PC: se acuerda un rango nuevo y se versiona para el
 equipo completo.
 
+## Varios worktrees en el mismo computador
+
+La regla anterior asume una pila por máquina. No cubre el caso de tener
+varios `git worktree` del repositorio abiertos a la vez, que es lo habitual
+cuando trabaja más de un agente en paralelo.
+
+**Todos los worktrees comparten la MISMA instancia local de Supabase**, porque
+`project_id` determina el nombre de los contenedores y está versionado. Las
+consecuencias son concretas y ya ocurrieron:
+
+- Un `npx supabase db reset` hecho desde un worktree aplica **las migraciones
+  de esa rama** a la base que usan todos los demás.
+- A partir de ahí, `npx supabase test db` en otro worktree corre los tests de
+  su rama contra un esquema ajeno. Falla —o pasa— por razones que no tienen
+  relación con el código que se está probando.
+- Los síntomas engañan: tablas que "desaparecen", corridas que pasan de 10
+  segundos a 10 minutos, y fallos de RLS en `storage.objects` que parecen
+  defectos reales y no lo son.
+
+**Cómo verificar antes de dudar del código.** Si `supabase test db` falla de
+forma inexplicable, comparar lo aplicado en la base contra las migraciones de
+la rama actual:
+
+```bash
+docker exec supabase_db_Workera psql -U postgres -d postgres \
+  -tAc "select version from supabase_migrations.schema_migrations order by version desc limit 5;"
+ls supabase/migrations | tail -5
+```
+
+Si no coinciden, la base es de otra rama y el resultado de los tests no
+significa nada.
+
+**Cómo aislar un worktree.** En su `supabase/config.toml`, darle un
+`project_id` propio y desplazar todo el rango de puertos:
+
+```toml
+project_id = "workera-<nombre-del-worktree>"
+# 5442x -> 5642x en api.port, db.port, db.shadow_port, db.pooler.port,
+# studio.port, inbucket.port y analytics.port
+```
+
+Ese cambio es **deliberadamente local y no se commitea**: subirlo movería los
+puertos de todo el equipo. Queda como archivo modificado permanente en ese
+worktree, así que conviene no usar `git add -A` a ciegas ahí, y revisar que
+`config.toml` no se cuele en un commit.
+
 ## Preparación inicial en cada PC
 
 1. Instalar Docker Desktop, Node.js y Supabase CLI.
