@@ -99,6 +99,33 @@ con el entorno de staging también pasó y las rutas privadas se mantienen
 protegidas. Con esto, **la Fase 1 queda cerrada** y el próximo trabajo comienza
 en Fase 2.
 
+## Fase 2, bloque 1 — EX-13 p2: controles y alertas
+
+Se amplió la pantalla de indicadores de Rendiciones con seis señales
+operacionales para priorizar revisión humana: comprobantes duplicados,
+comprobantes obligatorios faltantes, OCR pendiente, fallas de OCR, ítems que
+superan límites de política y cobertura de comprobantes. Estas señales no
+declaran fraude ni certifican cumplimiento legal.
+
+El cálculo se trasladó a `get_expense_indicators()`, un RPC agregado en
+PostgreSQL que exige membresía activa, módulo Rendiciones habilitado y permiso
+de lectura, aprobación o administración. El RPC aplica el ámbito de empresa de
+forma explícita y evita descargar miles de filas al servidor web para calcular
+los totales, eliminando además el riesgo de agregados truncados por el límite de
+PostgREST.
+
+La migración `20260902150000` y el test pgTAP `057` cubren permisos, aislamiento
+entre empresas, ventana temporal, métricas y alertas. Validación local: reset
+completo con las 81 migraciones, 57 suites pgTAP / 1.029 aserciones, 716 tests de
+aplicación aprobados (2 opt-in omitidos), TypeScript, ESLint, lint de base y
+compilación de producción en verde.
+
+La revisión funcional previa al commit corrigió dos puntos: la alerta de límite
+ahora considera solo rendiciones abiertas y las consultas temporales tienen
+índices dedicados. Security Review confirmó el aislamiento tenant y llevó a
+endurecer `categoryLimits`: valores malformados o sobredimensionados se rechazan
+al guardar la política y el agregado evita conversiones numéricas inseguras.
+
 ## Otros hallazgos ya cerrados (no rehacer)
 
 - ✅ Link faltante `(platform)` → Rendiciones — hecho (`a638eb5`).

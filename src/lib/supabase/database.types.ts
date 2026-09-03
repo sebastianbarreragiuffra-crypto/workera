@@ -4769,6 +4769,10 @@ export type Database = {
           visible_total: number
         }[]
       }
+      expense_policy_category_limits_valid: {
+        Args: { p_rules: Json }
+        Returns: boolean
+      }
       fail_expense_ocr_job: {
         Args: {
           p_error_category: string
@@ -4779,6 +4783,10 @@ export type Database = {
           p_worker_id: string
         }
         Returns: boolean
+      }
+      get_expense_indicators: {
+        Args: { p_company_id: string; p_window_days?: number }
+        Returns: Json
       }
       grant_expense_advance: {
         Args: {
