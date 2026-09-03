@@ -2299,6 +2299,85 @@ export type Database = {
           },
         ]
       }
+      expense_receipt_captures: {
+        Row: {
+          attached_at: string | null
+          attached_receipt_id: string | null
+          checksum_sha256: string
+          company_id: string
+          created_at: string
+          discarded_at: string | null
+          external_message_id: string | null
+          file_size: number
+          id: string
+          mime_type: string
+          original_filename: string
+          source: string
+          status: string
+          storage_path: string
+          updated_at: string
+          uploaded_by: string
+        }
+        Insert: {
+          attached_at?: string | null
+          attached_receipt_id?: string | null
+          checksum_sha256: string
+          company_id: string
+          created_at?: string
+          discarded_at?: string | null
+          external_message_id?: string | null
+          file_size: number
+          id?: string
+          mime_type: string
+          original_filename: string
+          source: string
+          status?: string
+          storage_path: string
+          updated_at?: string
+          uploaded_by: string
+        }
+        Update: {
+          attached_at?: string | null
+          attached_receipt_id?: string | null
+          checksum_sha256?: string
+          company_id?: string
+          created_at?: string
+          discarded_at?: string | null
+          external_message_id?: string | null
+          file_size?: number
+          id?: string
+          mime_type?: string
+          original_filename?: string
+          source?: string
+          status?: string
+          storage_path?: string
+          updated_at?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_receipt_captures_company_id_attached_receipt_id_fkey"
+            columns: ["company_id", "attached_receipt_id"]
+            isOneToOne: false
+            referencedRelation: "expense_receipts"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_captures_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_captures_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expense_receipts: {
         Row: {
           checksum_sha256: string
@@ -4607,9 +4686,21 @@ export type Database = {
         Args: { p_effective_from: string; p_work_schedule_id: string }
         Returns: number
       }
+      attach_expense_receipt_capture: {
+        Args: { p_capture_id: string; p_item_id: string }
+        Returns: string
+      }
       can_manage_employee: { Args: { p_employee_id: string }; Returns: boolean }
       can_manage_platform: { Args: never; Returns: boolean }
+      can_read_expense_capture_path: {
+        Args: { p_name: string }
+        Returns: boolean
+      }
       can_read_expense_receipt_path: {
+        Args: { p_name: string }
+        Returns: boolean
+      }
+      can_upload_expense_capture_path: {
         Args: { p_name: string }
         Returns: boolean
       }
@@ -4697,12 +4788,28 @@ export type Database = {
         }
         Returns: undefined
       }
+      discard_expense_receipt_capture: {
+        Args: {
+          p_actor_id: string
+          p_capture_id: string
+          p_company_id: string
+        }
+        Returns: string
+      }
       employee_belongs_to_active_company: {
         Args: { p_employee_id: string }
         Returns: boolean
       }
       employee_group_belongs_to_active_company: {
         Args: { p_employee_group_id: string }
+        Returns: boolean
+      }
+      expense_actor_has_permission: {
+        Args: {
+          p_actor_id: string
+          p_company_id: string
+          p_permission_code: string
+        }
         Returns: boolean
       }
       expense_dashboard_summary: {
@@ -4947,6 +5054,32 @@ export type Database = {
       register_expense_receipt: {
         Args: {
           p_checksum_sha256: string
+          p_file_size: number
+          p_item_id: string
+          p_mime_type: string
+          p_original_filename: string
+          p_storage_path: string
+        }
+        Returns: string
+      }
+      register_expense_receipt_capture: {
+        Args: {
+          p_actor_id: string
+          p_checksum_sha256: string
+          p_company_id: string
+          p_file_size: number
+          p_mime_type: string
+          p_original_filename: string
+          p_source: string
+          p_storage_path: string
+        }
+        Returns: string
+      }
+      register_expense_receipt_trusted: {
+        Args: {
+          p_actor_id: string
+          p_checksum_sha256: string
+          p_company_id: string
           p_file_size: number
           p_item_id: string
           p_mime_type: string

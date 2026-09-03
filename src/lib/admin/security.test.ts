@@ -79,7 +79,8 @@ test("createAdminClient nunca se importa fuera de los límites server-only audit
       !f.includes(`${path.sep}lib${path.sep}admin${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}sync${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}rule-engine${path.sep}`) &&
-      !f.includes(`${path.sep}lib${path.sep}expense-ocr${path.sep}`)
+      !f.includes(`${path.sep}lib${path.sep}expense-ocr${path.sep}`) &&
+      !f.includes(`${path.sep}lib${path.sep}expense-capture${path.sep}`)
   );
   const offenders: string[] = [];
 
@@ -107,6 +108,19 @@ test("el límite OCR privilegiado es server-only y ninguna ruta obtiene createAd
     appFiles.filter((filePath) => /createAdminClient/.test(readFileSync(filePath, "utf8"))),
     [],
     "ningún Route Handler ni Server Action debe obtener service_role directamente"
+  );
+});
+
+test("el límite privilegiado de comprobantes es server-only y ninguna acción obtiene createAdminClient", () => {
+  const captureRoot = path.join(SRC_ROOT, "lib", "expense-capture");
+  for (const filePath of listFilesRecursively(captureRoot)) {
+    assert.match(readFileSync(filePath, "utf8"), /import\s+["']server-only["']/, `${filePath} debe ser server-only`);
+  }
+  const appFiles = listFilesRecursively(path.join(SRC_ROOT, "app"));
+  assert.deepEqual(
+    appFiles.filter((filePath) => /createAdminClient/.test(readFileSync(filePath, "utf8"))),
+    [],
+    "ninguna Server Action debe obtener service_role directamente"
   );
 });
 

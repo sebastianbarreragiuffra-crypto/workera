@@ -1,0 +1,116 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import {
+  ExpenseCaptureAttachForm,
+  ExpenseCaptureDiscardForm,
+  ExpenseCaptureUploadForms,
+} from "@/components/expenses/ExpenseCaptureForms";
+import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
+import { getExpenseReceiptInbox } from "@/lib/expenses/captures";
+import { createClient } from "@/lib/supabase/server";
+
+function captureDate(value: string): string {
+  return new Intl.DateTimeFormat("es-CL", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "America/Santiago",
+  }).format(new Date(value));
+}
+
+function fileSize(value: number): string {
+  return value >= 1024 * 1024
+    ? `${(value / (1024 * 1024)).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(value / 1024))} KB`;
+}
+
+export default async function ExpenseReceiptInboxPage({
+  params,
+}: {
+  params: Promise<{ companySlug: string }>;
+}) {
+  const { companySlug } = await params;
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, companySlug);
+  if (!context?.canSubmit) notFound();
+
+  const { captures, draftItems } = await getExpenseReceiptInbox(supabase, context);
+  const base = `/empresas/${context.slug}/rendiciones`;
+
+  return (
+    <div className="space-y-6">
+      <header>
+        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-arcotex-blue">Captura rápida</p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">Bandeja de comprobantes</h1>
+        <p className="mt-2 max-w-3xl text-sm text-slate-500">
+          Fotografía o sube una boleta apenas la recibas. Quedará privada en tu bandeja hasta que la asocies a un gasto en borrador.
+        </p>
+      </header>
+
+      <ExpenseCaptureUploadForms companySlug={context.slug} />
+
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-2 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-semibold text-slate-900">Pendientes de asociar</h2>
+            <p className="mt-0.5 text-xs text-slate-500">{captures.length} de un máximo de 50 comprobantes pendientes.</p>
+          </div>
+          {draftItems.length === 0 && (
+            <Link href={`${base}/nueva`} className="text-sm font-semibold text-arcotex-blue-dark hover:underline">Crear una rendición</Link>
+          )}
+        </div>
+
+        {captures.length === 0 ? (
+          <div className="px-6 py-14 text-center">
+            <div className="text-3xl" aria-hidden="true">◇</div>
+            <h3 className="mt-3 font-medium text-slate-900">Tu bandeja está al día</h3>
+            <p className="mt-1 text-sm text-slate-500">Las nuevas fotos y archivos aparecerán aquí hasta que los asocies.</p>
+          </div>
+        ) : (
+          <>
+            {draftItems.length > 0 ? (
+              <div className="border-b border-slate-100 bg-slate-50 p-5">
+                <ExpenseCaptureAttachForm
+                  companySlug={context.slug}
+                  captures={captures.map((capture) => ({ id: capture.id, label: capture.originalFilename }))}
+                  draftItems={draftItems}
+                />
+              </div>
+            ) : (
+              <p className="border-b border-slate-100 bg-slate-50 px-5 py-4 text-sm text-slate-500">Crea una rendición y agrega al menos un gasto para asociar estos comprobantes.</p>
+            )}
+            <ul className="divide-y divide-slate-100">
+            {captures.map((capture) => (
+              <li key={capture.id} className="grid gap-4 p-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      href={`${base}/comprobantes/capturas/${capture.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="truncate font-medium text-slate-900 hover:text-arcotex-blue-dark hover:underline"
+                    >
+                      {capture.originalFilename}
+                    </Link>
+                    {capture.possibleDuplicate && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">Posible duplicado</span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {capture.source === "WEB_CAMERA" ? "Foto" : "Archivo"} · {fileSize(capture.fileSize)} · {captureDate(capture.createdAt)}
+                  </p>
+                </div>
+                <ExpenseCaptureDiscardForm companySlug={context.slug} captureId={capture.id} />
+              </li>
+            ))}
+            </ul>
+          </>
+        )}
+      </section>
+
+      <aside className="rounded-xl border border-blue-100 bg-blue-50 px-5 py-4 text-sm text-blue-950">
+        <p className="font-semibold">Preparado para los próximos canales</p>
+        <p className="mt-1 text-blue-800">Correo y WhatsApp podrán depositar comprobantes en esta misma bandeja; todavía no están conectados ni reciben mensajes.</p>
+      </aside>
+    </div>
+  );
+}
