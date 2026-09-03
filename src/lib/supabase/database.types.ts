@@ -2945,6 +2945,7 @@ export type Database = {
           key: string
           name: string
           sort_order: number
+          tenant_isolated: boolean
         }
         Insert: {
           active?: boolean
@@ -2954,6 +2955,7 @@ export type Database = {
           key: string
           name: string
           sort_order?: number
+          tenant_isolated?: boolean
         }
         Update: {
           active?: boolean
@@ -2963,6 +2965,7 @@ export type Database = {
           key?: string
           name?: string
           sort_order?: number
+          tenant_isolated?: boolean
         }
         Relationships: []
       }
