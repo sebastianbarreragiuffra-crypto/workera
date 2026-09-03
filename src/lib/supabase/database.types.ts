@@ -3226,6 +3226,7 @@ export type Database = {
       payroll_batch_items: {
         Row: {
           batch_id: string
+          company_id: string
           created_at: string
           id: string
           nombre_cliente: string
@@ -3236,6 +3237,7 @@ export type Database = {
         }
         Insert: {
           batch_id: string
+          company_id: string
           created_at?: string
           id?: string
           nombre_cliente: string
@@ -3246,6 +3248,7 @@ export type Database = {
         }
         Update: {
           batch_id?: string
+          company_id?: string
           created_at?: string
           id?: string
           nombre_cliente?: string
@@ -3256,23 +3259,31 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "payroll_batch_items_batch_id_fkey"
-            columns: ["batch_id"]
+            foreignKeyName: "payroll_batch_items_company_batch_fkey"
+            columns: ["company_id", "batch_id"]
             isOneToOne: false
             referencedRelation: "payroll_batches"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "payroll_batch_items_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "payroll_batch_items_supplier_id_fkey"
-            columns: ["supplier_id"]
+            foreignKeyName: "payroll_batch_items_company_supplier_fkey"
+            columns: ["company_id", "supplier_id"]
             isOneToOne: false
             referencedRelation: "suppliers"
-            referencedColumns: ["id"]
+            referencedColumns: ["company_id", "id"]
           },
         ]
       }
       payroll_batches: {
         Row: {
+          company_id: string
           generated_at: string
           generated_by: string
           id: string
@@ -3282,6 +3293,7 @@ export type Database = {
           unmatched_count: number
         }
         Insert: {
+          company_id: string
           generated_at?: string
           generated_by: string
           id?: string
@@ -3291,6 +3303,7 @@ export type Database = {
           unmatched_count: number
         }
         Update: {
+          company_id?: string
           generated_at?: string
           generated_by?: string
           id?: string
@@ -3300,6 +3313,13 @@ export type Database = {
           unmatched_count?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "payroll_batches_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "payroll_batches_generated_by_fkey"
             columns: ["generated_by"]
@@ -3761,6 +3781,7 @@ export type Database = {
       supplier_master_imports: {
         Row: {
           activated_at: string | null
+          company_id: string
           created_at: string
           file_size: number
           id: string
@@ -3779,6 +3800,7 @@ export type Database = {
         }
         Insert: {
           activated_at?: string | null
+          company_id: string
           created_at?: string
           file_size: number
           id?: string
@@ -3797,6 +3819,7 @@ export type Database = {
         }
         Update: {
           activated_at?: string | null
+          company_id?: string
           created_at?: string
           file_size?: number
           id?: string
@@ -3815,11 +3838,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "supplier_master_imports_replaces_import_id_fkey"
-            columns: ["replaces_import_id"]
+            foreignKeyName: "supplier_master_imports_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_master_imports_company_replaces_fkey"
+            columns: ["company_id", "replaces_import_id"]
             isOneToOne: false
             referencedRelation: "supplier_master_imports"
-            referencedColumns: ["id"]
+            referencedColumns: ["company_id", "id"]
           },
           {
             foreignKeyName: "supplier_master_imports_uploaded_by_fkey"
@@ -3835,6 +3865,7 @@ export type Database = {
           account_number: string
           active: boolean
           bank_code: string
+          company_id: string
           created_at: string
           created_by: string
           id: string
@@ -3849,6 +3880,7 @@ export type Database = {
           account_number: string
           active?: boolean
           bank_code: string
+          company_id: string
           created_at?: string
           created_by: string
           id?: string
@@ -3863,6 +3895,7 @@ export type Database = {
           account_number?: string
           active?: boolean
           bank_code?: string
+          company_id?: string
           created_at?: string
           created_by?: string
           id?: string
@@ -3874,6 +3907,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "suppliers_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "suppliers_created_by_fkey"
             columns: ["created_by"]
@@ -4465,6 +4505,7 @@ export type Database = {
       }
       apply_supplier_master_import: {
         Args: {
+          p_company_id: string
           p_file_size: number
           p_import_id: string
           p_insert_rows: Json
@@ -4556,7 +4597,7 @@ export type Database = {
           p_client_request_id: string
           p_company_id: string
           p_currency_code: string
-          p_purpose?: string
+          p_purpose: string
           p_title: string
         }
         Returns: string
@@ -4796,12 +4837,12 @@ export type Database = {
         Args: { p_stale_after_seconds?: number }
         Returns: number
       }
-      reconcile_expense_report: {
-        Args: { p_payment_reference: string; p_report_id: string }
-        Returns: undefined
-      }
       recompute_employee_daily_bonus: {
         Args: { p_employee_id: string; p_work_date: string }
+        Returns: undefined
+      }
+      reconcile_expense_report: {
+        Args: { p_payment_reference: string; p_report_id: string }
         Returns: undefined
       }
       register_expense_receipt: {

@@ -153,6 +153,7 @@ export interface ImportSuppliersResult {
  */
 export async function importSuppliers(
   supabase: SupabaseClient<Database>,
+  companyId: string,
   rows: ParsedSupplierRow[],
   createdBy: string
 ): Promise<ImportSuppliersResult> {
@@ -174,7 +175,10 @@ export async function importSuppliers(
     return { imported: 0, updated: 0, conflicts, absentActiveSuppliers: [] };
   }
 
-  const { data: existing, error: existingError } = await supabase.from("suppliers").select("normalized_name, name, active");
+  const { data: existing, error: existingError } = await supabase
+    .from("suppliers")
+    .select("normalized_name, name, active")
+    .eq("company_id", companyId);
   if (existingError) throw new Error(`importSuppliers: fallo leyendo suppliers existentes: ${existingError.message}`);
   const existingRows = existing ?? [];
   const existingNames = new Set(existingRows.map((s) => s.normalized_name));
@@ -182,6 +186,7 @@ export async function importSuppliers(
   const toUpsert = [...byName.entries()].map(([normalizedName, group]) => {
     const row = group[0];
     return {
+      company_id: companyId,
       rut: row.rut,
       name: row.name,
       normalized_name: normalizedName,
@@ -197,7 +202,9 @@ export async function importSuppliers(
     };
   });
 
-  const { error: upsertError } = await supabase.from("suppliers").upsert(toUpsert, { onConflict: "normalized_name" });
+  const { error: upsertError } = await supabase
+    .from("suppliers")
+    .upsert(toUpsert, { onConflict: "company_id,normalized_name" });
   if (upsertError) throw new Error(`importSuppliers: fallo importando proveedores: ${upsertError.message}`);
 
   const imported = toUpsert.filter((s) => !existingNames.has(s.normalized_name)).length;
@@ -219,10 +226,18 @@ export async function importSuppliers(
  * (`absentActiveSuppliers`); esta función es la acción explícita que una
  * persona dispara después de revisar esa advertencia.
  */
-export async function deactivateSupplier(supabase: SupabaseClient<Database>, normalizedName: string): Promise<void> {
+export async function deactivateSupplier(
+  supabase: SupabaseClient<Database>,
+  companyId: string,
+  normalizedName: string
+): Promise<void> {
   if (!normalizedName || normalizedName.length > 240) {
     throw new Error("deactivateSupplier: nombre normalizado inválido.");
   }
-  const { error } = await supabase.from("suppliers").update({ active: false }).eq("normalized_name", normalizedName);
+  const { error } = await supabase
+    .from("suppliers")
+    .update({ active: false })
+    .eq("company_id", companyId)
+    .eq("normalized_name", normalizedName);
   if (error) throw new Error(`deactivateSupplier: fallo desactivando el proveedor: ${error.message}`);
 }

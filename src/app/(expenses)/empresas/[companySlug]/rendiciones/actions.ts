@@ -79,7 +79,9 @@ export async function createExpenseReportAction(
   const { data: reportId, error } = await supabase.rpc("create_expense_report", {
     p_company_id: context.id,
     p_title: parsed.data.title,
-    p_purpose: parsed.data.purpose ?? undefined,
+    // La función SQL exige el argumento aunque acepte contenido vacío y lo
+    // normalice a NULL. Omitirlo hace que PostgREST no encuentre la firma.
+    p_purpose: parsed.data.purpose ?? "",
     p_currency_code: parsed.data.currencyCode,
     p_client_request_id: parsed.data.clientRequestId,
   });

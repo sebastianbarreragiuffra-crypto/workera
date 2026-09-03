@@ -3,6 +3,7 @@ import { createClient } from "../../../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../../../lib/auth/session";
 import { buildPayrollExportWorkbook } from "../../../../../lib/payroll/payroll-export";
 import type { PayrollBatchItemResult } from "../../../../../lib/payroll/invoice-import";
+import { requireSingleOperationalCompany } from "../../../../../lib/tenant/resolve-active-company";
 
 /**
  * Descarga del Excel final de un lote de nómina ya generado -- vuelve a
@@ -34,10 +35,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ bat
     return NextResponse.json({ error: "Identificador de lote inválido." }, { status: 400 });
   }
   const supabase = await createClient();
+  const company = await requireSingleOperationalCompany(supabase);
 
   const { data: rows, error } = await supabase
     .from("payroll_batch_items")
     .select("nro_docto, nombre_cliente, valor_total, status, suppliers(rut, name, payment_method, bank_code, account_number)")
+    .eq("company_id", company.companyId)
     .eq("batch_id", batchId);
 
   if (error) {
@@ -47,7 +50,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ bat
   // Un lote inexistente devolvía un Excel vacío con 200, indistinguible de un
   // lote real sin ítems. Solo se paga la segunda consulta cuando no hubo filas.
   if ((rows ?? []).length === 0) {
-    const { data: batch } = await supabase.from("payroll_batches").select("id").eq("id", batchId).maybeSingle();
+    const { data: batch } = await supabase
+      .from("payroll_batches")
+      .select("id")
+      .eq("company_id", company.companyId)
+      .eq("id", batchId)
+      .maybeSingle();
     if (!batch) {
       return NextResponse.json({ error: "El lote no existe." }, { status: 404 });
     }

@@ -33,6 +33,8 @@ export type ActiveCompanyResolution =
   | { kind: "SINGLE"; membership: CompanyMembershipSummary }
   | { kind: "MULTIPLE"; memberships: CompanyMembershipSummary[] };
 
+export class ActiveCompanyResolutionError extends Error {}
+
 /**
  * Lee las membresías activas del usuario autenticado, cada una con el
  * nombre/slug de SU empresa únicamente -- nunca la lista completa de
@@ -63,4 +65,21 @@ export async function resolveActiveCompany(supabase: SupabaseClient<Database>): 
   if (memberships.length === 0) return { kind: "NONE" };
   if (memberships.length === 1) return { kind: "SINGLE", membership: memberships[0] };
   return { kind: "MULTIPLE", memberships };
+}
+
+/**
+ * Gate fail-closed para verticales que todavía no exponen selector de tenant.
+ * La empresa se deriva de membresías RLS-visible y workspace_enabled; nunca de
+ * un company_id enviado por el navegador. Un usuario multiempresa deberá elegir
+ * explícitamente su workspace cuando MT-3D incorpore el selector firmado.
+ */
+export async function requireSingleOperationalCompany(
+  supabase: SupabaseClient<Database>
+): Promise<CompanyMembershipSummary> {
+  const resolution = await resolveActiveCompany(supabase);
+  if (resolution.kind === "SINGLE") return resolution.membership;
+  if (resolution.kind === "NONE") {
+    throw new ActiveCompanyResolutionError("No tienes un workspace operativo habilitado.");
+  }
+  throw new ActiveCompanyResolutionError("Selecciona una empresa antes de continuar.");
 }

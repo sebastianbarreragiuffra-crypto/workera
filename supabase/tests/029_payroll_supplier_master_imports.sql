@@ -13,14 +13,26 @@ insert into public.profiles (id, display_name, role) values
   ('99000000-0000-0000-0000-000000000001', 'Fixture RRHH Nómina', 'ADMIN_RRHH'),
   ('99000000-0000-0000-0000-000000000002', 'Fixture Supervisor Prod Nómina', 'SUPERVISOR_PRODUCTION');
 
+insert into public.company_membership_roles (company_id, membership_id, role_id)
+select cm.company_id, cm.id, cr.id
+from public.company_memberships cm
+join public.company_roles cr on cr.company_id = cm.company_id
+where cm.user_id = '99000000-0000-0000-0000-000000000001'
+  and cm.company_id = '0a4c0000-0000-0000-0000-000000000001'
+  and cr.code = 'HR_ADMIN';
+update public.company_modules
+set status = 'ENABLED', enabled_at = coalesce(enabled_at, now())
+where company_id = '0a4c0000-0000-0000-0000-000000000001'
+  and module_key = 'payroll';
+
 -- ---------------------------------------------------------------------------
 -- 1) normalized_rut único solo entre proveedores ACTIVOS
-insert into public.suppliers (rut, name, normalized_name, normalized_rut, payment_method, bank_code, account_number, created_by)
-values ('11111111-1', 'PROVEEDOR FIXTURE UNO', 'PROVEEDOR FIXTURE UNO', '111111111', 'OTC', '1', '999', '99000000-0000-0000-0000-000000000001');
+insert into public.suppliers (company_id, rut, name, normalized_name, normalized_rut, payment_method, bank_code, account_number, created_by)
+values ('0a4c0000-0000-0000-0000-000000000001', '11111111-1', 'PROVEEDOR FIXTURE UNO', 'PROVEEDOR FIXTURE UNO', '111111111', 'OTC', '1', '999', '99000000-0000-0000-0000-000000000001');
 
 select throws_ok(
-  $$ insert into public.suppliers (rut, name, normalized_name, normalized_rut, payment_method, bank_code, account_number, created_by)
-     values ('11.111.111-1', 'PROVEEDOR FIXTURE UNO DUPLICADO', 'PROVEEDOR FIXTURE UNO DUPLICADO', '111111111', 'OTC', '1', '888', '99000000-0000-0000-0000-000000000001') $$,
+  $$ insert into public.suppliers (company_id, rut, name, normalized_name, normalized_rut, payment_method, bank_code, account_number, created_by)
+     values ('0a4c0000-0000-0000-0000-000000000001', '11.111.111-1', 'PROVEEDOR FIXTURE UNO DUPLICADO', 'PROVEEDOR FIXTURE UNO DUPLICADO', '111111111', 'OTC', '1', '888', '99000000-0000-0000-0000-000000000001') $$,
   '23505',
   null,
   'un segundo proveedor ACTIVO con el mismo RUT normalizado es rechazado, aunque el nombre sea distinto'
@@ -32,8 +44,8 @@ select lives_ok(
 );
 
 select lives_ok(
-  $$ insert into public.suppliers (rut, name, normalized_name, normalized_rut, payment_method, bank_code, account_number, created_by)
-     values ('11.111.111-1', 'PROVEEDOR FIXTURE UNO ACTUALIZADO', 'PROVEEDOR FIXTURE UNO ACTUALIZADO', '111111111', 'OTC', '1', '777', '99000000-0000-0000-0000-000000000001') $$,
+  $$ insert into public.suppliers (company_id, rut, name, normalized_name, normalized_rut, payment_method, bank_code, account_number, created_by)
+     values ('0a4c0000-0000-0000-0000-000000000001', '11.111.111-1', 'PROVEEDOR FIXTURE UNO ACTUALIZADO', 'PROVEEDOR FIXTURE UNO ACTUALIZADO', '111111111', 'OTC', '1', '777', '99000000-0000-0000-0000-000000000001') $$,
   'con el original desactivado, el mismo RUT normalizado puede volver a estar ACTIVO en una fila nueva'
 );
 
@@ -46,14 +58,14 @@ select is(
 -- ---------------------------------------------------------------------------
 -- 2) supplier_master_imports: exactamente un ACTIVE a la vez
 select lives_ok(
-  $$ insert into public.supplier_master_imports (id, uploaded_by, original_filename, file_size, row_count, status, activated_at)
-     values ('99000000-0000-0000-0000-0000000000a1', '99000000-0000-0000-0000-000000000001', 'fixture.xlsx', 1000, 10, 'ACTIVE', now()) $$,
+  $$ insert into public.supplier_master_imports (id, company_id, uploaded_by, original_filename, file_size, row_count, status, activated_at)
+     values ('99000000-0000-0000-0000-0000000000a1', '0a4c0000-0000-0000-0000-000000000001', '99000000-0000-0000-0000-000000000001', 'fixture.xlsx', 1000, 10, 'ACTIVE', now()) $$,
   'primer import ACTIVE se acepta'
 );
 
 select throws_ok(
-  $$ insert into public.supplier_master_imports (id, uploaded_by, original_filename, file_size, row_count, status, activated_at)
-     values ('99000000-0000-0000-0000-0000000000a2', '99000000-0000-0000-0000-000000000001', 'fixture2.xlsx', 1000, 10, 'ACTIVE', now()) $$,
+  $$ insert into public.supplier_master_imports (id, company_id, uploaded_by, original_filename, file_size, row_count, status, activated_at)
+     values ('99000000-0000-0000-0000-0000000000a2', '0a4c0000-0000-0000-0000-000000000001', '99000000-0000-0000-0000-000000000001', 'fixture2.xlsx', 1000, 10, 'ACTIVE', now()) $$,
   '23505',
   null,
   'un segundo import ACTIVE simultáneo es rechazado (índice único parcial, exactamente un maestro activo)'
@@ -65,16 +77,16 @@ select lives_ok(
 );
 
 select lives_ok(
-  $$ insert into public.supplier_master_imports (id, uploaded_by, original_filename, file_size, row_count, status, activated_at, replaces_import_id)
-     values ('99000000-0000-0000-0000-0000000000a2', '99000000-0000-0000-0000-000000000001', 'fixture2.xlsx', 1000, 10, 'ACTIVE', now(), '99000000-0000-0000-0000-0000000000a1') $$,
+  $$ insert into public.supplier_master_imports (id, company_id, uploaded_by, original_filename, file_size, row_count, status, activated_at, replaces_import_id)
+     values ('99000000-0000-0000-0000-0000000000a2', '0a4c0000-0000-0000-0000-000000000001', '99000000-0000-0000-0000-000000000001', 'fixture2.xlsx', 1000, 10, 'ACTIVE', now(), '99000000-0000-0000-0000-0000000000a1') $$,
   'con el anterior REPLACED, un nuevo import ACTIVE que lo referencia (replaces_import_id) es aceptado'
 );
 
 -- ---------------------------------------------------------------------------
 -- 3) check constraints: activated_at/replaced_at coherentes con status
 select throws_ok(
-  $$ insert into public.supplier_master_imports (uploaded_by, original_filename, file_size, row_count, status, activated_at)
-     values ('99000000-0000-0000-0000-000000000001', 'sin-activar.xlsx', 100, 1, 'READY', now()) $$,
+  $$ insert into public.supplier_master_imports (company_id, uploaded_by, original_filename, file_size, row_count, status, activated_at)
+     values ('0a4c0000-0000-0000-0000-000000000001', '99000000-0000-0000-0000-000000000001', 'sin-activar.xlsx', 100, 1, 'READY', now()) $$,
   '23514',
   null,
   'activated_at solo puede estar seteado si status es ACTIVE/REPLACED'
@@ -85,11 +97,14 @@ select throws_ok(
 --    real (encontrado al verificar con datos reales: dos pasos separados podían
 --    dejar `suppliers` mutado con el archivo nuevo mientras el import "activo"
 --    seguía siendo el viejo -- ver comentario en la migración 2b).
+set local role authenticated;
+set local request.jwt.claim.sub = '99000000-0000-0000-0000-000000000001';
 select lives_ok(
   $$ select public.apply_supplier_master_import(
+       '0a4c0000-0000-0000-0000-000000000001'::uuid,
        '99000000-0000-0000-0000-0000000000b1'::uuid,
        '99000000-0000-0000-0000-000000000001'::uuid,
-       'maestro-nuevo.xlsx', 'some/path.xlsx', 1000, 1, 1, 0, 0, 0,
+       'maestro-nuevo.xlsx', '0a4c0000-0000-0000-0000-000000000001/some/path.xlsx', 1000, 1, 1, 0, 0, 0,
        '[{"rut":"33333333-3","name":"PROVEEDOR ATOMICO","normalized_name":"PROVEEDOR ATOMICO","normalized_rut":"333333333","payment_method":"OTC","bank_code":"1","account_number":"555"}]'::jsonb,
        '[]'::jsonb
      ) $$,
@@ -112,9 +127,10 @@ select is(
 -- para probar que TODO se revierte -- ni el import nuevo ni el reemplazo del anterior quedan a medias.
 select throws_ok(
   $$ select public.apply_supplier_master_import(
+       '0a4c0000-0000-0000-0000-000000000001'::uuid,
        '99000000-0000-0000-0000-0000000000b2'::uuid,
        '99000000-0000-0000-0000-000000000001'::uuid,
-       'maestro-roto.xlsx', 'some/other-path.xlsx', 1000, 2, 2, 0, 0, 0,
+       'maestro-roto.xlsx', '0a4c0000-0000-0000-0000-000000000001/some/other-path.xlsx', 1000, 2, 2, 0, 0, 0,
        '[{"rut":"44444444-4","name":"PROVEEDOR ROTO A","normalized_name":"PROVEEDOR ROTO A","normalized_rut":"444444444","payment_method":"OTC","bank_code":"1","account_number":"1"},
          {"rut":"44.444.444-4","name":"PROVEEDOR ROTO B","normalized_name":"PROVEEDOR ROTO B","normalized_rut":"444444444","payment_method":"OTC","bank_code":"1","account_number":"2"}]'::jsonb,
        '[]'::jsonb
@@ -135,6 +151,7 @@ select is(
   'ACTIVE',
   'tras el rollback, el maestro que SÍ estaba activo sigue activo sin cambios parciales'
 );
+reset role;
 
 -- ---------------------------------------------------------------------------
 -- 5) RLS: SUPERVISOR_PRODUCTION no puede leer ni escribir el maestro de proveedores
@@ -148,8 +165,8 @@ select is(
 );
 
 select throws_ok(
-  $$ insert into public.supplier_master_imports (uploaded_by, original_filename, file_size, row_count, status)
-     values ('99000000-0000-0000-0000-000000000002', 'no-deberia.xlsx', 100, 1, 'VALIDATING') $$,
+  $$ insert into public.supplier_master_imports (company_id, uploaded_by, original_filename, file_size, row_count, status)
+     values ('0a4c0000-0000-0000-0000-000000000001', '99000000-0000-0000-0000-000000000002', 'no-deberia.xlsx', 100, 1, 'VALIDATING') $$,
   '42501',
   null,
   'SUPERVISOR_PRODUCTION no puede insertar en supplier_master_imports (RLS)'

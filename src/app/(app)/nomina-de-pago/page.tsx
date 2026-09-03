@@ -4,6 +4,7 @@ import { createClient } from "../../../lib/supabase/server";
 import { isPrivilegedAdmin } from "../../../lib/supabase/authorize";
 import { PageHeader } from "../../../components/shell/PageHeader";
 import { NominaDashboard } from "./NominaDashboard";
+import { requireSingleOperationalCompany } from "../../../lib/tenant/resolve-active-company";
 
 export default async function NominaDePagoPage() {
   const profile = await getCurrentProfile();
@@ -11,10 +12,12 @@ export default async function NominaDePagoPage() {
   if (!isPrivilegedAdmin(profile.role)) redirect("/dashboard");
 
   const supabase = await createClient();
+  const company = await requireSingleOperationalCompany(supabase);
 
   const { data: batches } = await supabase
     .from("payroll_batches")
     .select("id, source_filename, generated_at, matched_count, unmatched_count, total_amount")
+    .eq("company_id", company.companyId)
     .order("generated_at", { ascending: false })
     .limit(10);
 

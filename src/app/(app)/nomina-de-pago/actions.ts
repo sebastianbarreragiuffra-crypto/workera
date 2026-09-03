@@ -9,6 +9,7 @@ import { isPrivilegedAdmin } from "../../../lib/supabase/authorize";
 import { parseSuppliersExcel, importSuppliers, deactivateSupplier } from "../../../lib/payroll/suppliers-import";
 import { parseInvoiceExcel, generatePayrollBatch } from "../../../lib/payroll/invoice-import";
 import { computeSupplierMasterPreview, applySupplierMasterImport, validateFileMeta, type SupplierMasterPreview } from "../../../lib/payroll/supplier-master";
+import { requireSingleOperationalCompany } from "../../../lib/tenant/resolve-active-company";
 
 /**
  * Server Actions de Nómina de Pago. Cada una usa el cliente de SESIÓN
@@ -17,7 +18,7 @@ import { computeSupplierMasterPreview, applySupplierMasterImport, validateFileMe
  * claro, no la única barrera.
  */
 
-async function requirePayrollAccess() {
+async function requirePayrollAccess(supabase: Awaited<ReturnType<typeof createClient>>) {
   const profile = await getCurrentProfile();
   if (!profile?.role) redirect("/login");
   if (!isPrivilegedAdmin(profile.role)) {
@@ -27,9 +28,12 @@ async function requirePayrollAccess() {
   // dónde apoyarse en `enforce_mfa_for_privileged()`. Este es su equivalente
   // (sección 7 del diseño). Va DESPUÉS del chequeo de rol: quien no está
   // autorizado debe seguir recibiendo el error de rol y no uno de MFA, que le
-  // revelaría que su rol sí alcanzaba.
-  await assertSecondFactorForPrivileged(await createClient());
-  return profile;
+  // revelaría que su rol sí alcanzaba. Y va ANTES de resolver la empresa:
+  // ninguna de las dos comprobaciones reemplaza a la otra, pero no tiene
+  // sentido resolver tenant para una sesión que todavía no puede operar.
+  await assertSecondFactorForPrivileged(supabase);
+  const company = await requireSingleOperationalCompany(supabase);
+  return { profile, company };
 }
 
 export interface UploadSuppliersActionState {
@@ -44,8 +48,8 @@ export interface UploadSuppliersActionState {
 }
 
 export async function uploadSuppliersAction(_prev: UploadSuppliersActionState, formData: FormData): Promise<UploadSuppliersActionState> {
-  const profile = await requirePayrollAccess();
   const supabase = await createClient();
+  const { profile, company } = await requirePayrollAccess(supabase);
 
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) {
@@ -68,7 +72,7 @@ export async function uploadSuppliersAction(_prev: UploadSuppliersActionState, f
     return { status: "error", message: "No se encontraron filas válidas en el archivo." };
   }
 
-  const result = await importSuppliers(supabase, parsed.valid, profile.id);
+  const result = await importSuppliers(supabase, company.companyId, parsed.valid, profile.id);
   if (result.conflicts.length > 0) {
     return {
       status: "conflict",
@@ -100,8 +104,8 @@ export interface GenerateBatchActionState {
 }
 
 export async function generatePayrollBatchAction(_prev: GenerateBatchActionState, formData: FormData): Promise<GenerateBatchActionState> {
-  const profile = await requirePayrollAccess();
   const supabase = await createClient();
+  const { profile, company } = await requirePayrollAccess(supabase);
 
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) {
@@ -142,7 +146,7 @@ export async function generatePayrollBatchAction(_prev: GenerateBatchActionState
     return { status: "error", message: "No se encontraron filas válidas en el archivo." };
   }
 
-  const result = await generatePayrollBatch(supabase, parsed.valid, file.name, profile.id);
+  const result = await generatePayrollBatch(supabase, company.companyId, parsed.valid, file.name, profile.id);
 
   revalidatePath("/nomina-de-pago");
   return {
@@ -172,8 +176,8 @@ export interface SupplierMasterPreviewActionState {
 }
 
 export async function previewSupplierMasterAction(_prev: SupplierMasterPreviewActionState, formData: FormData): Promise<SupplierMasterPreviewActionState> {
-  await requirePayrollAccess();
   const supabase = await createClient();
+  const { company } = await requirePayrollAccess(supabase);
 
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) {
@@ -186,7 +190,7 @@ export async function previewSupplierMasterAction(_prev: SupplierMasterPreviewAc
   }
 
   const fileBytes = new Uint8Array(await file.arrayBuffer());
-  const preview = await computeSupplierMasterPreview(supabase, fileBytes);
+  const preview = await computeSupplierMasterPreview(supabase, company.companyId, fileBytes);
   if (!preview.ok) {
     return { status: "blocked", message: preview.blockingError ?? "El archivo no pasó la validación.", preview };
   }
@@ -203,8 +207,8 @@ export interface ConfirmSupplierMasterActionState {
 }
 
 export async function confirmSupplierMasterAction(_prev: ConfirmSupplierMasterActionState, formData: FormData): Promise<ConfirmSupplierMasterActionState> {
-  const profile = await requirePayrollAccess();
   const supabase = await createClient();
+  const { profile, company } = await requirePayrollAccess(supabase);
 
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) {
@@ -219,7 +223,12 @@ export async function confirmSupplierMasterAction(_prev: ConfirmSupplierMasterAc
   const fileBytes = new Uint8Array(await file.arrayBuffer());
 
   try {
-    const result = await applySupplierMasterImport(supabase, { fileBytes, filename: file.name, uploadedBy: profile.id });
+    const result = await applySupplierMasterImport(supabase, {
+      companyId: company.companyId,
+      fileBytes,
+      filename: file.name,
+      uploadedBy: profile.id,
+    });
     revalidatePath("/nomina-de-pago");
     return {
       status: "success",
@@ -240,10 +249,10 @@ export async function confirmSupplierMasterAction(_prev: ConfirmSupplierMasterAc
  * de "proveedor activo ausente del archivo" (`uploadSuppliersAction`).
  */
 export async function deactivateSupplierAction(formData: FormData): Promise<void> {
-  await requirePayrollAccess();
   const supabase = await createClient();
+  const { company } = await requirePayrollAccess(supabase);
   const normalizedName = String(formData.get("normalizedName") ?? "").trim();
   if (!normalizedName || normalizedName.length > 240) return;
-  await deactivateSupplier(supabase, normalizedName);
+  await deactivateSupplier(supabase, company.companyId, normalizedName);
   revalidatePath("/nomina-de-pago");
 }

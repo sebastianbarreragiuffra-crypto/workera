@@ -85,7 +85,11 @@ function issueLabel(reason: SupplierParseIssue["reason"]): string {
  * Debe volver a ejecutarse íntegramente en el paso de confirmación (nunca
  * confiar en los conteos que el cliente devuelva de este paso).
  */
-export async function computeSupplierMasterPreview(supabase: SupabaseClient<Database>, fileBytes: Uint8Array): Promise<SupplierMasterPreview> {
+export async function computeSupplierMasterPreview(
+  supabase: SupabaseClient<Database>,
+  companyId: string,
+  fileBytes: Uint8Array
+): Promise<SupplierMasterPreview> {
   let parsed: ReturnType<typeof parseSuppliersExcel>;
   try {
     parsed = parseSuppliersExcel(fileBytes);
@@ -171,6 +175,7 @@ export async function computeSupplierMasterPreview(supabase: SupabaseClient<Data
   const { data: currentSuppliers, error: currentError } = await supabase
     .from("suppliers")
     .select("normalized_rut, name, payment_method, bank_code, account_number")
+    .eq("company_id", companyId)
     .eq("active", true);
   if (currentError) throw new Error(`computeSupplierMasterPreview: fallo leyendo maestro actual: ${currentError.message}`);
 
@@ -201,6 +206,7 @@ export async function computeSupplierMasterPreview(supabase: SupabaseClient<Data
 }
 
 export interface ApplySupplierMasterImportParams {
+  companyId: string;
   fileBytes: Uint8Array;
   filename: string;
   uploadedBy: string;
@@ -229,13 +235,13 @@ export interface ApplySupplierMasterImportResult {
  *      sobreescritos aunque el maestro anterior seguía figurando como el vigente).
  */
 export async function applySupplierMasterImport(supabase: SupabaseClient<Database>, params: ApplySupplierMasterImportParams): Promise<ApplySupplierMasterImportResult> {
-  const preview = await computeSupplierMasterPreview(supabase, params.fileBytes);
+  const preview = await computeSupplierMasterPreview(supabase, params.companyId, params.fileBytes);
   if (!preview.ok) {
     throw new Error(preview.blockingError ?? "El archivo no pasó la validación.");
   }
 
   const importId = crypto.randomUUID();
-  const storagePath = `${importId}/${sanitizeFilename(params.filename)}`;
+  const storagePath = `${params.companyId}/${importId}/${sanitizeFilename(params.filename)}`;
 
   const { error: uploadError } = await supabase.storage.from("supplier-master-files").upload(storagePath, params.fileBytes, {
     contentType: "application/octet-stream",
@@ -250,7 +256,11 @@ export async function applySupplierMasterImport(supabase: SupabaseClient<Databas
   // tiene un proveedor activo (-> update por `id`, la PK real) y cuál no (-> insert),
   // y se omiten las filas UNCHANGED (nunca se re-escriben sin necesidad); la función de
   // base de datos solo ejecuta los INSERT/UPDATE ya resueltos, dentro de su transacción.
-  const { data: currentActiveIds, error: currentActiveIdsError } = await supabase.from("suppliers").select("id, normalized_rut").eq("active", true);
+  const { data: currentActiveIds, error: currentActiveIdsError } = await supabase
+    .from("suppliers")
+    .select("id, normalized_rut")
+    .eq("company_id", params.companyId)
+    .eq("active", true);
   if (currentActiveIdsError) throw new Error(`applySupplierMasterImport: fallo leyendo el maestro actual para persistir: ${currentActiveIdsError.message}`);
   const idByRut = new Map((currentActiveIds ?? []).map((s) => [s.normalized_rut, s.id]));
   const statusByRowNumber = new Map(preview.rows.map((r) => [r.rowNumber, r.status]));
@@ -275,6 +285,7 @@ export async function applySupplierMasterImport(supabase: SupabaseClient<Databas
   }
 
   const { error: applyError } = await supabase.rpc("apply_supplier_master_import", {
+    p_company_id: params.companyId,
     p_import_id: importId,
     p_uploaded_by: params.uploadedBy,
     p_original_filename: params.filename,
@@ -303,10 +314,13 @@ export interface ActiveSupplierMasterInfo {
   activeSupplierCount: number;
 }
 
-export async function getActiveSupplierMaster(supabase: SupabaseClient<Database>): Promise<ActiveSupplierMasterInfo | null> {
+export async function getActiveSupplierMaster(
+  supabase: SupabaseClient<Database>,
+  companyId: string
+): Promise<ActiveSupplierMasterInfo | null> {
   const [{ data: active, error: activeError }, { count, error: countError }] = await Promise.all([
-    supabase.from("supplier_master_imports").select("id, original_filename, uploaded_at, profiles(display_name)").eq("status", "ACTIVE").maybeSingle(),
-    supabase.from("suppliers").select("id", { count: "exact", head: true }).eq("active", true),
+    supabase.from("supplier_master_imports").select("id, original_filename, uploaded_at, profiles(display_name)").eq("company_id", companyId).eq("status", "ACTIVE").maybeSingle(),
+    supabase.from("suppliers").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("active", true),
   ]);
   if (activeError) throw new Error(`getActiveSupplierMaster: fallo leyendo el maestro activo: ${activeError.message}`);
   if (countError) throw new Error(`getActiveSupplierMaster: fallo contando proveedores activos: ${countError.message}`);
