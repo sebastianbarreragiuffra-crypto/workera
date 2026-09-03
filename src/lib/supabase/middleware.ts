@@ -14,8 +14,16 @@ import type { Database } from "./database.types";
  * el acceso real a la app lo sigue decidiendo el layout de `(app)`
  * (`profile.role`/`profile.active`), exactamente igual para ambos métodos de
  * login.
+ *
+ * El webhook de Resend también debe llegar sin una sesión humana. Su acceso
+ * público se limita a una ruta exacta y el Route Handler exige la firma Svix
+ * del proveedor antes de procesar cualquier dato.
  */
-const PUBLIC_PATHS = new Set<string>(["/login", "/auth/callback"]);
+const PUBLIC_PATHS = new Set<string>([
+  "/login",
+  "/auth/callback",
+  "/api/webhooks/resend/expense-receipts",
+]);
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.has(pathname);

@@ -5,10 +5,15 @@ import { createAdminClient } from "@/lib/supabase/admin-client";
 import type { ExpenseReceiptMime } from "@/lib/expenses/receipts";
 
 type CaptureSource = "WEB_UPLOAD" | "WEB_CAMERA";
+type InboundCaptureSource = "EMAIL";
 type StoreFailure = "LIMIT" | "STORAGE" | "REGISTER";
 
 export type ExpenseFileStoreResult =
   | { ok: true }
+  | { ok: false; reason: StoreFailure };
+
+export type InboundExpenseFileStoreResult =
+  | { ok: true; duplicate: boolean }
   | { ok: false; reason: StoreFailure };
 
 interface ExpenseFileInput {
@@ -70,6 +75,62 @@ export async function storeExpenseCapture(
     return { ok: false, reason: error.code === "54000" ? "LIMIT" : "REGISTER" };
   }
   return { ok: true };
+}
+
+export async function storeInboundExpenseCapture(
+  input: ExpenseFileInput & {
+    source: InboundCaptureSource;
+    externalMessageId: string;
+    providerEmailId: string;
+    claimToken: string;
+  }
+): Promise<InboundExpenseFileStoreResult> {
+  const admin = createAdminClient();
+  const { data: existing, error: existingError } = await admin
+    .from("expense_receipt_captures")
+    .select("id")
+    .eq("company_id", input.companyId)
+    .eq("source", input.source)
+    .eq("external_message_id", input.externalMessageId)
+    .maybeSingle();
+  if (existingError) return { ok: false, reason: "REGISTER" };
+  if (existing) return { ok: true, duplicate: true };
+
+  const objectId = randomUUID();
+  const storagePath = `${input.companyId}/${input.actorId}/inbox/${objectId}.${input.extension}`;
+  if (!await uploadPrivateObject(storagePath, input)) return { ok: false, reason: "STORAGE" };
+
+  const { data: captureId, error } = await admin.rpc("register_inbound_expense_receipt_capture", {
+    p_actor_id: input.actorId,
+    p_company_id: input.companyId,
+    p_storage_path: storagePath,
+    p_original_filename: input.originalFilename,
+    p_mime_type: input.mimeType,
+    p_file_size: input.bytes.byteLength,
+    p_checksum_sha256: checksum(input.bytes),
+    p_external_message_id: input.externalMessageId,
+    p_provider_email_id: input.providerEmailId,
+    p_claim_token: input.claimToken,
+  });
+  if (error || !captureId) {
+    await cleanupIfUnregistered(storagePath);
+    return { ok: false, reason: error?.code === "54000" ? "LIMIT" : "REGISTER" };
+  }
+
+  // El RPC devuelve la fila existente ante una carrera entre dos reintentos.
+  // En ese caso el objeto recién subido no es el canónico y se limpia.
+  const { data: registered, error: registeredError } = await admin
+    .from("expense_receipt_captures")
+    .select("storage_path")
+    .eq("id", captureId)
+    .single();
+  if (registeredError || !registered) {
+    await cleanupIfUnregistered(storagePath);
+    return { ok: false, reason: "REGISTER" };
+  }
+  const duplicate = registered.storage_path !== storagePath;
+  if (duplicate) await cleanupIfUnregistered(storagePath);
+  return { ok: true, duplicate };
 }
 
 export async function storeExpenseReceipt(

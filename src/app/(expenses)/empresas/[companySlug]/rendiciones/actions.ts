@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
 import { getExpenseSpecialRates } from "@/lib/expenses/data";
 import { validateExpenseReceiptFile } from "@/lib/expenses/receipts";
+import { getExpenseEmailDomain } from "@/lib/expense-email/config";
 import { discardExpenseCapture, storeExpenseCapture, storeExpenseReceipt } from "@/lib/expense-capture/service";
 import { createClient } from "@/lib/supabase/server";
 import { unwrapEmbed } from "@/lib/supabase/embed";
@@ -52,6 +53,7 @@ const captureUploadInput = z.object({
 });
 const captureActionInput = z.object({ companySlug: slug, captureId: uuid });
 const attachCaptureInput = captureActionInput.extend({ itemId: uuid });
+const emailAliasInput = z.object({ companySlug: slug, intent: z.enum(["ensure", "rotate"]) });
 const reconcileInput = reportActionInput.extend({
   paymentReference: z.string().trim().min(1).max(160),
 });
@@ -452,6 +454,36 @@ export async function captureExpenseReceiptAction(
 
   revalidatePath(`/empresas/${context.slug}/rendiciones/comprobantes`);
   return { status: "success", message: "Comprobante guardado en tu bandeja privada." };
+}
+
+export async function configureExpenseReceiptEmailAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = emailAliasInput.safeParse(entries(formData));
+  if (!parsed.success) return failed("No pudimos configurar la dirección de correo.");
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canSubmit) return failed("Tu rol no permite recibir comprobantes.");
+  if (!getExpenseEmailDomain()) {
+    return failed("El dominio de recepción todavía no está configurado.");
+  }
+
+  const rpc = parsed.data.intent === "rotate"
+    ? "rotate_expense_receipt_email_alias"
+    : "ensure_expense_receipt_email_alias";
+  const { error } = await supabase.rpc(rpc, { p_company_id: context.id });
+  if (error?.code === "42501") return failed("Tu acceso a Rendiciones cambió. Actualiza la página.");
+  if (error) return failed("No pudimos configurar la dirección de correo.");
+
+  revalidatePath(`/empresas/${context.slug}/rendiciones/comprobantes`);
+  return {
+    status: "success",
+    message: parsed.data.intent === "rotate"
+      ? "Dirección reemplazada. La anterior dejó de recibir comprobantes."
+      : "Dirección de recepción activada.",
+  };
 }
 
 export async function attachExpenseReceiptCaptureAction(

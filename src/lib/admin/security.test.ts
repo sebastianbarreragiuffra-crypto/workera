@@ -80,7 +80,8 @@ test("createAdminClient nunca se importa fuera de los límites server-only audit
       !f.includes(`${path.sep}lib${path.sep}sync${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}rule-engine${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}expense-ocr${path.sep}`) &&
-      !f.includes(`${path.sep}lib${path.sep}expense-capture${path.sep}`)
+      !f.includes(`${path.sep}lib${path.sep}expense-capture${path.sep}`) &&
+      !f.includes(`${path.sep}lib${path.sep}expense-email${path.sep}`)
   );
   const offenders: string[] = [];
 
@@ -122,6 +123,13 @@ test("el límite privilegiado de comprobantes es server-only y ninguna acción o
     [],
     "ninguna Server Action debe obtener service_role directamente"
   );
+});
+
+test("el conector privilegiado de correo es server-only", () => {
+  const emailRoot = path.join(SRC_ROOT, "lib", "expense-email");
+  for (const filePath of listFilesRecursively(emailRoot)) {
+    assert.match(readFileSync(filePath, "utf8"), /import\s+["']server-only["']/, `${filePath} debe ser server-only`);
+  }
 });
 
 test(".env.example no contiene un valor real para SUPABASE_SERVICE_ROLE_KEY", () => {
