@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { GestoraBrand } from "@/components/platform/GestoraBrand";
+import { MfaChallenge } from "@/components/auth/MfaChallenge";
 import { getMfaAccountState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
 import { MfaEnrollment, type MfaFactorView } from "./MfaEnrollment";
@@ -28,7 +29,10 @@ export default async function MfaPage() {
     redirect("/login");
   }
 
-  const { data: factors } = await supabase.auth.mfa.listFactors();
+  const [{ data: factors }, { data: aal }] = await Promise.all([
+    supabase.auth.mfa.listFactors(),
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+  ]);
 
   const toView = (factor: { id: string; friendly_name?: string; created_at: string }): MfaFactorView => ({
     id: factor.id,
@@ -38,6 +42,13 @@ export default async function MfaPage() {
 
   const verifiedFactors = (factors?.totp ?? []).map(toView);
   const unverifiedFactors = (factors?.all ?? []).filter((factor) => factor.status === "unverified").map(toView);
+
+  // Sección 5 del diseño: el middleware no distingue inscribir de desafiar,
+  // manda todo acá y esta pantalla decide. Con un factor ya verificado y la
+  // sesión todavía en aal1, lo que corresponde es el desafío -- y solo el
+  // desafío: dejar inscribir un factor nuevo sin haber probado el que ya
+  // existe sería una forma de saltárselo.
+  const needsChallenge = aal?.currentLevel !== "aal2" && verifiedFactors.length > 0;
 
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-12">
@@ -59,12 +70,27 @@ export default async function MfaPage() {
       </p>
 
       <div className="mt-8">
-        <MfaEnrollment
-          verifiedFactors={verifiedFactors}
-          unverifiedFactors={unverifiedFactors}
-          requiresMfa={account.requiresMfa}
-          isPlatformOwner={account.isPlatformOwner}
-        />
+        {needsChallenge ? (
+          <section className="rounded-xl border border-slate-200 bg-card p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-foreground">Verifica tu identidad</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Ya tienes un segundo factor inscrito. Escribe el código que muestra tu aplicación de autenticación para
+              continuar.
+            </p>
+            <div className="mt-4 max-w-sm">
+              <MfaChallenge
+                factors={verifiedFactors.map((factor) => ({ id: factor.id, friendlyName: factor.friendlyName }))}
+              />
+            </div>
+          </section>
+        ) : (
+          <MfaEnrollment
+            verifiedFactors={verifiedFactors}
+            unverifiedFactors={unverifiedFactors}
+            requiresMfa={account.requiresMfa}
+            isPlatformOwner={account.isPlatformOwner}
+          />
+        )}
       </div>
     </main>
   );

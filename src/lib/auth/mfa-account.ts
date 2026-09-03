@@ -2,7 +2,13 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
-import { profileRequiresMfa, type AppRole, type PlatformRole } from "./mfa";
+import {
+  postLoginDestination,
+  profileRequiresMfa,
+  type AppRole,
+  type PlatformRole,
+  type PostLoginDestination,
+} from "./mfa";
 
 /** Los cinco eventos que la bitácora acepta (ver la migración de la etapa A). */
 export type MfaEventType =
@@ -104,4 +110,30 @@ export async function recordMfaEvent(
   }
 
   return true;
+}
+
+/**
+ * A dónde mandar una sesión recién creada por contraseña.
+ *
+ * `nextLevel` llega en `aal2` exactamente cuando la cuenta tiene al menos un
+ * factor verificado, así que no hace falta listar factores para saberlo: es el
+ * mismo dato, y evita una llamada de red en cada login.
+ */
+export async function resolvePostLoginDestination(
+  supabase: SupabaseClient<Database>
+): Promise<PostLoginDestination> {
+  const [aalResult, account] = await Promise.all([
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+    getMfaAccountState(supabase),
+  ]);
+
+  const currentLevel = aalResult.data?.currentLevel ?? null;
+  const nextLevel = aalResult.data?.nextLevel ?? null;
+
+  return postLoginDestination({
+    currentLevel,
+    nextLevel,
+    requiresMfa: account?.requiresMfa ?? false,
+    hasVerifiedFactor: nextLevel === "aal2",
+  });
 }

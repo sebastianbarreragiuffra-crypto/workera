@@ -88,3 +88,37 @@ const MFA_ALLOWED_PATH_SET = new Set<string>(MFA_ALLOWED_PATHS);
 export function isMfaAllowedPath(pathname: string): boolean {
   return MFA_ALLOWED_PATH_SET.has(pathname);
 }
+
+/**
+ * A dónde va una sesión recién creada por contraseña (sección 6.2 del diseño).
+ *
+ * Las tres salidas son distintas a propósito:
+ *   - `/login/mfa`: la cuenta YA tiene un factor verificado y solo le falta
+ *     subir de nivel. Es un desafío, no una inscripción.
+ *   - `/seguridad/mfa`: la cuenta debe tener segundo factor y todavía no
+ *     inscribió ninguno. No hay nada que desafiar.
+ *   - `/`: no hay nada pendiente.
+ *
+ * `nextLevel === "aal2"` es lo que informa Supabase cuando la cuenta tiene al
+ * menos un factor verificado; por eso alcanza para distinguir los dos primeros
+ * casos sin una consulta extra.
+ */
+export type PostLoginDestination = "/login/mfa" | "/seguridad/mfa" | "/";
+
+export interface PostLoginInput {
+  currentLevel: string | null;
+  nextLevel: string | null;
+  /** Espejo de `account_requires_mfa` para esta cuenta. */
+  requiresMfa: boolean;
+  hasVerifiedFactor: boolean;
+}
+
+export function postLoginDestination(input: PostLoginInput): PostLoginDestination {
+  if (input.nextLevel === "aal2" && input.currentLevel !== "aal2") {
+    return "/login/mfa";
+  }
+  if (input.requiresMfa && !input.hasVerifiedFactor) {
+    return "/seguridad/mfa";
+  }
+  return "/";
+}

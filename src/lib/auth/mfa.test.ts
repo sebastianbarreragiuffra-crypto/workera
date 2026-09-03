@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { profileRequiresMfa, isMfaAllowedPath, MFA_ALLOWED_PATHS, type MfaAccount } from "./mfa";
+import {
+  profileRequiresMfa,
+  isMfaAllowedPath,
+  postLoginDestination,
+  MFA_ALLOWED_PATHS,
+  type MfaAccount,
+} from "./mfa";
 
 function account(overrides: Partial<MfaAccount> = {}): MfaAccount {
   return { profile: null, platformMembership: null, ...overrides };
@@ -87,4 +93,46 @@ test("la coincidencia es exacta: ni prefijos ni subrutas heredan el permiso", ()
   assert.equal(isMfaAllowedPath("/login-de-mentira"), false);
   assert.equal(isMfaAllowedPath("/seguridad"), false);
   assert.equal(isMfaAllowedPath("/seguridad/mfa/otra"), false);
+});
+
+test("con un factor verificado y sesión en aal1, el login manda al desafío", () => {
+  assert.equal(
+    postLoginDestination({ currentLevel: "aal1", nextLevel: "aal2", requiresMfa: true, hasVerifiedFactor: true }),
+    "/login/mfa"
+  );
+});
+
+test("una cuenta que exige MFA y no inscribió nada va a la pantalla de inscripción", () => {
+  assert.equal(
+    postLoginDestination({ currentLevel: "aal1", nextLevel: "aal1", requiresMfa: true, hasVerifiedFactor: false }),
+    "/seguridad/mfa"
+  );
+});
+
+test("una sesión ya en aal2 no vuelve a pasar por el desafío", () => {
+  assert.equal(
+    postLoginDestination({ currentLevel: "aal2", nextLevel: "aal2", requiresMfa: true, hasVerifiedFactor: true }),
+    "/"
+  );
+});
+
+test("una cuenta sin obligación de MFA y sin factores entra directo", () => {
+  assert.equal(
+    postLoginDestination({ currentLevel: "aal1", nextLevel: "aal1", requiresMfa: false, hasVerifiedFactor: false }),
+    "/"
+  );
+});
+
+test("una cuenta sin obligación pero con factor inscrito igual pasa por el desafío", () => {
+  assert.equal(
+    postLoginDestination({ currentLevel: "aal1", nextLevel: "aal2", requiresMfa: false, hasVerifiedFactor: true }),
+    "/login/mfa"
+  );
+});
+
+test("niveles nulos no mandan a ninguna pantalla de MFA", () => {
+  assert.equal(
+    postLoginDestination({ currentLevel: null, nextLevel: null, requiresMfa: false, hasVerifiedFactor: false }),
+    "/"
+  );
 });

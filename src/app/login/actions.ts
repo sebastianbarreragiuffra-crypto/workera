@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { acceptCurrentUserInvitations } from "@/lib/platform/invitations";
+import { resolvePostLoginDestination } from "@/lib/auth/mfa-account";
 
 export type LoginState = { error: string | null };
 
@@ -30,8 +31,14 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
 
   await acceptCurrentUserInvitations(supabase);
 
+  // Una contraseña correcta crea sesión, no acceso. Si la cuenta ya tiene un
+  // segundo factor, todavía está en aal1 y le falta el desafío; si debe tener
+  // uno y no lo inscribió, va a inscribirlo. Ver sección 6.2 de
+  // docs/MFA_DESIGN.md.
+  const destination = await resolvePostLoginDestination(supabase);
+
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect(destination);
 }
 
 /**
