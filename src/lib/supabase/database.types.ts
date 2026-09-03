@@ -2862,6 +2862,48 @@ export type Database = {
         }
         Relationships: []
       }
+      mfa_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          factor_id: string | null
+          id: string
+          performed_by: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          factor_id?: string | null
+          id?: string
+          performed_by?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          factor_id?: string | null
+          id?: string
+          performed_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mfa_events_performed_by_fkey"
+            columns: ["performed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mfa_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organization_unit_leads: {
         Row: {
           company_id: string
@@ -4371,6 +4413,10 @@ export type Database = {
     }
     Functions: {
       accept_my_company_invitations: { Args: never; Returns: number }
+      account_requires_mfa: {
+        Args: { p_user: string }
+        Returns: boolean
+      }
       activate_colaciones_discount_workbook: {
         Args: {
           p_checksum: string
@@ -4450,6 +4496,14 @@ export type Database = {
       can_manage_platform: { Args: never; Returns: boolean }
       can_read_expense_receipt_path: {
         Args: { p_name: string }
+        Returns: boolean
+      }
+      can_read_mfa_events_for: {
+        Args: { p_target: string }
+        Returns: boolean
+      }
+      can_reset_mfa_for: {
+        Args: { p_target: string }
         Returns: boolean
       }
       can_upload_expense_receipt_path: {
@@ -4536,6 +4590,7 @@ export type Database = {
         Args: { p_employee_id: string }
         Returns: boolean
       }
+      enforce_mfa_for_privileged: { Args: never; Returns: undefined }
       expense_dashboard_summary: {
         Args: { p_company_id: string }
         Returns: {
@@ -4764,6 +4819,7 @@ export type Database = {
         Args: { p_approval_id: string; p_reason: string }
         Returns: undefined
       }
+      request_is_aal2: { Args: never; Returns: boolean }
       review_expense_receipt_extraction: {
         Args: {
           p_comment?: string
@@ -4772,6 +4828,7 @@ export type Database = {
         }
         Returns: string
       }
+      session_requires_mfa: { Args: never; Returns: boolean }
       set_time_control_exemption: {
         Args: {
           p_actor_id: string
