@@ -5,7 +5,7 @@
 -- entre sí sin relación real.
 create extension if not exists pgtap;
 begin;
-select plan(12);
+select plan(14);
 
 -- Simula dentro de esta transacción el estado futuro en que MT-3A permita
 -- encender un segundo workspace laboral. El constraint se restaura con el
@@ -100,14 +100,25 @@ select is(
   'cc000000-0000-0000-0000-000000000001',
   '8) company_id se resolvió solo desde employees.company_id, no de un valor de cliente'
 );
+select has_trigger(
+  'public', 'workera_attendance_events', 'workera_attendance_events_immutable',
+  '9) el backfill conserva el trigger de inmutabilidad de marcaciones'
+);
+select throws_ok(
+  $$ update public.workera_attendance_events
+     set company_id = 'cc000000-0000-0000-0000-000000000001'
+     where id = 'cc000000-0000-0000-0000-000000000501' $$,
+  'P0001', null,
+  '10) company_id queda inmutable después del backfill controlado'
+);
 
 -- RLS: el admin ajeno no ve nada de las corridas/eventos de ARCOTEX.
 set local role authenticated;
 set local request.jwt.claim.sub='cc000000-0000-0000-0000-000000000102';
-select is((select count(*)::int from public.sync_runs where id='cc000000-0000-0000-0000-000000000301'),0,'9) ajena no ve sync_runs de ARCOTEX');
-select is((select count(*)::int from public.rule_engine_runs where id='cc000000-0000-0000-0000-000000000401'),0,'10) ajena no ve rule_engine_runs de ARCOTEX');
-select is((select count(*)::int from public.workera_attendance_events where id='cc000000-0000-0000-0000-000000000501'),0,'11) ajena no ve workera_attendance_events de ARCOTEX');
-select is((select count(*)::int from public.workera_attendance_events where employee_id='cc000000-0000-0000-0000-000000000202'),1,'12) ajena sí ve su propio evento');
+select is((select count(*)::int from public.sync_runs where id='cc000000-0000-0000-0000-000000000301'),0,'11) ajena no ve sync_runs de ARCOTEX');
+select is((select count(*)::int from public.rule_engine_runs where id='cc000000-0000-0000-0000-000000000401'),0,'12) ajena no ve rule_engine_runs de ARCOTEX');
+select is((select count(*)::int from public.workera_attendance_events where id='cc000000-0000-0000-0000-000000000501'),0,'13) ajena no ve workera_attendance_events de ARCOTEX');
+select is((select count(*)::int from public.workera_attendance_events where employee_id='cc000000-0000-0000-0000-000000000202'),1,'14) ajena sí ve su propio evento');
 reset role;
 
 select * from finish();
