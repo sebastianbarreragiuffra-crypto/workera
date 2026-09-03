@@ -4,7 +4,7 @@ begin;
 select plan(4);
 
 select has_column('public', 'expense_items', 'distance_km', 'expense_items registra kilómetros recorridos');
-select col_is_nullable('public', 'expense_items', 'distance_km', 'distance_km es opcional -- no todo ítem es kilometraje');
+select col_is_null('public', 'expense_items', 'distance_km', 'distance_km es opcional -- no todo ítem es kilometraje');
 
 insert into public.companies (id, name, legal_name, slug, active, status, workspace_enabled)
 values ('11000000-0000-0000-0000-000000000001', 'Gastos Km', 'Gastos Km SpA', 'gastos-km', true, 'ONBOARDING', false);

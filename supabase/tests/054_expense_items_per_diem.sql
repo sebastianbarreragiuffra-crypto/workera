@@ -4,7 +4,7 @@ begin;
 select plan(5);
 
 select has_column('public', 'expense_items', 'per_diem_days', 'expense_items registra días de viático');
-select col_is_nullable('public', 'expense_items', 'per_diem_days', 'per_diem_days es opcional -- no todo ítem es viático');
+select col_is_null('public', 'expense_items', 'per_diem_days', 'per_diem_days es opcional -- no todo ítem es viático');
 
 insert into public.companies (id, name, legal_name, slug, active, status, workspace_enabled)
 values ('12000000-0000-0000-0000-000000000001', 'Gastos Viaticos', 'Gastos Viaticos SpA', 'gastos-viaticos', true, 'ONBOARDING', false);
