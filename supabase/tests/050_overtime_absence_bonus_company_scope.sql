@@ -5,8 +5,13 @@ create extension if not exists pgtap;
 begin;
 select plan(10);
 
+-- Simula dentro de esta transacción el estado futuro en que MT-3A permita
+-- encender un segundo workspace laboral. El constraint se restaura con el
+-- ROLLBACK final; producción permanece fail-closed.
+alter table public.companies drop constraint companies_workspace_mt3a_gate_chk;
+
 insert into public.companies (id,name,legal_name,slug,active,status,workspace_enabled)
-values ('dd000000-0000-0000-0000-000000000001','MT-3B Ajena 4','MT-3B Ajena 4 SpA','mt3b-ajena-4',true,'ONBOARDING',false);
+values ('dd000000-0000-0000-0000-000000000001','MT-3B Ajena 4','MT-3B Ajena 4 SpA','mt3b-ajena-4',true,'ACTIVE',true);
 
 insert into public.profiles (id,display_name,role,active) values
  ('dd000000-0000-0000-0000-000000000101','Admin ARCOTEX','ADMIN_RRHH',true),
@@ -14,6 +19,12 @@ insert into public.profiles (id,display_name,role,active) values
 
 insert into public.company_memberships (user_id,company_id,role,active)
 values ('dd000000-0000-0000-0000-000000000102','dd000000-0000-0000-0000-000000000001','ADMIN_RRHH',true);
+
+insert into public.company_membership_roles (company_id,membership_id,role_id)
+select cm.company_id,cm.id,cr.id
+from public.company_memberships cm
+join public.company_roles cr on cr.company_id=cm.company_id and cr.code='HR_ADMIN'
+where cm.user_id='dd000000-0000-0000-0000-000000000102';
 
 -- Grupo y política de horas extra de la empresa ajena.
 insert into public.employee_groups (id,company_id,code,name)
@@ -26,10 +37,10 @@ values ('dd000000-0000-0000-0000-000000000301','dd000000-0000-0000-0000-00000000
 insert into public.employees (id,external_workera_id,first_name,last_name,display_name)
 values ('dd000000-0000-0000-0000-000000000401','MT3B4-ARCOTEX-001','Empleado','Arcotex','Empleado Arcotex');
 
-insert into public.absence_records (id,employee_id,absence_type_id,start_date,end_date,source,source_hash)
+insert into public.absence_records (id,employee_id,absence_type_id,start_date,end_date,source,source_hash,created_by)
 values ('dd000000-0000-0000-0000-000000000501','dd000000-0000-0000-0000-000000000401',
         (select id from public.absence_types where code='VACATION'),
-        current_date, current_date + 5, 'manual', 'mt3b4-abs-hash-1');
+        current_date, current_date + 5, 'manual', 'mt3b4-abs-hash-1','dd000000-0000-0000-0000-000000000101');
 
 insert into public.absence_decisions (id,absence_record_id,decision_status,decided_by)
 values ('dd000000-0000-0000-0000-000000000601','dd000000-0000-0000-0000-000000000501','CONFIRMED','dd000000-0000-0000-0000-000000000101');

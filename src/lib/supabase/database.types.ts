@@ -7,6 +7,31 @@ export type Json =
   | Json[]
 
 export type Database = {
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       absence_decisions: {
@@ -1824,17 +1849,17 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "expense_advances_cancelled_by_fkey"
+            columns: ["cancelled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "expense_advances_company_id_fkey"
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "expense_advances_recipient_id_fkey"
-            columns: ["recipient_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -1845,15 +1870,15 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "expense_advances_settled_by_fkey"
-            columns: ["settled_by"]
+            foreignKeyName: "expense_advances_recipient_id_fkey"
+            columns: ["recipient_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "expense_advances_cancelled_by_fkey"
-            columns: ["cancelled_by"]
+            foreignKeyName: "expense_advances_settled_by_fkey"
+            columns: ["settled_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -3715,6 +3740,7 @@ export type Database = {
       rule_engine_runs: {
         Row: {
           attendance_derived: number
+          company_id: string
           early_departure_candidates: number
           employees_processed: number
           error_summary: string | null
@@ -3732,6 +3758,7 @@ export type Database = {
         }
         Insert: {
           attendance_derived?: number
+          company_id?: string
           early_departure_candidates?: number
           employees_processed?: number
           error_summary?: string | null
@@ -3749,6 +3776,7 @@ export type Database = {
         }
         Update: {
           attendance_derived?: number
+          company_id?: string
           early_departure_candidates?: number
           employees_processed?: number
           error_summary?: string | null
@@ -3765,6 +3793,13 @@ export type Database = {
           work_date?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "rule_engine_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "rule_engine_runs_triggered_by_profile_fkey"
             columns: ["triggered_by_profile"]
@@ -4080,6 +4115,7 @@ export type Database = {
       sync_runs: {
         Row: {
           attempt: number
+          company_id: string
           created_at: string
           error_category: string | null
           error_summary: Json | null
@@ -4099,6 +4135,7 @@ export type Database = {
         }
         Insert: {
           attempt?: number
+          company_id?: string
           created_at?: string
           error_category?: string | null
           error_summary?: Json | null
@@ -4118,6 +4155,7 @@ export type Database = {
         }
         Update: {
           attempt?: number
+          company_id?: string
           created_at?: string
           error_category?: string | null
           error_summary?: Json | null
@@ -4136,6 +4174,13 @@ export type Database = {
           triggered_by?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "sync_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "sync_runs_retry_of_fkey"
             columns: ["retry_of"]
@@ -4318,6 +4363,7 @@ export type Database = {
           attendance_type_code: number
           attendance_type_label: string
           checksum: string | null
+          company_id: string
           created_at: string
           device_name: string | null
           employee_id: string
@@ -4340,6 +4386,7 @@ export type Database = {
           attendance_type_code: number
           attendance_type_label: string
           checksum?: string | null
+          company_id?: string
           created_at?: string
           device_name?: string | null
           employee_id: string
@@ -4362,6 +4409,7 @@ export type Database = {
           attendance_type_code?: number
           attendance_type_label?: string
           checksum?: string | null
+          company_id?: string
           created_at?: string
           device_name?: string | null
           employee_id?: string
@@ -4378,6 +4426,13 @@ export type Database = {
           work_date?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "workera_attendance_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "workera_attendance_events_employee_id_fkey"
             columns: ["employee_id"]
@@ -4613,6 +4668,10 @@ export type Database = {
         Args: { p_name: string }
         Returns: boolean
       }
+      cancel_expense_advance: {
+        Args: { p_advance_id: string }
+        Returns: undefined
+      }
       claim_expense_ocr_jobs: {
         Args: { p_limit?: number; p_worker_id: string }
         Returns: {
@@ -4659,7 +4718,7 @@ export type Database = {
           p_client_request_id: string
           p_company_id: string
           p_currency_code: string
-          p_purpose?: string
+          p_purpose: string | null
           p_title: string
         }
         Returns: string
@@ -4694,6 +4753,10 @@ export type Database = {
         Returns: boolean
       }
       enforce_mfa_for_privileged: { Args: never; Returns: undefined }
+      employee_group_belongs_to_active_company: {
+        Args: { p_employee_group_id: string }
+        Returns: boolean
+      }
       expense_dashboard_summary: {
         Args: { p_company_id: string }
         Returns: {
@@ -4714,8 +4777,22 @@ export type Database = {
         }
         Returns: boolean
       }
+      grant_expense_advance: {
+        Args: {
+          p_amount: number
+          p_company_id: string
+          p_currency_code: string
+          p_purpose: string
+          p_recipient_id: string
+        }
+        Returns: string
+      }
       has_company_permission: {
         Args: { p_company_id: string; p_permission_code: string }
+        Returns: boolean
+      }
+      has_employee_group_company_permission: {
+        Args: { p_employee_group_id: string; p_permission_code: string }
         Returns: boolean
       }
       is_active_company_member: {
@@ -4730,6 +4807,10 @@ export type Database = {
       is_super_admin: { Args: never; Returns: boolean }
       is_supervisor_installation: { Args: never; Returns: boolean }
       is_supervisor_production: { Args: never; Returns: boolean }
+      link_expense_report_to_advance: {
+        Args: { p_advance_id: string | null; p_report_id: string }
+        Returns: undefined
+      }
       max_approvable_overtime_minutes: {
         Args: {
           p_employee_group_code: string
@@ -4887,28 +4968,6 @@ export type Database = {
         Args: { p_actor_id: string; p_company_id: string }
         Returns: undefined
       }
-      cancel_expense_advance: {
-        Args: { p_advance_id: string }
-        Returns: undefined
-      }
-      grant_expense_advance: {
-        Args: {
-          p_amount: number
-          p_company_id: string
-          p_currency_code: string
-          p_purpose: string
-          p_recipient_id: string
-        }
-        Returns: string
-      }
-      link_expense_report_to_advance: {
-        Args: { p_advance_id: string | null; p_report_id: string }
-        Returns: undefined
-      }
-      settle_expense_advance: {
-        Args: { p_advance_id: string }
-        Returns: undefined
-      }
       reclaim_stale_expense_ocr_jobs: {
         Args: { p_stale_after_seconds?: number }
         Returns: number
@@ -4921,12 +4980,12 @@ export type Database = {
         Args: { p_stale_after_seconds?: number }
         Returns: number
       }
-      reconcile_expense_report: {
-        Args: { p_payment_reference: string; p_report_id: string }
-        Returns: undefined
-      }
       recompute_employee_daily_bonus: {
         Args: { p_employee_id: string; p_work_date: string }
+        Returns: undefined
+      }
+      reconcile_expense_report: {
+        Args: { p_payment_reference: string; p_report_id: string }
         Returns: undefined
       }
       register_expense_receipt: {
@@ -4962,6 +5021,10 @@ export type Database = {
           p_legal_basis: string
           p_reason: string
         }
+        Returns: undefined
+      }
+      settle_expense_advance: {
+        Args: { p_advance_id: string }
         Returns: undefined
       }
       submit_expense_report: {
@@ -5192,6 +5255,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: [
@@ -5300,4 +5366,3 @@ export const Constants = {
     },
   },
 } as const
-

@@ -7,8 +7,13 @@ create extension if not exists pgtap;
 begin;
 select plan(12);
 
+-- Simula dentro de esta transacción el estado futuro en que MT-3A permita
+-- encender un segundo workspace laboral. El constraint se restaura con el
+-- ROLLBACK final; producción permanece fail-closed.
+alter table public.companies drop constraint companies_workspace_mt3a_gate_chk;
+
 insert into public.companies (id,name,legal_name,slug,active,status,workspace_enabled)
-values ('cc000000-0000-0000-0000-000000000001','MT-3B Ajena 3','MT-3B Ajena 3 SpA','mt3b-ajena-3',true,'ONBOARDING',false);
+values ('cc000000-0000-0000-0000-000000000001','MT-3B Ajena 3','MT-3B Ajena 3 SpA','mt3b-ajena-3',true,'ACTIVE',true);
 
 insert into public.profiles (id,display_name,role,active) values
  ('cc000000-0000-0000-0000-000000000101','Admin ARCOTEX','ADMIN_RRHH',true),
@@ -16,6 +21,12 @@ insert into public.profiles (id,display_name,role,active) values
 
 insert into public.company_memberships (user_id,company_id,role,active)
 values ('cc000000-0000-0000-0000-000000000102','cc000000-0000-0000-0000-000000000001','ADMIN_RRHH',true);
+
+insert into public.company_membership_roles (company_id,membership_id,role_id)
+select cm.company_id,cm.id,cr.id
+from public.company_memberships cm
+join public.company_roles cr on cr.company_id=cm.company_id and cr.code='HR_ADMIN'
+where cm.user_id='cc000000-0000-0000-0000-000000000102';
 
 -- Un empleado ARCOTEX (company_id default) y un empleado de la empresa
 -- ajena, con el MISMO código externo de Workera -- el escenario que antes

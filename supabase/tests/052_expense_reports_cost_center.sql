@@ -21,7 +21,7 @@ values ('ff000000-0000-0000-0000-000000000101', 'ADMIN', true);
 
 insert into public.company_memberships (id, user_id, company_id, role, active) values
   ('ff000000-0000-0000-0000-000000000201', 'ff000000-0000-0000-0000-000000000102', 'ff000000-0000-0000-0000-000000000001', 'SUPERVISOR_PRODUCTION', true),
-  ('ff000000-0000-0000-0000-000000000202', 'ff000000-0000-0000-0000-000000000103', 'ff000000-0000-0000-0000-000000000001', null, true),
+  ('ff000000-0000-0000-0000-000000000202', 'ff000000-0000-0000-0000-000000000103', 'ff000000-0000-0000-0000-000000000001', 'SUPERVISOR_PRODUCTION', true),
   ('ff000000-0000-0000-0000-000000000203', 'ff000000-0000-0000-0000-000000000104', 'ff000000-0000-0000-0000-000000000002', 'ADMIN_RRHH', true),
   ('ff000000-0000-0000-0000-000000000204', 'ff000000-0000-0000-0000-000000000105', 'ff000000-0000-0000-0000-000000000001', 'ADMIN_RRHH', true);
 
@@ -36,6 +36,16 @@ set local role authenticated;
 set local request.jwt.claim.sub = 'ff000000-0000-0000-0000-000000000101';
 select lives_ok($$select public.platform_set_company_module_status('ff000000-0000-0000-0000-000000000001', 'expenses', 'PILOT')$$, 'se activa Rendiciones en la empresa propia');
 reset role;
+
+-- Guarda el identificador ajeno antes de activar RLS. Bajo la sesión del
+-- submitter esa unidad debe ser invisible, pero necesitamos su UUID real
+-- para comprobar que la FK compuesta también bloquea el cruce de empresa.
+create temporary table foreign_org_unit_fixture as
+select id
+from public.organization_units
+where company_id = 'ff000000-0000-0000-0000-000000000002'
+limit 1;
+grant select on foreign_org_unit_fixture to authenticated;
 
 -- Unidad organizacional raíz que provision_company_control_plane ya crea
 -- al insertar la empresa (mismo criterio que 047: la fila existe sin
@@ -120,7 +130,7 @@ set local request.jwt.claim.sub = 'ff000000-0000-0000-0000-000000000102';
 select throws_ok(
   format(
     $$update public.expense_reports set organization_unit_id = %L where id = 'ff000000-0000-0000-0000-000000000301'$$,
-    (select id from public.organization_units where company_id = 'ff000000-0000-0000-0000-000000000002' limit 1)
+    (select id from pg_temp.foreign_org_unit_fixture limit 1)
   ),
   '23503', null,
   'no se puede etiquetar con un centro de costo de otra empresa (FK compuesta)'
