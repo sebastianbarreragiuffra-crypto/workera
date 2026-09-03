@@ -14,6 +14,7 @@ import {
   settleExpenseAdvanceAction,
   submitExpenseReportAction,
   updateCategoryLimitsAction,
+  updateExpenseReportCostCenterAction,
   uploadExpenseReceiptAction,
   withdrawExpenseReportAction,
   type ExpenseActionState,
@@ -436,6 +437,37 @@ export function LinkExpenseAdvanceForm({
           El anticipo vinculado ya no está pendiente -- si sigue seleccionado y guardas sin cambiarlo, se mantiene igual; si necesitas desvincularlo, elige &quot;Sin anticipo&quot;.
         </p>
       )}
+      <Feedback state={state} />
+      <SubmitButton>Guardar</SubmitButton>
+    </form>
+  );
+}
+
+export function UpdateCostCenterForm({
+  companySlug,
+  reportId,
+  currentOrganizationUnitId,
+  options,
+}: {
+  companySlug: string;
+  reportId: string;
+  currentOrganizationUnitId: string | null;
+  options: Array<{ id: string; name: string; code: string }>;
+}) {
+  const [state, action] = useActionState(updateExpenseReportCostCenterAction, INITIAL_STATE);
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="companySlug" value={companySlug} />
+      <input type="hidden" name="reportId" value={reportId} />
+      <label className="block text-sm font-medium text-slate-700">
+        Centro de costo (opcional)
+        <select name="organizationUnitId" className={INPUT} defaultValue={currentOrganizationUnitId ?? ""}>
+          <option value="">Sin centro de costo</option>
+          {options.map((option) => (
+            <option key={option.id} value={option.id}>{option.name} ({option.code})</option>
+          ))}
+        </select>
+      </label>
       <Feedback state={state} />
       <SubmitButton>Guardar</SubmitButton>
     </form>
