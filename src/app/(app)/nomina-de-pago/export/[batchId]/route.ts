@@ -10,6 +10,19 @@ import type { PayrollBatchItemResult } from "../../../../../lib/payroll/invoice-
  * actuales, no un snapshot congelado al momento de generar el lote) y
  * arma el archivo en el mismo momento de la descarga.
  */
+/**
+ * `batchId` llega desde la URL y termina interpolado en el header
+ * `Content-Disposition`. Sin validarlo, unas comillas permiten inventar un
+ * segundo `filename=` y un CRLF hace que Node rechace el header y la descarga
+ * muera con un 500. Exigir un UUID -- que es lo único que la columna acepta --
+ * cierra las dos puertas y de paso evita mandar basura a Postgres.
+ */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isUuid(value: string): boolean {
+  return UUID_PATTERN.test(value);
+}
+
 export async function GET(_request: Request, { params }: { params: Promise<{ batchId: string }> }) {
   const profile = await getCurrentProfile();
   if (!profile?.role || (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH")) {
@@ -17,6 +30,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ bat
   }
 
   const { batchId } = await params;
+  if (!isUuid(batchId)) {
+    return NextResponse.json({ error: "Identificador de lote inválido." }, { status: 400 });
+  }
   const supabase = await createClient();
 
   const { data: rows, error } = await supabase
@@ -26,6 +42,15 @@ export async function GET(_request: Request, { params }: { params: Promise<{ bat
 
   if (error) {
     return NextResponse.json({ error: "No pudimos generar el archivo." }, { status: 500 });
+  }
+
+  // Un lote inexistente devolvía un Excel vacío con 200, indistinguible de un
+  // lote real sin ítems. Solo se paga la segunda consulta cuando no hubo filas.
+  if ((rows ?? []).length === 0) {
+    const { data: batch } = await supabase.from("payroll_batches").select("id").eq("id", batchId).maybeSingle();
+    if (!batch) {
+      return NextResponse.json({ error: "El lote no existe." }, { status: 404 });
+    }
   }
 
   // TODAS las filas del lote van al Excel, con o sin match -- un proveedor sin match
