@@ -243,6 +243,14 @@ export async function listMedicalLicenses(
   return ((data ?? []) as unknown as MedicalLicenseRow[]).map(mapRow);
 }
 
+/**
+ * Debe coincidir con la cota de `approve_medical_license`
+ * (20260903100000_medical_license_range_bound.sql). Esa función escribe una
+ * fila de asistencia POR DÍA del rango, así que el límite real vive en la base;
+ * acá se repite solo para poder rechazar antes y con un mensaje claro.
+ */
+export const MAX_MEDICAL_LICENSE_DAYS = 366;
+
 export interface ApproveMedicalLicenseInput {
   approvalId: string;
   confirmedStartDate: string;

@@ -6,9 +6,9 @@ import { createClient } from "../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../lib/auth/session";
 import { requireMedicalLicenseApprover } from "../../../lib/supabase/authorize";
 import { assertEmployeeAccessAllowed, type CallerRole } from "../../../lib/access/scope";
-import { uploadMedicalLicense, approveMedicalLicense, rejectMedicalLicense } from "../../../lib/decisions/medical-license";
+import { uploadMedicalLicense, approveMedicalLicense, rejectMedicalLicense, MAX_MEDICAL_LICENSE_DAYS } from "../../../lib/decisions/medical-license";
 import { extractMedicalLicenseDates } from "../../../lib/decisions/medical-license-extraction";
-import { todayInSantiago } from "../../../lib/view-models/date-utils";
+import { todayInSantiago, isCalendarDate } from "../../../lib/view-models/date-utils";
 
 /**
  * Server Actions de Licencias. Cada una usa el cliente de SESIÓN (nunca
@@ -79,7 +79,11 @@ export async function uploadMedicalLicenseAction(_prev: UploadMedicalLicenseActi
       uploadedBy: profile.id,
     });
   } catch (err) {
-    return { status: "error", message: err instanceof Error ? err.message : "No pudimos subir la licencia.", extractionStatus: null };
+    // El mensaje interno arrastra el error crudo de PostgREST/Storage. Estos
+    // son datos de salud: el detalle queda en el log del servidor, nunca en la
+    // respuesta.
+    console.error("[licencias] fallo subiendo la licencia", err instanceof Error ? err.message : "error desconocido");
+    return { status: "error", message: "No pudimos subir la licencia.", extractionStatus: null };
   }
 
   revalidatePath("/licencias");
@@ -110,14 +114,29 @@ export async function approveMedicalLicenseAction(_prev: ApproveMedicalLicenseAc
   if (!approvalId || !confirmedStartDate || !confirmedEndDate) {
     return { status: "error", message: "Faltan datos para confirmar la aprobación." };
   }
+  if (!isCalendarDate(confirmedStartDate) || !isCalendarDate(confirmedEndDate)) {
+    return { status: "error", message: "Las fechas confirmadas deben ser días reales en formato YYYY-MM-DD." };
+  }
   if (confirmedEndDate < confirmedStartDate) {
     return { status: "error", message: "La fecha de término no puede ser anterior a la fecha de inicio." };
+  }
+  // Aprobar escribe una fila de asistencia por cada día del rango. El panel
+  // deja editar el rango propuesto, así que un año mal tecleado bastaba para
+  // pedir siglos de escrituras. La base también lo rechaza; esto solo llega
+  // antes y con un mensaje entendible.
+  const spanDays = Math.round((Date.parse(`${confirmedEndDate}T00:00:00Z`) - Date.parse(`${confirmedStartDate}T00:00:00Z`)) / 86_400_000) + 1;
+  if (spanDays > MAX_MEDICAL_LICENSE_DAYS) {
+    return {
+      status: "error",
+      message: `El rango confirmado (${spanDays} días) supera el máximo de ${MAX_MEDICAL_LICENSE_DAYS} días. Revisa las fechas.`,
+    };
   }
 
   try {
     await approveMedicalLicense(supabase, { approvalId, confirmedStartDate, confirmedEndDate });
   } catch (err) {
-    return { status: "error", message: err instanceof Error ? err.message : "No pudimos aprobar la licencia." };
+    console.error("[licencias] fallo aprobando la licencia", err instanceof Error ? err.message : "error desconocido");
+    return { status: "error", message: "No pudimos aprobar la licencia." };
   }
 
   revalidatePath("/licencias");
@@ -150,7 +169,8 @@ export async function rejectMedicalLicenseAction(_prev: RejectMedicalLicenseActi
   try {
     await rejectMedicalLicense(supabase, { approvalId, reason });
   } catch (err) {
-    return { status: "error", message: err instanceof Error ? err.message : "No pudimos rechazar la licencia." };
+    console.error("[licencias] fallo rechazando la licencia", err instanceof Error ? err.message : "error desconocido");
+    return { status: "error", message: "No pudimos rechazar la licencia." };
   }
 
   revalidatePath("/licencias");
