@@ -161,6 +161,7 @@ export interface ExpenseReportDetail extends ExpenseReportSummary {
   paidBy: string | null;
   paymentReference: string | null;
   advanceId: string | null;
+  organizationUnitId: string | null;
   items: ExpenseItemDetail[];
   categories: ExpenseCategoryOption[];
   decisions: Array<{
@@ -234,7 +235,7 @@ export async function getExpenseReportDetail(
   const [reportResult, itemsResult, categoriesResult, receiptsResult, decisionsResult] = await Promise.all([
     supabase
       .from("expense_reports")
-      .select("id, reference_number, title, purpose, policy_id, status, currency_code, total_amount, created_at, submitted_at, submitted_by, review_round, required_approval_steps, paid_at, paid_by, payment_reference, advance_id")
+      .select("id, reference_number, title, purpose, policy_id, status, currency_code, total_amount, created_at, submitted_at, submitted_by, review_round, required_approval_steps, paid_at, paid_by, payment_reference, advance_id, organization_unit_id")
       .eq("company_id", context.id)
       .eq("id", reportId)
       .maybeSingle(),
@@ -284,6 +285,7 @@ export async function getExpenseReportDetail(
     paidBy: report.paid_by,
     paymentReference: report.payment_reference,
     advanceId: report.advance_id,
+    organizationUnitId: report.organization_unit_id,
     status: report.status,
     currencyCode: report.currency_code,
     totalAmount: Number(report.total_amount),
@@ -692,4 +694,38 @@ export async function getExpenseIndicators(
     avgApprovalHours,
     categoryBreakdown: [...breakdownByKey.values()].sort((a, b) => b.totalAmount - a.totalAmount),
   };
+}
+
+export interface ExpenseOrganizationUnitOption {
+  id: string;
+  name: string;
+  code: string;
+}
+
+/**
+ * Unidades organizacionales activas de la empresa, para el selector de
+ * centro de costo. Antes de 20260902100000, organization_units solo era
+ * legible con el permiso de control plane 'organization.view' -- esa
+ * migración agregó una condición de lectura adicional para
+ * expenses.submit/expenses.manage, exclusivamente de lectura.
+ */
+/**
+ * `includeUnitId` -- si se pasa -- se incluye sin importar su estado
+ * `active`, igual que `includeAdvanceId` en getOwnPendingExpenseAdvances:
+ * el centro de costo ya guardado en la rendición no puede desaparecer de
+ * las opciones solo porque se desactivó después de asignarse, o el
+ * <select> pierde su defaultValue y cae a "Sin centro de costo" -- guardar
+ * sin darse cuenta borraría la asignación existente.
+ */
+export async function getActiveOrganizationUnits(
+  supabase: SupabaseClient<Database>,
+  context: ExpenseCompanyContext,
+  includeUnitId?: string | null
+): Promise<ExpenseOrganizationUnitOption[]> {
+  let query = supabase.from("organization_units").select("id, name, code").eq("company_id", context.id);
+  query = includeUnitId ? query.or(`active.eq.true,id.eq.${includeUnitId}`) : query.eq("active", true);
+
+  const { data, error } = await query.order("name");
+  if (error) throw new Error("No se pudieron cargar los centros de costo.");
+  return data ?? [];
 }

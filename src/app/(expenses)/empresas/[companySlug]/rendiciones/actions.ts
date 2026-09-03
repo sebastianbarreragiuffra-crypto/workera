@@ -56,6 +56,9 @@ const advanceActionInput = z.object({ companySlug: slug, advanceId: uuid });
 const linkAdvanceInput = reportActionInput.extend({
   advanceId: z.string().transform((value) => value || null).pipe(z.uuid().nullable()),
 });
+const costCenterInput = reportActionInput.extend({
+  organizationUnitId: z.string().transform((value) => value || null).pipe(z.uuid().nullable()),
+});
 const ocrReviewInput = reportActionInput.extend({
   receiptId: uuid,
   decision: z.enum(["ACCEPTED", "REJECTED"]),
@@ -500,4 +503,35 @@ export async function linkExpenseReportToAdvanceAction(
 
   revalidatePath(reportPath(context.slug, parsed.data.reportId));
   return { status: "success", message: parsed.data.advanceId ? "Anticipo vinculado." : "Anticipo desvinculado." };
+}
+
+export async function updateExpenseReportCostCenterAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = costCenterInput.safeParse(entries(formData));
+  if (!parsed.success) return failed();
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context) return failed("No tienes acceso a esta rendición.");
+
+  // RLS (expense_reports_update_draft) ya exige status='DRAFT' y
+  // (submitted_by = auth.uid() o expenses.manage); un UPDATE que no
+  // encuentre fila (permiso insuficiente o ya no está en borrador) no
+  // lanza error de RLS, simplemente afecta 0 filas -- se detecta explícito
+  // para no reportar éxito falso.
+  const { data, error } = await supabase
+    .from("expense_reports")
+    .update({ organization_unit_id: parsed.data.organizationUnitId })
+    .eq("company_id", context.id)
+    .eq("id", parsed.data.reportId)
+    .select("id")
+    .maybeSingle();
+  if (error?.code === "23503") return failed("Ese centro de costo no pertenece a esta empresa.");
+  if (error) return failed("No pudimos actualizar el centro de costo.");
+  if (!data) return failed("La rendición ya no está disponible para edición.");
+
+  revalidatePath(reportPath(context.slug, parsed.data.reportId));
+  return { status: "success", message: "Centro de costo actualizado." };
 }
