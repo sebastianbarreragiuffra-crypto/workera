@@ -4,7 +4,7 @@ import { createClient } from "../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../lib/auth/session";
 import { getDocumentCenter, getPendingDocumentRelations } from "../../../lib/view-models/documents-view";
 import { getEmployeeRoster } from "../../../lib/view-models/employees-view";
-import { areasVisibleToRole, type AreaCode } from "../../../lib/access/scope";
+import { areasVisibleToRole, parseAreaCode, type AreaCode } from "../../../lib/access/scope";
 import { todayInSantiago, formatDateLong } from "../../../lib/view-models/date-utils";
 import { EmptyState, ErrorState } from "../../../components/shell/StateMessages";
 import { PageHeader } from "../../../components/shell/PageHeader";
@@ -32,7 +32,9 @@ export default async function DocumentCenterPage({ searchParams }: { searchParam
 
   const allowedAreas = areasVisibleToRole(profile.role);
   const params = await searchParams;
-  const areaFilter = params.area as AreaCode | undefined;
+  // Un área desconocida se ignora (equivale a "Todas"); una real pero ajena al
+  // rol la sigue rechazando `getDocumentCenter`, que ya valida por su cuenta.
+  const areaFilter = parseAreaCode(params.area) ?? undefined;
   const done = params.hecho;
 
   const supabase = await createClient();

@@ -4,7 +4,7 @@ import { createClient } from "../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../lib/auth/session";
 import { getDailyReviewBoard, getDailyReviewDetail, sortPendingCards } from "../../../lib/view-models/daily-review-view";
 import type { DailyReviewCardViewModel, FilterCounts } from "../../../lib/view-models/daily-review-view";
-import { areasVisibleToRole, assertAreaAccessAllowed, AreaAccessError, type AreaCode } from "../../../lib/access/scope";
+import { areasVisibleToRole, assertAreaAccessAllowed, parseAreaCode, AreaAccessError, type AreaCode } from "../../../lib/access/scope";
 import { todayInSantiago, previousDate, nextDate, formatDateLong, isCalendarDate } from "../../../lib/view-models/date-utils";
 import { EmptyState, ErrorState } from "../../../components/shell/StateMessages";
 import { ReviewDetailPanel } from "./ReviewDetailPanel";
@@ -106,7 +106,9 @@ export default async function DailyReviewPage({
   // desde la barra de direcciones.
   const date = params.fecha && isCalendarDate(params.fecha) ? params.fecha : todayInSantiago();
   const allowedAreas = areasVisibleToRole(profile.role);
-  const requestedArea = (params.area as AreaCode | undefined) ?? allowedAreas[0];
+  // Un área desconocida cae al área por defecto del rol, en vez de propagarse
+  // hasta `assertAreaAccessAllowed` y mostrar "no tienes acceso" por un typo.
+  const requestedArea = parseAreaCode(params.area) ?? allowedAreas[0];
   const filter = params.filtro && FILTERS.some((f) => f.key === params.filtro) ? params.filtro : DEFAULT_FILTER;
   const search = params.q?.trim().toLowerCase() ?? "";
   const requestedEmployeeId = params.empleado;

@@ -8,7 +8,8 @@ import { listMedicalLicenses, computeLicenseSummary } from "../../../lib/decisio
 import { getActiveLicenseKpiTone } from "../../../lib/decisions/medical-license-kpi";
 import { getEmployeeRoster } from "../../../lib/view-models/employees-view";
 import { todayInSantiago } from "../../../lib/view-models/date-utils";
-import { areasVisibleToRole, type AreaCode, type CallerRole } from "../../../lib/access/scope";
+import { areasVisibleToRole, assertAreaAccessAllowed, parseAreaCode, AreaAccessError, type CallerRole } from "../../../lib/access/scope";
+import { ErrorState } from "../../../components/shell/StateMessages";
 import { EmployeeDirectory } from "../../../components/employees/EmployeeDirectory";
 import { LicenciasDashboard, UploadLicenseCard } from "./LicenciasDashboard";
 import { RosterImportCard } from "./RosterImportCard";
@@ -31,7 +32,20 @@ export default async function LicenciasPage({ searchParams }: { searchParams: Pr
   const callerRole = profile.role as CallerRole;
   const allowedAreas = areasVisibleToRole(callerRole);
   const params = await searchParams;
-  const areaFilter = params.area as AreaCode | undefined;
+  // `getEmployeeRoster` valida el área y LANZA si el rol no la tiene. Sin este
+  // guard esa excepción sube sin capturar y la página responde 500: bastaba
+  // `?area=INSTALLATION` desde una sesión de Producción, o un área mal escrita.
+  const areaFilter = parseAreaCode(params.area) ?? undefined;
+  if (areaFilter) {
+    try {
+      assertAreaAccessAllowed(profile.role, areaFilter);
+    } catch (err) {
+      if (err instanceof AreaAccessError) {
+        return <ErrorState message="No tienes acceso a esta área." retryHref="/licencias" />;
+      }
+      throw err;
+    }
+  }
   const search = params.q?.trim();
   const today = todayInSantiago();
 

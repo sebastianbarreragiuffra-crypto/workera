@@ -33,6 +33,20 @@ export function areasVisibleToRole(callerRole: CallerRole): AreaCode[] {
   return ["INSTALLATION"];
 }
 
+/**
+ * Área pedida por la URL, o `null` si no es una de las tres conocidas.
+ *
+ * Las páginas venían haciendo `params.area as AreaCode`, un cast que el
+ * compilador acepta y nadie verifica: `?area=cualquier-cosa` entraba al
+ * dominio como si fuera un área real. No era una fuga --
+ * `assertAreaAccessAllowed` la rechaza igual-- pero convertía un parámetro
+ * mal escrito en una excepción, y no en un filtro ignorado.
+ */
+export function parseAreaCode(value: string | undefined | null): AreaCode | null {
+  if (!value) return null;
+  return (ALL_AREAS as string[]).includes(value) ? (value as AreaCode) : null;
+}
+
 export function assertAreaAccessAllowed(callerRole: CallerRole, areaCode: AreaCode): void {
   if (!areasVisibleToRole(callerRole).includes(areaCode)) {
     throw new AreaAccessError(`El rol ${callerRole} no puede acceder al área ${areaCode}.`);

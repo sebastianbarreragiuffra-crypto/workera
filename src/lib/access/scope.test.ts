@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { areasVisibleToRole, assertAreaAccessAllowed, assertEmployeeAccessAllowed, AreaAccessError } from "./scope";
+import { areasVisibleToRole, assertAreaAccessAllowed, assertEmployeeAccessAllowed, parseAreaCode, AreaAccessError } from "./scope";
 
 test("SUPER_ADMIN y ADMIN_RRHH pueden ver las 3 áreas", () => {
   assert.deepEqual(areasVisibleToRole("SUPER_ADMIN"), ["PRODUCTION", "INSTALLATION", "ADMINISTRATION"]);
@@ -60,4 +60,30 @@ test("assertEmployeeAccessAllowed: supervisor de Producción NO puede acceder a 
 test("assertEmployeeAccessAllowed: empleado sin área asignada -> AreaAccessError, nunca se asume un área", async () => {
   const supabase = mockSupabaseWithEmployeeGroup(null as unknown as string);
   await assert.rejects(() => assertEmployeeAccessAllowed(supabase, "ADMIN_RRHH", "emp-1"));
+});
+
+// ---------------------------------------------------------------------------
+// parseAreaCode: filtro para el `?area=` que llega por URL
+// ---------------------------------------------------------------------------
+
+test("parseAreaCode: acepta las tres áreas reales", () => {
+  assert.equal(parseAreaCode("PRODUCTION"), "PRODUCTION");
+  assert.equal(parseAreaCode("INSTALLATION"), "INSTALLATION");
+  assert.equal(parseAreaCode("ADMINISTRATION"), "ADMINISTRATION");
+});
+
+test("parseAreaCode: cualquier otra cosa es null, nunca un área inventada", () => {
+  for (const value of ["", "  ", "produccion", "production", "PRODUCTION ", "ADMIN", "../../etc", undefined, null]) {
+    assert.equal(parseAreaCode(value), null, `debería rechazar ${JSON.stringify(value)}`);
+  }
+});
+
+test("parseAreaCode: distingue un área desconocida de una real pero ajena al rol", () => {
+  // Desconocida -> null, la página la ignora y muestra "Todas".
+  assert.equal(parseAreaCode("no-existe"), null);
+  // Real pero ajena -> sí es un AreaCode, y el rechazo le toca a
+  // assertAreaAccessAllowed, que es quien conoce el rol.
+  const ajena = parseAreaCode("INSTALLATION");
+  assert.equal(ajena, "INSTALLATION");
+  assert.throws(() => assertAreaAccessAllowed("SUPERVISOR_PRODUCTION", ajena!), AreaAccessError);
 });
