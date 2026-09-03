@@ -878,7 +878,7 @@ select throws_ok(
     $$ insert into public.attendance_status_records
          (employee_id, work_date, attendance_status_id, source, source_hash, created_by)
        values (%L, date '2026-10-05', %L, 'manual', 'hash-g2-r-upsert', '50000000-0000-0000-0000-000000000001')
-       on conflict (employee_id, work_date) where is_current
+       on conflict (company_id, employee_id, work_date) where is_current
        do update set source_hash = excluded.source_hash $$,
     (select id from public.employees where external_workera_id = 'GATED2-R-001'),
     (select id from public.attendance_statuses where code = 'R')

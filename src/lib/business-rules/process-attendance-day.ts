@@ -9,6 +9,7 @@ import { generateEarlyDepartureCandidate, type GenerateEarlyDepartureStatus } fr
 import { generateOvertimeCandidate, type GenerateOvertimeCandidateStatus } from "./overtime-confirmation";
 import type { BirthdayContext } from "./birthday";
 import { loadHolidaySet } from "./holidays";
+import { WORKERA_COMPANY_ID } from "../tenant/company-scope";
 
 /**
  * Orquestador del motor de reglas (MB-2) -- la pieza que faltaba entre la
@@ -38,6 +39,8 @@ import { loadHolidaySet } from "./holidays";
  */
 
 export interface ProcessAttendanceDayOptions {
+  /** Tenant explícito del lote. El job productivo siempre lo envía. */
+  companyId?: string;
   /** Acota a un área. Sin esto, procesa a todos los trabajadores activos. */
   areaCode?: AreaCode;
   /** Acota a trabajadores puntuales -- lo usa la re-derivación tras corregir una marcación. */
@@ -104,6 +107,7 @@ async function loadEmployeesInScope(
   const { data, error } = await supabase
     .from("employees")
     .select("id, employee_groups!employees_company_group_fkey(code)")
+    .eq("company_id", options.companyId ?? WORKERA_COMPANY_ID)
     .eq("active", true)
     .order("id");
   if (error) throw new Error(`processAttendanceDay: fallo listando employees: ${error.message}`);
@@ -196,7 +200,8 @@ async function loadBirthdays(
 async function applyDailyStatus(
   supabase: SupabaseClient<Database>,
   date: string,
-  targets: { employeeId: string; code: "P" | "?" }[]
+  targets: { employeeId: string; code: "P" | "?" }[],
+  companyId: string
 ): Promise<number> {
   if (targets.length === 0) return 0;
 
@@ -209,6 +214,7 @@ async function applyDailyStatus(
     .from("attendance_status_records")
     .select("id, employee_id, attendance_status_id, source, source_version")
     .in("employee_id", employeeIds)
+    .eq("company_id", companyId)
     .eq("work_date", date)
     .eq("is_current", true);
   if (existingError) throw new Error(`applyDailyStatus: fallo leyendo attendance_status_records: ${existingError.message}`);
@@ -228,11 +234,16 @@ async function applyDailyStatus(
     if (current && current.attendance_status_id === statusId) continue;
 
     if (current) {
-      const { error } = await supabase.from("attendance_status_records").update({ is_current: false }).eq("id", current.id);
+      const { error } = await supabase
+        .from("attendance_status_records")
+        .update({ is_current: false })
+        .eq("company_id", companyId)
+        .eq("id", current.id);
       if (error) throw new Error(`applyDailyStatus: fallo versionando el código anterior: ${error.message}`);
     }
 
     const { error } = await supabase.from("attendance_status_records").insert({
+      company_id: companyId,
       employee_id: target.employeeId,
       work_date: date,
       attendance_status_id: statusId,
@@ -257,6 +268,7 @@ export async function processAttendanceDay(
   options: ProcessAttendanceDayOptions = {},
   deps: ProcessAttendanceDayDeps = DEFAULT_DEPS
 ): Promise<ProcessAttendanceDayResult> {
+  const companyId = options.companyId ?? WORKERA_COMPANY_ID;
   const employeeIds = await loadEmployeesInScope(supabase, options);
   const birthdays = await loadBirthdays(supabase, employeeIds);
   // Se carga ANTES del bucle a propósito: una corrección solo puede existir
@@ -274,7 +286,7 @@ export async function processAttendanceDay(
 
   for (const employeeId of employeeIds) {
     try {
-      const derived = await deps.deriveDailyAttendanceRecord(supabase, employeeId, date, isHoliday);
+      const derived = await deps.deriveDailyAttendanceRecord(supabase, employeeId, date, isHoliday, companyId);
 
       // Sin `attendanceRecordId` no hay nada sobre lo que generar candidatos:
       // exento, día libre, o sin horario asignado. No es un error.
@@ -340,7 +352,7 @@ export async function processAttendanceDay(
   // cola de revisión.
   let statusesWritten = 0;
   try {
-    statusesWritten = await applyDailyStatus(supabase, date, statusTargets);
+    statusesWritten = await applyDailyStatus(supabase, date, statusTargets, companyId);
   } catch (err) {
     failures.push({ employeeId: "(código diario)", message: err instanceof Error ? err.message : "error desconocido" });
   }
@@ -396,17 +408,23 @@ export async function runRuleEngineForDate(
   supabase: SupabaseClient<Database>,
   date: string,
   params: {
+    companyId?: string;
     triggeredBy: "CRON" | "MANUAL";
     triggeredByProfile?: string | null;
     options?: ProcessAttendanceDayOptions;
     deps?: ProcessAttendanceDayDeps;
   } = { triggeredBy: "MANUAL" }
 ): Promise<RuleEngineRunOutcome> {
-  await supabase.rpc("reclaim_stale_rule_engine_runs", { p_stale_after_seconds: STALE_RUNNING_SECONDS });
+  const companyId = params.companyId ?? WORKERA_COMPANY_ID;
+  await supabase.rpc("reclaim_stale_rule_engine_runs", {
+    p_company_id: companyId,
+    p_stale_after_seconds: STALE_RUNNING_SECONDS,
+  });
 
   const { data: run, error: runError } = await supabase
     .from("rule_engine_runs")
     .insert({
+      company_id: companyId,
       work_date: date,
       status: "RUNNING",
       triggered_by: params.triggeredBy,
@@ -423,7 +441,12 @@ export async function runRuleEngineForDate(
   }
 
   try {
-    const result = await processAttendanceDay(supabase, date, params.options ?? {}, params.deps ?? DEFAULT_DEPS);
+    const result = await processAttendanceDay(
+      supabase,
+      date,
+      { ...(params.options ?? {}), companyId },
+      params.deps ?? DEFAULT_DEPS
+    );
     const status = result.failures.length > 0 ? "PARTIAL" : "SUCCEEDED";
 
     await supabase
@@ -443,6 +466,7 @@ export async function runRuleEngineForDate(
             ? `${result.failures.length} trabajador(es) fallaron; primero: ${result.failures[0].message.slice(0, 200)}`
             : null,
       })
+      .eq("company_id", companyId)
       .eq("id", run.id);
 
     return { status, runId: run.id, date, result, errorSummary: null };
@@ -451,6 +475,7 @@ export async function runRuleEngineForDate(
     await supabase
       .from("rule_engine_runs")
       .update({ status: "FAILED", finished_at: new Date().toISOString(), error_summary: message.slice(0, 500) })
+      .eq("company_id", companyId)
       .eq("id", run.id);
 
     return { status: "FAILED", runId: run.id, date, result: null, errorSummary: message };

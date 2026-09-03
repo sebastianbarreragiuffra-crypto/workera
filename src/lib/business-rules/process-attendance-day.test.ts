@@ -88,12 +88,16 @@ function supabaseStub(
       builder.then = (resolve: (v: unknown) => void) => resolve({ data: dataFor(table), error: null });
       return {
         ...builder,
-        update: (patch: { is_current?: boolean }) => ({
-          eq: async (_col: string, id: string) => {
-            if (patch.is_current === false) writes.superseded.push(id);
-            return { data: null, error: null };
-          },
-        }),
+        update: (patch: { is_current?: boolean }) => {
+          const updateBuilder = {
+            eq: (column: string, value: string) => {
+              if (patch.is_current === false && column === "id") writes.superseded.push(value);
+              return updateBuilder;
+            },
+            then: (resolve: (value: unknown) => void) => resolve({ data: null, error: null }),
+          };
+          return updateBuilder;
+        },
         insert: async (row: { employee_id: string; attendance_status_id: string; source: string }) => {
           writes.inserted.push({
             employee_id: row.employee_id,

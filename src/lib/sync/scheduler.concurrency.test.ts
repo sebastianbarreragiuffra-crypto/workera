@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
+import { WORKERA_COMPANY_ID } from "../tenant/company-scope";
 
 /**
  * PRUEBA REAL de concurrencia (Fase 6B, PASO 50: "Obligatorio. Dos syncs
@@ -44,13 +45,23 @@ test(
     // Limpieza defensiva por si una corrida anterior de este test quedó a
     // medias (no debería, pero un test real no debe asumir un estado
     // perfectamente limpio de antemano).
-    await admin.from("sync_runs").delete().eq("target_period_start", targetDate);
+    await admin
+      .from("sync_runs")
+      .delete()
+      .eq("company_id", WORKERA_COMPANY_ID)
+      .eq("target_period_start", targetDate);
 
     try {
       const attemptInsert = () =>
         admin
           .from("sync_runs")
-          .insert({ status: "RUNNING", target_period_start: targetDate, target_period_end: targetDate, triggered_by: "CRON" })
+          .insert({
+            company_id: WORKERA_COMPANY_ID,
+            status: "RUNNING",
+            target_period_start: targetDate,
+            target_period_end: targetDate,
+            triggered_by: "CRON",
+          })
           .select("id")
           .single();
 
@@ -69,13 +80,18 @@ test(
       const { data: rows, error: countError } = await admin
         .from("sync_runs")
         .select("id, status")
+        .eq("company_id", WORKERA_COMPANY_ID)
         .eq("target_period_start", targetDate);
 
       assert.equal(countError, null);
       assert.equal(rows?.length, 1, "cero duplicados: solo debe existir UNA fila para este rango pese a los dos intentos concurrentes");
       assert.equal(rows?.[0]?.status, "RUNNING");
     } finally {
-      await admin.from("sync_runs").delete().eq("target_period_start", targetDate);
+      await admin
+        .from("sync_runs")
+        .delete()
+        .eq("company_id", WORKERA_COMPANY_ID)
+        .eq("target_period_start", targetDate);
     }
   }
 );

@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 import { santiagoWallClockToInstant } from "../business-rules/wall-clock";
 import { nextDate } from "../view-models/date-utils";
+import { WORKERA_COMPANY_ID } from "../tenant/company-scope";
 
 /**
  * Servicio de escritura para `attendance_corrections` (MB-3).
@@ -99,6 +100,7 @@ export async function submitAttendanceCorrection(
   const { error: supersedeError } = await supabase
     .from("attendance_corrections")
     .update({ is_current: false })
+    .eq("company_id", WORKERA_COMPANY_ID)
     .eq("attendance_record_id", input.attendanceRecordId)
     .eq("is_current", true);
   if (supersedeError) {
@@ -108,6 +110,7 @@ export async function submitAttendanceCorrection(
   const { data, error } = await supabase
     .from("attendance_corrections")
     .insert({
+      company_id: WORKERA_COMPANY_ID,
       attendance_record_id: input.attendanceRecordId,
       employee_id: input.employeeId,
       work_date: input.workDate,

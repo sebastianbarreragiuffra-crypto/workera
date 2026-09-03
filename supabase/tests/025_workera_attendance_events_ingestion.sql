@@ -7,6 +7,11 @@ create extension if not exists pgtap;
 begin;
 select plan(26);
 
+-- Compatibilidad de los fixtures históricos de Fase 6A. Producción no tiene
+-- default: el job real debe declarar siempre su empresa.
+alter table public.sync_runs alter column company_id
+  set default '0a4c0000-0000-0000-0000-000000000001'::uuid;
+
 -- ---------------------------------------------------------------------------
 -- Fixtures: 1 SUPER_ADMIN, 1 ADMIN_RRHH, 1 supervisor de cada grupo, 1
 -- empleado, 1 sync_run base para asociar los eventos crudos.

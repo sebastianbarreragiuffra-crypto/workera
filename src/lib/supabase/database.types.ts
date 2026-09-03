@@ -183,6 +183,7 @@ export type Database = {
       attendance_corrections: {
         Row: {
           attendance_record_id: string
+          company_id: string
           corrected_at: string
           corrected_by: string
           corrected_by_role: Database["public"]["Enums"]["app_role"] | null
@@ -198,6 +199,7 @@ export type Database = {
         }
         Insert: {
           attendance_record_id: string
+          company_id: string
           corrected_at?: string
           corrected_by?: string
           corrected_by_role?: Database["public"]["Enums"]["app_role"] | null
@@ -213,6 +215,7 @@ export type Database = {
         }
         Update: {
           attendance_record_id?: string
+          company_id?: string
           corrected_at?: string
           corrected_by?: string
           corrected_by_role?: Database["public"]["Enums"]["app_role"] | null
@@ -228,31 +231,31 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "attendance_corrections_attendance_record_id_fkey"
-            columns: ["attendance_record_id"]
+            foreignKeyName: "attendance_corrections_company_employee_fkey"
+            columns: ["company_id", "employee_id"]
             isOneToOne: false
-            referencedRelation: "attendance_effective_punches"
-            referencedColumns: ["attendance_record_id"]
+            referencedRelation: "employees"
+            referencedColumns: ["company_id", "id"]
           },
           {
-            foreignKeyName: "attendance_corrections_attendance_record_id_fkey"
-            columns: ["attendance_record_id"]
+            foreignKeyName: "attendance_corrections_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_corrections_company_record_fkey"
+            columns: ["company_id", "attendance_record_id"]
             isOneToOne: false
             referencedRelation: "attendance_records"
-            referencedColumns: ["id"]
+            referencedColumns: ["company_id", "id"]
           },
           {
             foreignKeyName: "attendance_corrections_corrected_by_fkey"
             columns: ["corrected_by"]
             isOneToOne: false
             referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "attendance_corrections_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
             referencedColumns: ["id"]
           },
         ]
@@ -345,6 +348,7 @@ export type Database = {
         Row: {
           actual_clock_in: string | null
           actual_clock_out: string | null
+          company_id: string
           created_at: string
           employee_id: string
           external_id: string | null
@@ -361,6 +365,7 @@ export type Database = {
         Insert: {
           actual_clock_in?: string | null
           actual_clock_out?: string | null
+          company_id: string
           created_at?: string
           employee_id: string
           external_id?: string | null
@@ -377,6 +382,7 @@ export type Database = {
         Update: {
           actual_clock_in?: string | null
           actual_clock_out?: string | null
+          company_id?: string
           created_at?: string
           employee_id?: string
           external_id?: string | null
@@ -392,24 +398,32 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "attendance_records_employee_id_fkey"
-            columns: ["employee_id"]
+            foreignKeyName: "attendance_records_company_employee_fkey"
+            columns: ["company_id", "employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "attendance_records_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "attendance_records_sync_run_id_fkey"
-            columns: ["sync_run_id"]
+            foreignKeyName: "attendance_records_company_sync_run_fkey"
+            columns: ["company_id", "sync_run_id"]
             isOneToOne: false
             referencedRelation: "sync_runs"
-            referencedColumns: ["id"]
+            referencedColumns: ["company_id", "id"]
           },
         ]
       }
       attendance_status_records: {
         Row: {
           attendance_status_id: string
+          company_id: string
           created_at: string
           created_by: string | null
           employee_id: string
@@ -427,6 +441,7 @@ export type Database = {
         }
         Insert: {
           attendance_status_id: string
+          company_id: string
           created_at?: string
           created_by?: string | null
           employee_id: string
@@ -444,6 +459,7 @@ export type Database = {
         }
         Update: {
           attendance_status_id?: string
+          company_id?: string
           created_at?: string
           created_by?: string | null
           employee_id?: string
@@ -468,24 +484,31 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "attendance_status_records_company_employee_fkey"
+            columns: ["company_id", "employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "attendance_status_records_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_status_records_company_sync_run_fkey"
+            columns: ["company_id", "sync_run_id"]
+            isOneToOne: false
+            referencedRelation: "sync_runs"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
             foreignKeyName: "attendance_status_records_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "attendance_status_records_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "attendance_status_records_sync_run_id_fkey"
-            columns: ["sync_run_id"]
-            isOneToOne: false
-            referencedRelation: "sync_runs"
             referencedColumns: ["id"]
           },
         ]
@@ -3612,6 +3635,7 @@ export type Database = {
       rule_engine_runs: {
         Row: {
           attendance_derived: number
+          company_id: string
           early_departure_candidates: number
           employees_processed: number
           error_summary: string | null
@@ -3629,6 +3653,7 @@ export type Database = {
         }
         Insert: {
           attendance_derived?: number
+          company_id: string
           early_departure_candidates?: number
           employees_processed?: number
           error_summary?: string | null
@@ -3646,6 +3671,7 @@ export type Database = {
         }
         Update: {
           attendance_derived?: number
+          company_id?: string
           early_departure_candidates?: number
           employees_processed?: number
           error_summary?: string | null
@@ -3662,6 +3688,13 @@ export type Database = {
           work_date?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "rule_engine_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "rule_engine_runs_triggered_by_profile_fkey"
             columns: ["triggered_by_profile"]
@@ -3977,6 +4010,7 @@ export type Database = {
       sync_runs: {
         Row: {
           attempt: number
+          company_id: string
           created_at: string
           error_category: string | null
           error_summary: Json | null
@@ -3996,6 +4030,7 @@ export type Database = {
         }
         Insert: {
           attempt?: number
+          company_id: string
           created_at?: string
           error_category?: string | null
           error_summary?: Json | null
@@ -4015,6 +4050,7 @@ export type Database = {
         }
         Update: {
           attempt?: number
+          company_id?: string
           created_at?: string
           error_category?: string | null
           error_summary?: Json | null
@@ -4034,11 +4070,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "sync_runs_retry_of_fkey"
-            columns: ["retry_of"]
+            foreignKeyName: "sync_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_runs_company_retry_of_fkey"
+            columns: ["company_id", "retry_of"]
             isOneToOne: false
             referencedRelation: "sync_runs"
-            referencedColumns: ["id"]
+            referencedColumns: ["company_id", "id"]
           },
         ]
       }
@@ -4215,6 +4258,7 @@ export type Database = {
           attendance_type_code: number
           attendance_type_label: string
           checksum: string | null
+          company_id: string
           created_at: string
           device_name: string | null
           employee_id: string
@@ -4237,6 +4281,7 @@ export type Database = {
           attendance_type_code: number
           attendance_type_label: string
           checksum?: string | null
+          company_id: string
           created_at?: string
           device_name?: string | null
           employee_id: string
@@ -4259,6 +4304,7 @@ export type Database = {
           attendance_type_code?: number
           attendance_type_label?: string
           checksum?: string | null
+          company_id?: string
           created_at?: string
           device_name?: string | null
           employee_id?: string
@@ -4276,18 +4322,25 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "workera_attendance_events_employee_id_fkey"
-            columns: ["employee_id"]
+            foreignKeyName: "workera_attendance_events_company_employee_fkey"
+            columns: ["company_id", "employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "workera_attendance_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "workera_attendance_events_sync_run_id_fkey"
-            columns: ["sync_run_id"]
+            foreignKeyName: "workera_attendance_events_company_sync_run_fkey"
+            columns: ["company_id", "sync_run_id"]
             isOneToOne: false
             referencedRelation: "sync_runs"
-            referencedColumns: ["id"]
+            referencedColumns: ["company_id", "id"]
           },
         ]
       }
@@ -4304,15 +4357,7 @@ export type Database = {
           raw_clock_out: string | null
           work_date: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "attendance_records_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       late_arrival_daily_totals: {
         Row: {
@@ -4556,7 +4601,7 @@ export type Database = {
           p_client_request_id: string
           p_company_id: string
           p_currency_code: string
-          p_purpose?: string
+          p_purpose: string
           p_title: string
         }
         Returns: string
@@ -4789,19 +4834,19 @@ export type Database = {
         Returns: number
       }
       reclaim_stale_rule_engine_runs: {
-        Args: { p_stale_after_seconds?: number }
+        Args: { p_company_id: string; p_stale_after_seconds?: number }
         Returns: number
       }
       reclaim_stale_workera_sync_runs: {
-        Args: { p_stale_after_seconds?: number }
+        Args: { p_company_id: string; p_stale_after_seconds?: number }
         Returns: number
-      }
-      reconcile_expense_report: {
-        Args: { p_payment_reference: string; p_report_id: string }
-        Returns: undefined
       }
       recompute_employee_daily_bonus: {
         Args: { p_employee_id: string; p_work_date: string }
+        Returns: undefined
+      }
+      reconcile_expense_report: {
+        Args: { p_payment_reference: string; p_report_id: string }
         Returns: undefined
       }
       register_expense_receipt: {
