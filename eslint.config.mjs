@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Nested Git worktrees contain another complete checkout (and its build
+    // output); linting them would duplicate the project and report generated JS.
+    ".worktrees/**",
     // Ephemeral runtime artifacts written by `supabase start`/`supabase test db`
     // (vendored, minified, gitignored) — not our code.
     "supabase/.temp/**",

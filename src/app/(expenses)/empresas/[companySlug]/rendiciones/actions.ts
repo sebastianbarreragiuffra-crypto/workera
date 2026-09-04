@@ -1,5 +1,6 @@
 "use server";
 
+import { createHash, randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -7,6 +8,7 @@ import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
 import { getExpenseSpecialRates } from "@/lib/expenses/data";
 import { validateExpenseReceiptFile } from "@/lib/expenses/receipts";
 import { getExpenseEmailDomain } from "@/lib/expense-email/config";
+import { getExpenseWhatsappProviderConfig, whatsappLink } from "@/lib/expense-whatsapp/config";
 import { discardExpenseCapture, storeExpenseCapture, storeExpenseReceipt } from "@/lib/expense-capture/service";
 import { createClient } from "@/lib/supabase/server";
 import { unwrapEmbed } from "@/lib/supabase/embed";
@@ -15,6 +17,8 @@ import type { Json } from "@/lib/supabase/database.types";
 export interface ExpenseActionState {
   status: "idle" | "success" | "error";
   message: string;
+  pairingCode?: string;
+  pairingUrl?: string;
 }
 
 const slug = z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(63);
@@ -54,6 +58,7 @@ const captureUploadInput = z.object({
 const captureActionInput = z.object({ companySlug: slug, captureId: uuid });
 const attachCaptureInput = captureActionInput.extend({ itemId: uuid });
 const emailAliasInput = z.object({ companySlug: slug, intent: z.enum(["ensure", "rotate"]) });
+const whatsappLinkInput = z.object({ companySlug: slug, intent: z.enum(["pair", "disconnect"]) });
 const reconcileInput = reportActionInput.extend({
   paymentReference: z.string().trim().min(1).max(160),
 });
@@ -483,6 +488,48 @@ export async function configureExpenseReceiptEmailAction(
     message: parsed.data.intent === "rotate"
       ? "Dirección reemplazada. La anterior dejó de recibir comprobantes."
       : "Dirección de recepción activada.",
+  };
+}
+
+export async function configureExpenseReceiptWhatsappAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = whatsappLinkInput.safeParse(entries(formData));
+  if (!parsed.success) return failed("No pudimos configurar WhatsApp.");
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canSubmit) return failed("Tu rol no permite recibir comprobantes.");
+
+  if (parsed.data.intent === "disconnect") {
+    const { error } = await supabase.rpc("disconnect_expense_receipt_whatsapp", { p_company_id: context.id });
+    if (error) return failed("No pudimos desvincular WhatsApp.");
+    revalidatePath(`/empresas/${context.slug}/rendiciones/comprobantes`);
+    return { status: "success", message: "WhatsApp quedó desvinculado de esta empresa." };
+  }
+
+  const config = getExpenseWhatsappProviderConfig();
+  if (!config?.enabled) return failed("La recepción por WhatsApp todavía no está habilitada.");
+
+  const compactCode = randomBytes(12).toString("hex").toUpperCase();
+  const pairingCode = compactCode.match(/.{1,4}/g)?.join("-") ?? compactCode;
+  const tokenHash = createHash("sha256").update(compactCode).digest("hex");
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const { error } = await supabase.rpc("begin_expense_receipt_whatsapp_pairing", {
+    p_company_id: context.id,
+    p_token_hash: tokenHash,
+    p_expires_at: expiresAt,
+  });
+  if (error?.code === "42501") return failed("Tu acceso a Rendiciones cambió. Actualiza la página.");
+  if (error) return failed("No pudimos crear el código de vinculación.");
+
+  revalidatePath(`/empresas/${context.slug}/rendiciones/comprobantes`);
+  return {
+    status: "success",
+    message: "Código creado. Envíalo dentro de 10 minutos desde tu WhatsApp.",
+    pairingCode,
+    pairingUrl: whatsappLink(config.businessNumber, pairingCode),
   };
 }
 
