@@ -96,7 +96,7 @@ test("al activar elimina solo caches antiguas de GESTORA", async () => {
   handlers.get("activate")?.({ waitUntil(value: Promise<unknown>) { activation = value; } });
   assert.ok(activation, "activate debe prolongar la vida del worker");
   await activation;
-  assert.deepEqual(deleted, ["gestora-shell-v0"]);
+  assert.deepEqual(deleted, ["gestora-shell-v0", "gestora-shell-v1"]);
 });
 
 test("la respuesta de un asset espera a que cache.put termine", async () => {
@@ -144,4 +144,73 @@ test("la respuesta de un asset espera a que cache.put termine", async () => {
   assert.equal(settled, false, "respondWith no debe terminar antes de cache.put");
   releasePut?.();
   assert.equal(await responsePromise, networkResponse);
+});
+
+test("un fallo de Cache Storage nunca pierde una respuesta válida de red", async () => {
+  const handlers = new Map<string, (event: unknown) => void>();
+  const networkResponse = {
+    ok: true,
+    type: "basic",
+    clone() { return { copy: true }; },
+  };
+  const context = vm.createContext({
+    URL,
+    Promise,
+    self: {
+      location: { origin: "https://gestora.example" },
+      addEventListener(name: string, handler: (event: unknown) => void) { handlers.set(name, handler); },
+      skipWaiting() {},
+      clients: { claim() {} },
+    },
+    caches: {
+      async match() { return undefined; },
+      async open() { return { async put() { throw new Error("QuotaExceededError"); } }; },
+      async keys() { return []; },
+      async delete() { return true; },
+    },
+    async fetch() { return networkResponse; },
+  });
+  vm.runInContext(source, context);
+
+  let responsePromise: Promise<unknown> | undefined;
+  handlers.get("fetch")?.({
+    request: {
+      method: "GET",
+      mode: "no-cors",
+      url: "https://gestora.example/_next/static/chunks/app.js",
+    },
+    respondWith(value: Promise<unknown>) { responsePromise = value; },
+  });
+  assert.equal(await responsePromise, networkResponse);
+});
+
+test("la caché de assets versionados mantiene un límite operativo", async () => {
+  const context = vm.createContext({
+    URL,
+    Promise,
+    self: {
+      location: { origin: "https://gestora.example" },
+      addEventListener() {},
+      skipWaiting() {},
+      clients: { claim() {} },
+    },
+    caches: {},
+    fetch() {},
+  });
+  vm.runInContext(source, context);
+  const deleted: string[] = [];
+  const keys = Array.from({ length: 82 }, (_, index) => ({
+    url: `https://gestora.example/_next/static/chunks/${index}.js`,
+  }));
+  const cache = {
+    async put() {},
+    async keys() { return keys; },
+    async delete(key: { url: string }) { deleted.push(key.url); return true; },
+  };
+  (context as unknown as { __cache: typeof cache }).__cache = cache;
+  await vm.runInContext(
+    "storeRuntimeStaticAsset(__cache, { url: 'https://gestora.example/_next/static/chunks/new.js' }, {})",
+    context
+  );
+  assert.deepEqual(deleted, keys.slice(0, 2).map((key) => key.url));
 });
