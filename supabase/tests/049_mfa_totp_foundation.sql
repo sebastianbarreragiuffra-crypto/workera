@@ -281,10 +281,9 @@ select lives_ok(
 --
 -- Se usa `approve_medical_license` y no un RPC de plataforma porque su guarda
 -- (`is_medical_license_approver()`) devuelve false y no null para quien no lo
--- es. Las guardas de plataforma se apoyan en `can_manage_platform()`, que
--- devuelve NULL cuando la cuenta no tiene membresía, y un `if` sobre NULL no
--- se ejecuta: ese camino no rechaza a nadie. Es un hallazgo previo a MFA y
--- ajeno a esta rama, anotado para no fijarlo acá como si fuera correcto.
+-- es. Las guardas de plataforma se apoyaban en `can_manage_platform()`, que
+-- devolvía NULL cuando la cuenta no tenía membresía -- un hallazgo previo a
+-- MFA, corregido en 20260904150000 y probado en 050, no en este archivo.
 set local request.jwt.claim.aal = '';
 set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000102';
 select throws_ok(

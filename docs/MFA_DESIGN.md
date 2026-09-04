@@ -390,12 +390,36 @@ para que la próxima sesión no lo lea como una desviación accidental.
   quién puede alcanzar `createAdminClient` es por directorio, y `src/lib/auth/`
   también contiene módulos puros que no deben poder alcanzarlo.
 
-### Hallazgo ajeno a MFA, sin corregir
+### Dos hallazgos ajenos a MFA, corregidos aparte
 
-Las guardas de los seis RPC de gestión de plataforma se apoyan en
-`can_manage_platform()`, que devuelve **NULL** —no `false`— cuando la cuenta no
-tiene membresía de plataforma. Un `if` sobre NULL no se ejecuta, así que ese
-camino no rechaza a nadie: se verificó que un `SUPERVISOR_PRODUCTION` sin
-membresía logra crear una empresa y dejar su fila de auditoría. Es anterior a
-MFA, esta rama no lo introduce ni lo cierra, y queda anotado en
-`supabase/tests/049_mfa_totp_foundation.sql` para no fijarlo como correcto.
+Ambos son la misma clase de error: una función de identidad/rol que devuelve
+**NULL** en vez de `false`, combinada con `if not funcion() then raise
+exception`, que en PL/pgSQL trata NULL igual que false y nunca lanza la
+excepción. Ninguno lo introdujo esta rama; los dos se corrigieron en
+`20260904150000_null_authorization_guard_fixes.sql` y se prueban en
+`supabase/tests/050_null_authorization_guard_fixes.sql`.
+
+1. **`can_manage_platform()`.** Las guardas de siete RPC vigentes (no solo los
+   seis de gestión de plataforma que MFA endureció con `aal2`; también
+   `platform_mark_company_invitation_delivery` y las dos versiones de
+   `platform_set_company_module_status`) se apoyaban en esta función, que
+   devolvía NULL cuando la cuenta no tenía membresía de plataforma. Se verificó
+   que un `SUPERVISOR_PRODUCTION` sin membresía lograba crear una empresa y
+   dejar su fila de auditoría. Encontrado al verificar el orden de las dos
+   guardas en la etapa F.
+
+2. **`is_super_admin()` y las otras tres funciones de identidad exacta de
+   rol** (`is_admin_rrhh`, `is_supervisor_production`,
+   `is_supervisor_installation`). `current_user_role() = 'ROL'` devuelve NULL
+   para cualquier cuenta con `profiles.role IS NULL` -- el estado por defecto
+   de TODA cuenta recién registrada (`handle_new_auth_user`: "role = NULL sin
+   acceso hasta que un ADMIN_RRHH asigne un rol explícito"). Este es el más
+   severo de los dos: se verificó que `cleanup_demo_data()` -- otorgada a
+   `authenticated`, guardada solo por `if not public.is_super_admin() then
+   raise` -- se ejecutaba hasta el final para cualquier cuenta apenas
+   registrada, sin necesitar ningún privilegio. Encontrado al buscar el mismo
+   patrón en el resto de la base antes de dar por cerrado el primero.
+   `is_privileged_admin()` se corrige de forma transitiva -- es
+   `is_super_admin() or is_admin_rrhh()`, y el OR de dos valores que ya nunca
+   son NULL nunca es NULL. `is_corporate_user()` no se tocó: usa
+   `current_user_role() is not null`, que nunca es NULL en sí mismo.
