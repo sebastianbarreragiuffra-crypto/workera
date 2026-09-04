@@ -72,6 +72,14 @@ continuación están en
   (`EXPENSE_OCR_ENABLED=false` por defecto) hasta configurar credenciales
   reales -- ningún resultado de esta fase fue probado contra la API de Azure
   en producción.
+- MFA (TOTP) para cuentas privilegiadas está implementado en `feat/mfa-totp`:
+  inscripción y gestión de factores, desafío en el login, gate de middleware
+  detrás de `MFA_ENFORCEMENT_ENABLED` (default `false`), guarda `aal2` dentro de
+  los RPC sensibles, reseteo en tres niveles y bitácora append-only
+  `mfa_events`. El bloqueo se activa en dos pasos y la migración que endurece
+  los RPC va en el segundo; el procedimiento completo, incluido el break-glass
+  del OWNER, está en
+  [docs/PLATFORM_OWNER_RUNBOOK.md](docs/PLATFORM_OWNER_RUNBOOK.md).
 - El dashboard usa KPIs agregados y la cartera se busca, filtra y pagina en el
   servidor. El detalle carga solo la pestaña solicitada y pagina membresías;
   administrar la plataforma no implica leer automáticamente la nómina de cada
@@ -93,7 +101,10 @@ continuación están en
   reemplazar comprobante y aislamiento entre empresas) se prueba en
   `045_expenses_ocr_pipeline.sql`; la conciliación de EX-6 (solo aprobadas,
   referencia obligatoria, no se concilia dos veces, aislamiento entre
-  empresas) se prueba en `046_expense_report_reconciliation.sql`.
+  empresas) se prueba en `046_expense_report_reconciliation.sql`. La fundación
+  de MFA (quién exige segundo factor, la guarda `aal2` de los RPC sensibles, los
+  tres niveles de reseteo y que `mfa_events` sea append-only incluso para
+  `postgres`) se prueba en `049_mfa_totp_foundation.sql`.
 
 ## Desarrollo local
 
@@ -130,5 +141,7 @@ Las instrucciones del ambiente compartido están en
 - [Modelo de acceso histórico del workspace](docs/ACCESS_MODEL_PHASE5D.md)
 - [Estándar de seguridad de APIs](docs/API_SECURITY_STANDARD.md)
 - [Threat model](docs/THREAT_MODEL.md)
+- [MFA (TOTP) para cuentas privilegiadas](docs/MFA_DESIGN.md)
+- [Runbook de la cuenta OWNER](docs/PLATFORM_OWNER_RUNBOOK.md)
 - [Decisiones pendientes](docs/DECISIONS_PENDING.md)
 - [Sincronización Workera](docs/WORKERA_SYNC_PHASE6B.md)

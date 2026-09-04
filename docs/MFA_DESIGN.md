@@ -1,6 +1,8 @@
 # MFA (TOTP) para cuentas privilegiadas — diseño e implementación
 
-Estado: **diseño cerrado, implementación en curso** (rama `feat/mfa-totp`).
+Estado: **diseño cerrado, implementado** en la rama `feat/mfa-totp`. Ver la
+sección 11 para lo que quedó distinto del texto original y por qué, y
+[docs/PLATFORM_OWNER_RUNBOOK.md](PLATFORM_OWNER_RUNBOOK.md) para la operación.
 Todas las decisiones de este documento fueron confirmadas por el usuario en
 conversación de septiembre 2026. Ver también la entrada de MFA en
 `docs/DECISIONS_PENDING.md`.
@@ -327,3 +329,65 @@ npx supabase test db   # solo con instancia local aislada (ver LOCAL_SETUP.md)
 ```
 
 Referencia previa: 736 tests TS, 890 pruebas pgTAP en 48 archivos.
+
+---
+
+## 11. Estado de implementación
+
+Las ocho etapas de la sección 9 están construidas. Lo que sigue registra
+únicamente aquello en lo que la implementación se apartó del texto de arriba,
+para que la próxima sesión no lo lea como una desviación accidental.
+
+### Decisiones consultadas y confirmadas
+
+- **`mfa_events.user_id` / `performed_by` referencian `public.profiles(id)`**, no
+  `auth.users(id)`. El repositorio descartó explícitamente ese tipo de FK en
+  `20260817152004_auth_roles_and_helpers.sql` porque los fixtures de prueba
+  crean profiles sin fila en `auth.users`; hay 49 FKs contra profiles y ninguna
+  contra auth.users. Para toda cuenta real el trigger `handle_new_auth_user`
+  garantiza `profiles.id = auth.users.id`.
+- **El aviso por correo del reseteo no se implementó como envío.** El proyecto
+  no tiene correo transaccional. Siguiendo el criterio ya vigente para
+  invitaciones, el reseteo queda registrado y la pantalla pide avisar a la
+  persona; no se simula un envío que no ocurre.
+
+### Ajustes de implementación
+
+- **`MFA_ALLOWED_PATHS` incluye `/login/mfa`**, que la sección 5 no lista. Sin
+  esa entrada, el redirect al desafío que exige la sección 6.2 nunca llegaría a
+  destino con el flag activo.
+- **`request_is_aal2()` lee el nivel desde `auth.jwt()` y, si no está, desde
+  `request.jwt.claim.aal`.** Es el mismo patrón de doble origen de `auth.uid()`
+  de Supabase; `auth.jwt()` no lee el GUC individual, así que sin esto las
+  pruebas no podrían fijar el nivel.
+- **`enforce_mfa_for_privileged()` y `session_requires_mfa()` son SECURITY
+  DEFINER.** Es plumbing de privilegios, no autorización: necesitan llamar a
+  `account_requires_mfa()`, que es interna. `auth.uid()` y `auth.jwt()` leen
+  parámetros de la sesión y no cambian con el dueño de la función.
+- **Cada función nueva lleva un `revoke ... from public, anon, authenticated`
+  explícito.** `alter default privileges` no retira el EXECUTE que PostgreSQL
+  concede a PUBLIC sobre toda función nueva; sin el revoke,
+  `account_requires_mfa()` quedaba disponible para cualquier sesión.
+- **La pantalla `/seguridad/mfa` vive fuera de `(app)` y `(platform)`.** El
+  layout de `(app)` exige `profile.role`, y la cuenta OWNER puede no tenerlo:
+  ahí adentro, el gate la mandaría a una ruta que su propio layout devuelve al
+  login.
+- **La guarda de nómina respeta `MFA_ENFORCEMENT_ENABLED`; la de los RPC no.**
+  Una función de base de datos no lee variables de entorno. Las dos capas que
+  corren en la aplicación se encienden con el mismo interruptor; la de base de
+  datos se enciende al aplicar su migración, que **por eso va en el paso 5 del
+  rollout de la sección 8, no en el paso 1**. Aplicarla antes deja al gerente
+  sin aprobar licencias antes de haber podido inscribirse.
+- **El módulo de reseteo vive en `src/lib/admin/`.** La allowlist que controla
+  quién puede alcanzar `createAdminClient` es por directorio, y `src/lib/auth/`
+  también contiene módulos puros que no deben poder alcanzarlo.
+
+### Hallazgo ajeno a MFA, sin corregir
+
+Las guardas de los seis RPC de gestión de plataforma se apoyan en
+`can_manage_platform()`, que devuelve **NULL** —no `false`— cuando la cuenta no
+tiene membresía de plataforma. Un `if` sobre NULL no se ejecuta, así que ese
+camino no rechaza a nadie: se verificó que un `SUPERVISOR_PRODUCTION` sin
+membresía logra crear una empresa y dejar su fila de auditoría. Es anterior a
+MFA, esta rama no lo introduce ni lo cierra, y queda anotado en
+`supabase/tests/049_mfa_totp_foundation.sql` para no fijarlo como correcto.
