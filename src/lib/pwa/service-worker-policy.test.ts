@@ -43,6 +43,7 @@ test("service worker nunca cachea APIs, auth, PII, comprobantes, documentos ni e
   const policy = loadPolicy();
   for (const pathname of [
     "/api/jobs/expense-accounting",
+    "/api/jobs/expense-accounting-watchdog",
     "/api/expenses/empresa/bank-import",
     "/auth/callback?code=secreto",
     "/login",

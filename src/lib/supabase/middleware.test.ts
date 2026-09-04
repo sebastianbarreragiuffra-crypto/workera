@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   isApiPath,
   isAuthorizedExpenseAccountingCronRequest,
+  isAuthorizedExpenseAccountingWatchdogRequest,
   isAuthorizedExpenseAssistantRetentionCronRequest,
   isAuthorizedExpenseOcrCronRequest,
   isAuthorizedWorkeraCronRequest,
@@ -791,6 +792,49 @@ test("cron contable: el bypass llega al handler sin consultar una sesión humana
         cronRequest({
           header: `Bearer ${CRON_SECRET_FAKE}`,
           path: "/api/jobs/expense-accounting",
+        }),
+        () => ({
+          auth: {
+            async getClaims() {
+              reject(new Error("el bypass no debe consultar getClaims"));
+              return { data: null, error: { message: "unexpected" } };
+            },
+          },
+        })
+      ).then((response) => {
+        assert.equal(response.status, 200);
+        resolve();
+      }, reject);
+    });
+  });
+});
+
+test("watchdog contable: solo GET exacto con Bearer correcto evita el guard", () => {
+  withCronSecret(CRON_SECRET_FAKE, () => {
+    const header = `Bearer ${CRON_SECRET_FAKE}`;
+    assert.equal(isAuthorizedExpenseAccountingWatchdogRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-accounting-watchdog",
+    })), true);
+    assert.equal(isAuthorizedExpenseAccountingWatchdogRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-accounting-watchdog/extra",
+    })), false);
+    assert.equal(isAuthorizedExpenseAccountingWatchdogRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-accounting-watchdog",
+      method: "POST",
+    })), false);
+  });
+});
+
+test("watchdog contable: el bypass no consulta una sesión humana", async () => {
+  await new Promise<void>((resolve, reject) => {
+    withCronSecret(CRON_SECRET_FAKE, () => {
+      updateSession(
+        cronRequest({
+          header: `Bearer ${CRON_SECRET_FAKE}`,
+          path: "/api/jobs/expense-accounting-watchdog",
         }),
         () => ({
           auth: {

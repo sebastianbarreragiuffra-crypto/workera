@@ -79,7 +79,11 @@ migraciones, permisos, nómina o contabilidad.
 
 - Outbox transaccional con snapshot mínimo, hash e idempotency key.
 - Reclamo concurrente mediante `FOR UPDATE SKIP LOCKED`.
-- Reintentos acotados, leases recuperables y estados explícitos.
+- Reintentos acotados por allowlist (`RATE_LIMIT`), leases recuperables y
+  estados explícitos; timeout/red/códigos nuevos quedan en reconciliación humana.
+- Run ledger con exclusión de scheduler, fencing, catch-up acotado y watchdog.
+- DLQ visible con replay maker-checker, confirmación externa o cancelación
+  auditada; nunca se interpreta un timeout como éxito o fracaso financiero.
 - Adaptador de proveedor deshabilitado hasta configurar un ERP real; la IA no
   decide cuentas, impuestos ni centros de costo.
 
@@ -126,13 +130,21 @@ Los recorridos asíncronos implementados en código son:
 
 - `Resend/Meta → webhook firmado → ledger de captura → descarga validada → Storage → bandeja`.
 - `Workera → adaptador server-only → sync_runs/eventos versionados → motor de reglas → revisión humana`.
-- `Vercel Cron → ruta con CRON_SECRET → worker OCR/retención`.
+- `Vercel Cron → ruta con CRON_SECRET → worker OCR/retención/contabilidad/watchdog`.
 - `Pago aprobado → outbox contable → adaptador ERP → aceptación o reintento`.
 
-La ruta del worker contable existe, pero **no está programada en `vercel.json`**;
-su recuperación hoy depende de nuevas invocaciones best-effort. Antes de un
-piloto debe provisionarse una cadencia compatible con el plan de hosting, un
-watchdog, catch-up, alerta y replay/reconciliación del estado terminal `FAILED`.
+El worker y su watchdog están programados diariamente en `vercel.json`, cadencia
+compatible con Hobby. El heartbeat se calcula solo con ejecuciones `CRON` y usa
+una ventana de 26 horas; ejecuciones manuales no pueden ocultar un scheduler
+detenido. Cada salida tiene timeout, señal de cancelación y reserva de cierre, y
+la DLQ fallida se pagina por separado. El run ledger, catch-up y resolución
+terminal están implementados y probados localmente. Antes de un piloto deben
+activarse en el ambiente, elegir una cadencia coherente con el SLO, conectar
+alertas externas y probar el runbook contra el ERP; dos cron del mismo proveedor
+no constituyen un watchdog independiente.
+La pausa por empresa y su ciclo de vida se aplican en el claim de PostgreSQL. El
+watchdog sigue leyendo salud con el kill-switch global apagado y la UI separa un
+backlog retenido intencionalmente de una recuperación técnica.
 
 ### Límites de módulo y shared kernel
 
@@ -226,7 +238,8 @@ La etapa actual **no elimina todos los puntos únicos de fallo**: la base primar
 de Supabase, su plano de control y el hosting administrado siguen siendo
 dependencias concentradas; tampoco existe un despliegue active-active multi-región.
 Antes del piloto se requiere un watchdog independiente para detectar cron/jobs no
-ejecutados y un replay manual probado. Una topología multi-región o un failover
+ejecutados; el replay manual ya está probado localmente, pero falta su canario en
+el ambiente objetivo. Una topología multi-región o un failover
 autogestionado solo se justifica si el impacto, SLO y telemetría reales superan el
 costo y la complejidad operacional.
 
@@ -244,8 +257,8 @@ Los siguientes objetivos son una propuesta para aprobar antes de producción:
   excluyendo carga de archivos y proveedores externos.
 - Éxito de jobs internos: 99,5 % por día. Los objetivos de backlog de 15 min para
   OCR/captura y 30 min para contabilidad solo entran en vigor después de
-  provisionar y medir la cadencia correspondiente; hoy OCR está programado una
-  vez al día y contabilidad no tiene cron configurado.
+  provisionar y medir una cadencia compatible; hoy ambos workers están
+  programados una vez al día, por lo que esos objetivos aún no aplican.
 - Frescura de asistencia: objetivo acordado con RR. HH.; no declarar “al día” si
   no existe una corrida Workera exitosa para el período mostrado.
 - Cero cruces tenant, cero escrituras dobles por reintento y cero decisiones
@@ -430,8 +443,9 @@ Para desarrollo asistido:
   límites de descarga/exportación y alertas por uso anómalo para mitigar abuso
   de usuarios legítimamente autorizados.
 - Implementar cuarentena/antimalware antes de habilitar captura externa.
-- Provisionar scheduler contable, watchdog, catch-up, DLQ/replay y reconciliación
-  ante resultado ERP incierto conservando la idempotency key.
+- Activar y monitorear el scheduler/watchdog contable ya implementado, probar el
+  catch-up y la DLQ maker-checker en el ambiente, y reconciliar resultados ERP
+  inciertos conservando la idempotency key.
 - Configurar observabilidad y un plan de incident response; probar paging,
   tabletop, revocación y comunicaciones de vulneración.
 - Enviar eventos críticos de auth, admin, descargas, exportaciones,
@@ -479,7 +493,8 @@ Bloqueos principales:
 - Abuso/Auth, antimalware, blast radius de `service_role` e incident response no
   tienen evidencia operacional.
 - Proveedores reales no tienen canario completo ni secretos productivos validados.
-- El worker contable no tiene scheduler, watchdog ni replay terminal provisionado.
+- Scheduler, watchdog y replay terminal contables existen en código, pero no
+  están activados ni monitoreados independientemente en un ambiente real.
 - No existe evidencia de SLO/alertas/soak de producción.
 - Falta el paquete legal/privacidad para datos laborales y financieros.
 

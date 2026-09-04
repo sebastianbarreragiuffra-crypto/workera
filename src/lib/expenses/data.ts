@@ -562,24 +562,113 @@ export interface ExpenseAccountingExportItem extends ExpenseAccountingReadyRepor
   exportId: string;
   status: ExpenseAccountingExportStatus;
   attemptCount: number;
+  manualReplayCount: number;
+  providerCode: string;
+  requestedBy: string;
   requestedAt: string;
+  updatedAt: string;
   exportedAt: string | null;
   externalReference: string | null;
+  lastErrorCode: string | null;
   lastErrorSummary: string | null;
 }
 
+export interface ExpenseAccountingCompanyHealth {
+  enqueueEnabled: boolean;
+  queuedCount: number;
+  retryCount: number;
+  processingCount: number;
+  failedCount: number;
+  cancelledCount: number;
+  succeededCount: number;
+  staleProcessingCount: number;
+  staleReadyCount: number;
+  pausedBacklogCount: number;
+  oldestReadyAt: string | null;
+  requiresHumanReview: boolean;
+  requiresWorkerRecovery: boolean;
+  requiresAttention: boolean;
+  pausedWithBacklog: boolean;
+}
+
+export function applyExpenseAccountingRuntimePause(
+  health: ExpenseAccountingCompanyHealth,
+  processingEnabled: boolean
+): ExpenseAccountingCompanyHealth {
+  if (processingEnabled) return health;
+
+  const pausedBacklogCount = health.queuedCount + health.retryCount;
+  const requiresWorkerRecovery = health.staleProcessingCount > 0;
+  return {
+    ...health,
+    staleReadyCount: 0,
+    pausedBacklogCount,
+    pausedWithBacklog: pausedBacklogCount > 0,
+    requiresWorkerRecovery,
+    requiresAttention: health.requiresHumanReview || requiresWorkerRecovery,
+  };
+}
+
+const emptyAccountingHealth: ExpenseAccountingCompanyHealth = {
+  enqueueEnabled: false,
+  queuedCount: 0,
+  retryCount: 0,
+  processingCount: 0,
+  failedCount: 0,
+  cancelledCount: 0,
+  succeededCount: 0,
+  staleProcessingCount: 0,
+  staleReadyCount: 0,
+  pausedBacklogCount: 0,
+  oldestReadyAt: null,
+  requiresHumanReview: false,
+  requiresWorkerRecovery: false,
+  requiresAttention: false,
+  pausedWithBacklog: false,
+};
+
+const ACCOUNTING_FAILURE_PAGE_SIZE = 25;
+
 export async function getExpenseAccountingDashboard(
   supabase: SupabaseClient<Database>,
-  context: ExpenseCompanyContext
-): Promise<{ ready: ExpenseAccountingReadyReport[]; exports: ExpenseAccountingExportItem[] }> {
-  if (!context.canReconcile && !context.canManage) return { ready: [], exports: [] };
-  const [readyResult, exportsResult] = await Promise.all([
+  context: ExpenseCompanyContext,
+  options: { failurePage?: number } = {}
+): Promise<{
+  ready: ExpenseAccountingReadyReport[];
+  exports: ExpenseAccountingExportItem[];
+  health: ExpenseAccountingCompanyHealth;
+  failurePage: number;
+  failurePageSize: number;
+  failureTotal: number;
+}> {
+  const failurePage = Number.isSafeInteger(options.failurePage) && (options.failurePage ?? 0) > 0
+    ? Math.min(options.failurePage ?? 1, 10_000)
+    : 1;
+  if (!context.canReconcile && !context.canManage) {
+    return {
+      ready: [], exports: [], health: emptyAccountingHealth,
+      failurePage, failurePageSize: ACCOUNTING_FAILURE_PAGE_SIZE, failureTotal: 0,
+    };
+  }
+  const exportColumns = "id, report_id, provider_code, status, attempt_count, manual_replay_count, requested_by, requested_at, updated_at, exported_at, external_reference, last_error_code, last_error_summary, payload";
+  const failureFrom = (failurePage - 1) * ACCOUNTING_FAILURE_PAGE_SIZE;
+  const [readyResult, recentResult, failuresResult, healthResult] = await Promise.all([
     supabase.rpc("list_expense_accounting_ready_reports", { p_company_id: context.id }),
     supabase.from("expense_accounting_exports")
-      .select("id, report_id, status, attempt_count, requested_at, exported_at, external_reference, last_error_summary, payload")
-      .eq("company_id", context.id).order("requested_at", { ascending: false }).limit(100),
+      .select(exportColumns)
+      .eq("company_id", context.id).neq("status", "FAILED")
+      .order("requested_at", { ascending: false }).limit(100),
+    supabase.from("expense_accounting_exports")
+      .select(exportColumns, { count: "exact" })
+      .eq("company_id", context.id).eq("status", "FAILED")
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(failureFrom, failureFrom + ACCOUNTING_FAILURE_PAGE_SIZE - 1),
+    supabase.rpc("get_expense_accounting_company_health", { p_company_id: context.id }),
   ]);
-  if (readyResult.error || exportsResult.error) throw new Error("No se pudo cargar la bandeja contable.");
+  if (readyResult.error || recentResult.error || failuresResult.error || healthResult.error) {
+    throw new Error("No se pudo cargar la bandeja contable.");
+  }
 
   const ready = (readyResult.data ?? []).map((report) => ({
     id: report.report_id,
@@ -589,7 +678,7 @@ export async function getExpenseAccountingDashboard(
     currencyCode: report.currency_code,
     paidAt: report.paid_at,
   }));
-  const exports = (exportsResult.data ?? []).map((item) => {
+  const exports = [...(failuresResult.data ?? []), ...(recentResult.data ?? [])].map((item) => {
     const snapshot = parseExpenseAccountingPayload(item.payload);
     return {
       id: item.report_id,
@@ -601,13 +690,43 @@ export async function getExpenseAccountingDashboard(
       exportId: item.id,
       status: item.status,
       attemptCount: item.attempt_count,
+      manualReplayCount: item.manual_replay_count,
+      providerCode: item.provider_code,
+      requestedBy: item.requested_by,
       requestedAt: item.requested_at,
+      updatedAt: item.updated_at,
       exportedAt: item.exported_at,
       externalReference: item.external_reference,
+      lastErrorCode: item.last_error_code,
       lastErrorSummary: item.last_error_summary,
     };
   });
-  return { ready, exports };
+  const healthRow = healthResult.data?.[0];
+  const health = healthRow ? {
+    enqueueEnabled: healthRow.enqueue_enabled,
+    queuedCount: Number(healthRow.queued_count),
+    retryCount: Number(healthRow.retry_count),
+    processingCount: Number(healthRow.processing_count),
+    failedCount: Number(healthRow.failed_count),
+    cancelledCount: Number(healthRow.cancelled_count),
+    succeededCount: Number(healthRow.succeeded_count),
+    staleProcessingCount: Number(healthRow.stale_processing_count),
+    staleReadyCount: Number(healthRow.stale_ready_count),
+    pausedBacklogCount: Number(healthRow.paused_backlog_count),
+    oldestReadyAt: healthRow.oldest_ready_at,
+    requiresHumanReview: healthRow.requires_human_review,
+    requiresWorkerRecovery: healthRow.requires_worker_recovery,
+    requiresAttention: healthRow.requires_attention,
+    pausedWithBacklog: healthRow.paused_with_backlog,
+  } : emptyAccountingHealth;
+  return {
+    ready,
+    exports,
+    health,
+    failurePage,
+    failurePageSize: ACCOUNTING_FAILURE_PAGE_SIZE,
+    failureTotal: failuresResult.count ?? 0,
+  };
 }
 
 export interface ExpensePolicySettings {

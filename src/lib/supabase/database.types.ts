@@ -1863,6 +1863,7 @@ export type Database = {
           last_error_summary: string | null
           lease_expires_at: string | null
           lease_token: string | null
+          manual_replay_count: number
           max_attempts: number
           payload: Json
           payload_sha256: string
@@ -1885,6 +1886,7 @@ export type Database = {
           last_error_summary?: string | null
           lease_expires_at?: string | null
           lease_token?: string | null
+          manual_replay_count?: number
           max_attempts?: number
           payload: Json
           payload_sha256: string
@@ -1907,6 +1909,7 @@ export type Database = {
           last_error_summary?: string | null
           lease_expires_at?: string | null
           lease_token?: string | null
+          manual_replay_count?: number
           max_attempts?: number
           payload?: Json
           payload_sha256?: string
@@ -1940,6 +1943,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      expense_accounting_worker_runs: {
+        Row: {
+          claimed_count: number
+          completed_at: string | null
+          error_code: string | null
+          failed_count: number
+          id: string
+          retried_count: number
+          run_token: string
+          started_at: string
+          status: Database["public"]["Enums"]["expense_accounting_worker_run_status"]
+          succeeded_count: number
+          trigger_source: string
+        }
+        Insert: {
+          claimed_count?: number
+          completed_at?: string | null
+          error_code?: string | null
+          failed_count?: number
+          id?: string
+          retried_count?: number
+          run_token?: string
+          started_at?: string
+          status?: Database["public"]["Enums"]["expense_accounting_worker_run_status"]
+          succeeded_count?: number
+          trigger_source: string
+        }
+        Update: {
+          claimed_count?: number
+          completed_at?: string | null
+          error_code?: string | null
+          failed_count?: number
+          id?: string
+          retried_count?: number
+          run_token?: string
+          started_at?: string
+          status?: Database["public"]["Enums"]["expense_accounting_worker_run_status"]
+          succeeded_count?: number
+          trigger_source?: string
+        }
+        Relationships: []
       }
       expense_advances: {
         Row: {
@@ -5644,6 +5689,19 @@ export type Database = {
         }
         Returns: Database["public"]["Enums"]["expense_accounting_export_status"]
       }
+      complete_expense_accounting_worker_run: {
+        Args: {
+          p_claimed_count: number
+          p_error_code?: string
+          p_failed_count: number
+          p_retried_count: number
+          p_run_id: string
+          p_run_token: string
+          p_succeeded: boolean
+          p_succeeded_count: number
+        }
+        Returns: undefined
+      }
       complete_expense_ocr_job: {
         Args: { p_extraction: Json; p_job_id: string; p_worker_id: string }
         Returns: undefined
@@ -5753,6 +5811,42 @@ export type Database = {
           p_worker_id: string
         }
         Returns: boolean
+      }
+      get_expense_accounting_company_health: {
+        Args: { p_company_id: string }
+        Returns: {
+          cancelled_count: number
+          enqueue_enabled: boolean
+          failed_count: number
+          oldest_ready_at: string | null
+          paused_backlog_count: number
+          paused_with_backlog: boolean
+          processing_count: number
+          queued_count: number
+          requires_attention: boolean
+          requires_human_review: boolean
+          requires_worker_recovery: boolean
+          retry_count: number
+          stale_processing_count: number
+          stale_ready_count: number
+          succeeded_count: number
+        }[]
+      }
+      get_expense_accounting_worker_health: {
+        Args: { p_stale_after_seconds?: number }
+        Returns: {
+          failed_count: number
+          last_run_completed_at: string | null
+          last_run_started_at: string | null
+          last_run_status: Database["public"]["Enums"]["expense_accounting_worker_run_status"] | null
+          last_success_completed_at: string | null
+          oldest_ready_at: string | null
+          processing_count: number
+          queued_count: number
+          retry_count: number
+          scheduler_stale: boolean
+          stale_processing_count: number
+        }[]
       }
       get_expense_indicators: {
         Args: { p_company_id: string; p_window_days?: number }
@@ -5975,6 +6069,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      platform_set_expense_accounting_pilot: {
+        Args: { p_company_id: string; p_enabled: boolean; p_reason: string }
+        Returns: boolean
+      }
       platform_set_onboarding_step_completed: {
         Args: { p_company_id: string; p_completed: boolean; p_step_key: string }
         Returns: undefined
@@ -6129,6 +6227,17 @@ export type Database = {
         }
         Returns: boolean
       }
+      resolve_expense_accounting_export: {
+        Args: {
+          p_company_id: string
+          p_confirm_not_exported?: boolean
+          p_export_id: string
+          p_external_reference?: string | null
+          p_reason: string
+          p_resolution: string
+        }
+        Returns: Database["public"]["Enums"]["expense_accounting_export_status"]
+      }
       resolve_expense_receipt_email_alias: {
         Args: { p_alias_token: string }
         Returns: {
@@ -6178,6 +6287,14 @@ export type Database = {
         Args: { p_advance_id: string }
         Returns: undefined
       }
+      start_expense_accounting_worker_run: {
+        Args: { p_trigger_source: string }
+        Returns: {
+          acquired: boolean
+          run_id: string | null
+          run_token: string | null
+        }[]
+      }
       submit_expense_report: {
         Args: { p_report_id: string }
         Returns: undefined
@@ -6224,6 +6341,7 @@ export type Database = {
         | "SUCCEEDED"
         | "FAILED"
         | "CANCELLED"
+      expense_accounting_worker_run_status: "RUNNING" | "SUCCEEDED" | "FAILED"
       expense_advance_status: "PENDING" | "SETTLED" | "CANCELLED"
       expense_approval_decision: "APPROVED" | "REJECTED" | "RETURNED"
       expense_assistant_intent:
@@ -6460,6 +6578,7 @@ export const Constants = {
         "FAILED",
         "CANCELLED",
       ],
+      expense_accounting_worker_run_status: ["RUNNING", "SUCCEEDED", "FAILED"],
       expense_advance_status: ["PENDING", "SETTLED", "CANCELLED"],
       expense_approval_decision: ["APPROVED", "REJECTED", "RETURNED"],
       expense_assistant_intent: [
