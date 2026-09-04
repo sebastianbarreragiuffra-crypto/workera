@@ -80,6 +80,9 @@ const whatsappLinkInput = z.object({ companySlug: slug, intent: z.enum(["pair", 
 const reconcileInput = reportActionInput.extend({
   paymentReference: z.string().trim().min(1).max(160),
 });
+const bankTransactionInput = z.object({ companySlug: slug, transactionId: uuid });
+const bankMatchInput = bankTransactionInput.extend({ reportId: uuid });
+const bankIgnoreInput = bankTransactionInput.extend({ reason: z.string().trim().min(3).max(240) });
 const decisionInput = reportActionInput.extend({
   decision: z.enum(["APPROVED", "REJECTED", "RETURNED"]),
   comment: z.string().trim().max(1000).transform((value) => value || null),
@@ -386,6 +389,70 @@ export async function reconcileExpenseReportAction(
   revalidatePath(`/empresas/${context.slug}/rendiciones/conciliacion`);
   revalidatePath(`/empresas/${context.slug}/rendiciones`);
   return { status: "success", message: "Rendición conciliada -- queda registrada como pagada." };
+}
+
+export async function matchExpenseBankTransactionAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = bankMatchInput.safeParse(entries(formData));
+  if (!parsed.success) return failed("Selecciona una rendición válida.");
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canReconcile) return failed("Tu rol no permite conciliar movimientos.");
+
+  const { data: transaction } = await supabase
+    .from("expense_bank_transactions")
+    .select("id")
+    .eq("company_id", context.id)
+    .eq("id", parsed.data.transactionId)
+    .eq("status", "UNMATCHED")
+    .maybeSingle();
+  if (!transaction) return failed("El movimiento ya no está disponible en esta empresa.");
+
+  const { error } = await supabase.rpc("match_expense_bank_transaction", {
+    p_transaction_id: parsed.data.transactionId,
+    p_report_id: parsed.data.reportId,
+    p_method: "SUGGESTED",
+  });
+  if (error?.code === "23514") return failed("El pago ya fue usado, o la rendición cambió y dejó de coincidir.");
+  if (error?.code === "23503") return failed("El movimiento o la rendición ya no están disponibles.");
+  if (error) return failed("No pudimos confirmar la conciliación.");
+
+  revalidatePath(`/empresas/${context.slug}/rendiciones/conciliacion`);
+  revalidatePath(`/empresas/${context.slug}/rendiciones`);
+  revalidatePath(reportPath(context.slug, parsed.data.reportId));
+  return { status: "success", message: "Movimiento conciliado y rendición marcada como pagada." };
+}
+
+export async function ignoreExpenseBankTransactionAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = bankIgnoreInput.safeParse(entries(formData));
+  if (!parsed.success) return failed("Indica un motivo de al menos 3 caracteres.");
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canReconcile) return failed("Tu rol no permite resolver movimientos.");
+
+  const { data: transaction } = await supabase
+    .from("expense_bank_transactions")
+    .select("id")
+    .eq("company_id", context.id)
+    .eq("id", parsed.data.transactionId)
+    .eq("status", "UNMATCHED")
+    .maybeSingle();
+  if (!transaction) return failed("El movimiento ya no está disponible en esta empresa.");
+
+  const { error } = await supabase.rpc("ignore_expense_bank_transaction", {
+    p_transaction_id: parsed.data.transactionId,
+    p_reason: parsed.data.reason,
+  });
+  if (error?.code === "23514") return failed("El movimiento ya fue resuelto o el motivo no es válido.");
+  if (error) return failed("No pudimos ignorar el movimiento.");
+
+  revalidatePath(`/empresas/${context.slug}/rendiciones/conciliacion`);
+  return { status: "success", message: "Movimiento apartado con motivo y trazabilidad." };
 }
 
 export async function uploadExpenseReceiptAction(
