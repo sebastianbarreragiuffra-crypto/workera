@@ -234,6 +234,35 @@ aserciones, 750 tests de aplicación (748 aprobados y 2 opt-in omitidos),
 TypeScript, ESLint, lint de base, auditoría de dependencias y build de producción
 en verde. El canal todavía no fue aplicado ni activado en staging.
 
+## Fases 3 a 6 — cierre autónomo del 4 de septiembre de 2026
+
+La continuación vive en `origin/codex/phases2-6-autonomous`; no fue fusionada a
+`master` ni desplegada. Los bloques publicados son:
+
+- Fase 2, captura móvil segura y bandeja: `e7f859b`.
+- Fase 3, conciliación bancaria determinista: `6f91bca`.
+- Fase 4, outbox contable durable: `cd9da18`.
+- Fase 5, PWA privacy-safe: `af3f37e`, `fc20983`, `1b48896`.
+- Fase 6, asistente operacional de solo lectura: `852b043`.
+
+La Fase 6 no usa un LLM ni texto libre. Calcula tres respuestas estructuradas en
+Postgres, limita permisos por intención, conserva evidencia mínima y purga el
+historial a los 90 días mediante un job global. Security Review detectó que el
+job no atravesaba el middleware sin sesión y Bugbot detectó un enlace 404 para
+conciliadores puros; ambos problemas se corrigieron y las revisiones repetidas
+quedaron `CLEAN`.
+
+La revisión arquitectónica posterior acotó el lenguaje: el asistente es
+**reproducible**, no evidencia audit-grade; las referencias son una muestra y el
+SHA-256 no es firma. También confirmó que el endpoint contable aún no tiene cron
+provisionado y que faltan DLQ/replay/reconciliación antes de un piloto real.
+
+Validación final de la rama después de las correcciones: 870 tests de aplicación
+(868 aprobados, 2 opt-in omitidos), 65 suites pgTAP / 1.380 aserciones, lint de
+base sin hallazgos, TypeScript, ESLint y build de producción en verde. La
+arquitectura y los bloqueos reales de lanzamiento están en
+`docs/TARGET_ARCHITECTURE_PHASES_2_6.md`.
+
 ## Otros hallazgos ya cerrados (no rehacer)
 
 - ✅ Link faltante `(platform)` → Rendiciones — hecho (`a638eb5`).
@@ -250,11 +279,15 @@ en verde. El canal todavía no fue aplicado ni activado en staging.
   daría una función que solo sirve a un cliente. Requiere primero un modelo
   de responsables basado en `profiles`/`company_memberships`.
 
-## Fases de producto pendientes
+## Próximo trabajo autorizado, no ejecutado por este handoff
 
-EX-13 más indicadores (fraude, cumplimiento) · canales de captura
-(email/WhatsApp/foto) · conciliación bancaria automática · integraciones
-ERP/contabilidad · app móvil · asistente de IA.
+No abrir otra fase funcional antes de cerrar los gates P0 de
+`docs/TARGET_ARCHITECTURE_PHASES_2_6.md` y
+`docs/THREAT_MODEL_CURRENT.md`: sanear el staging con 97 empleados, MFA/AAL2 y
+abuse controls, restore DB+Storage, aislamiento laboral, antimalware,
+`service_role`, scheduler/DLQ contable, observabilidad/IR, pentest y entregables
+legales. WhatsApp, correo y ERP permanecen deshabilitados. El staging actual con
+PII y producción continúan en `NO-GO`; solo desarrollo local aislado está aprobado.
 
 ## Cómo se viene trabajando
 

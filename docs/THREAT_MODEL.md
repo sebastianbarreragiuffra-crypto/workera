@@ -1,5 +1,13 @@
 # Threat Model — Workera Supervisor App
 
+> **Documento histórico, no usar como evaluación vigente.** Fue escrito antes de
+> que existieran la UI, Route Handlers, Storage, service-role, Workera real y las
+> Fases 2–6 de Rendiciones; por eso varias afirmaciones posteriores describen esas
+> superficies como futuras o inexistentes. La evaluación actual, los riesgos
+> residuales y los bloqueos están en `docs/THREAT_MODEL_CURRENT.md`; la arquitectura
+> y los gates están en `docs/TARGET_ARCHITECTURE_PHASES_2_6.md`. Este contenido se
+> conserva únicamente para trazabilidad histórica STRIDE.
+
 Estado: creado en Gate C pre-UI (rama `fix-pre-ui-session-guard`). Metodología: **STRIDE** (Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege), complementado con riesgos de privacidad y abuso. Cada amenaza distingue mitigaciones `IMPLEMENTED` (verificadas en el código/CI actual) de `PLANNED`/`BLOCKED`. No se documenta ninguna mitigación como implementada sin evidencia directa contra el repositorio.
 
 Ver también: `ARCHITECTURE.md` (componentes y su estado), `docs/API_SECURITY_STANDARD.md`, `docs/ABUSE_RATE_LIMITING_PLAN.md`, `docs/BACKUP_RECOVERY_PLAN.md`, `docs/DECISIONS_PENDING.md`.
