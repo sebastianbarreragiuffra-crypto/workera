@@ -184,6 +184,46 @@ test("un fallo de Cache Storage nunca pierde una respuesta válida de red", asyn
   assert.equal(await responsePromise, networkResponse);
 });
 
+test("un fallo leyendo Cache Storage se trata como miss y continúa por red", async () => {
+  const handlers = new Map<string, (event: unknown) => void>();
+  const networkResponse = {
+    ok: true,
+    type: "basic",
+    clone() { return { copy: true }; },
+  };
+  let networkCalls = 0;
+  const context = vm.createContext({
+    URL,
+    Promise,
+    self: {
+      location: { origin: "https://gestora.example" },
+      addEventListener(name: string, handler: (event: unknown) => void) { handlers.set(name, handler); },
+      skipWaiting() {},
+      clients: { claim() {} },
+    },
+    caches: {
+      async match() { throw new Error("InvalidStateError"); },
+      async open() { return { async put() {}, async keys() { return []; } }; },
+      async keys() { return []; },
+      async delete() { return true; },
+    },
+    async fetch() { networkCalls += 1; return networkResponse; },
+  });
+  vm.runInContext(source, context);
+
+  let responsePromise: Promise<unknown> | undefined;
+  handlers.get("fetch")?.({
+    request: {
+      method: "GET",
+      mode: "no-cors",
+      url: "https://gestora.example/_next/static/chunks/app.js",
+    },
+    respondWith(value: Promise<unknown>) { responsePromise = value; },
+  });
+  assert.equal(await responsePromise, networkResponse);
+  assert.equal(networkCalls, 1);
+});
+
 test("la caché de assets versionados mantiene un límite operativo", async () => {
   const context = vm.createContext({
     URL,
