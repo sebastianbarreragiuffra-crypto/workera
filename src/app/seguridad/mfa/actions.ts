@@ -131,10 +131,10 @@ export async function startMfaEnrollmentAction(
     message: "",
     enrollment: {
       factorId: data.id,
-      // El QR llega como SVG en crudo. Se codifica antes de armar el data
-      // URI: un `#` o unas comillas sin escapar truncan la imagen en el
-      // navegador y dejan la pantalla sin código que escanear.
-      qrCodeDataUri: `data:image/svg+xml;utf-8,${encodeURIComponent(data.totp.qr_code)}`,
+      // supabase-js ya convierte el SVG que entrega GoTrue en un data URI
+      // completo. Volver a envolverlo o codificarlo produce un data URI cuyo
+      // contenido es otro data URI y el navegador muestra una imagen rota.
+      qrCodeDataUri: data.totp.qr_code,
       secret: data.totp.secret,
     },
   };
