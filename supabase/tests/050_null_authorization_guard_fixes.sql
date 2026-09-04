@@ -11,7 +11,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(9);
+select plan(8);
 
 set local request.jwt.claim.aal = 'aal2';
 
