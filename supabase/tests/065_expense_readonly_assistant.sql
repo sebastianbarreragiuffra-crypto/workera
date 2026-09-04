@@ -15,7 +15,7 @@ select has_function(
   'public', 'purge_expired_expense_assistant_queries', array[]::text[],
   'existe una purga global independiente de la actividad del usuario'
 );
-select has_column('public', 'expense_assistant_queries', 'result', 'la respuesta estructurada queda verificable');
+select has_column('public', 'expense_assistant_queries', 'result', 'la respuesta estructurada queda reproducible');
 select has_column('public', 'expense_assistant_queries', 'result_sha256', 'cada respuesta lleva digest');
 select hasnt_column('public', 'expense_assistant_queries', 'prompt', 'nunca se almacena texto libre');
 select hasnt_column('public', 'expense_assistant_queries', 'message', 'nunca se almacena conversación');
@@ -47,8 +47,8 @@ select is(
 );
 select ok(
   pg_get_functiondef('public.run_expense_readonly_assistant(uuid,public.expense_assistant_intent,integer)'::regprocedure)
-    !~* 'update[[:space:]]+public[.]expense_(reports|items|receipts|bank_transactions|accounting_exports)',
-  'el RPC no contiene mutaciones de datos financieros'
+    !~* '(insert[[:space:]]+into|update|delete[[:space:]]+from)[[:space:]]+public[.]expense_(reports|items|receipts|bank_transactions|accounting_exports)',
+  'el RPC no contiene INSERT, UPDATE ni DELETE sobre datos financieros'
 );
 
 insert into public.companies (id, name, legal_name, slug, active, status, workspace_enabled)

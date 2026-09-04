@@ -1,5 +1,14 @@
 # Ambiente compartido de staging — arcotex-workera-staging
 
+> **SECURITY HOLD — NO-GO para nuevas pruebas con PII o conectores reales.** Este
+> proyecto contiene 97 registros de empleados y no existe evidencia de que estén
+> anonimizados. Tampoco están cerrados MFA/AAL2 integral, antimalware, backup y
+> restauración DB+Storage, blast radius de `service_role`, incident response ni el
+> paquete legal/privacidad. Hasta sanearlo con datos sintéticos/minimizados o aplicar
+> controles equivalentes a producción, limitar acceso, mantener conectores apagados
+> y no cargar documentos, cartolas o nueva información laboral real. Ver
+> `docs/THREAT_MODEL_CURRENT.md` y `docs/TARGET_ARCHITECTURE_PHASES_2_6.md`.
+
 Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base de datos, sin perder el Docker local de cada uno para desarrollo diario. Contexto completo: `ARCOTEX_SHARED_ENVIRONMENT_PLAN_READY` y `STAGING_DATA_MIGRATION_PLAN`.
 
 ## Estado del proyecto
@@ -80,12 +89,20 @@ y se verificó que local/remoto coinciden, el dry-run quedó sin pendientes y el
 lint remoto de `public`/`private` no informa errores.
 
 El conector real permanece deshabilitado. No se configuraron API key, secreto
-de webhook ni dominio receptor en staging; debe activarse solo después de
-verificar el dominio y el webhook en Resend siguiendo
-`docs/EXPENSE_EMAIL_CAPTURE.md`.
+de webhook ni dominio receptor en staging. Verificar dominio y webhook en Resend
+es necesario, pero **no autoriza activarlo**: el SECURITY HOLD inicial debe estar
+cerrado, los gates P0 aprobados y la habilitación registrada por los owners de
+Security/Privacy/Expenses. Después se sigue `docs/EXPENSE_EMAIL_CAPTURE.md`.
 
 ## Nota de seguridad encontrada durante la creación
 
 Supabase Cloud aplica, a nivel de plataforma, `ALTER DEFAULT PRIVILEGES` más permisivos que los que quedan en el Docker local para el rol `service_role` (en local, `service_role` tiene explícitamente denegado UPDATE/DELETE en la mayoría de las tablas — un endurecimiento deliberado de este proyecto, más allá de lo estándar de Supabase). En staging, `service_role` tiene el set completo de privilegios, igual que el comportamiento por defecto de cualquier proyecto Supabase nuevo.
 
-**RLS sigue siendo idéntico en ambos ambientes** (94/94 policies, RLS habilitado en las 47 tablas) — el gate real para `anon`/`authenticated` (los roles que sí llegan al navegador) no cambió. `service_role` nunca se expone al cliente en este código (`admin-client.ts` es server-only). El riesgo práctico es bajo, pero es una diferencia real entre ambientes que el equipo debería decidir conscientemente si quiere igualar con una migración nueva que reafirme el lockdown también en Cloud — no se tocó en esta tarea (fuera de alcance: "no modificar lógica de negocio").
+El conteo histórico de ese momento fue 47 tablas/94 policies; **no es evidencia
+vigente**. El inventario estructural más reciente es el indicado arriba
+(83 tablas, 82 con RLS y 157 policies) y aun así debe repetirse con canarios
+hosted por rol antes de levantar el hold. `service_role` nunca se expone al
+cliente en este código (`admin-client.ts` es server-only), pero bypassea RLS y
+en staging conserva privilegios amplios: el riesgo y blast radius son
+**altos/no aceptados**, no opcionales. Se requiere inventario de usos, grants
+mínimos, secretos separados y pruebas cloud antes de usar PII o conectores.

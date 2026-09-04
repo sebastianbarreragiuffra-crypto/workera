@@ -1,4 +1,4 @@
--- GESTORA Rendiciones Fase 6: asistente operativo verificable y de solo
+-- GESTORA Rendiciones Fase 6: asistente operativo reproducible y de solo
 -- lectura. No recibe texto libre, no llama a un LLM y no puede aprobar,
 -- conciliar, pagar ni modificar rendiciones. Cada respuesta se deriva de
 -- consultas tenant-aware y conserva únicamente evidencia mínima.
@@ -432,6 +432,6 @@ grant execute on function public.purge_expired_expense_assistant_queries()
 comment on table public.expense_assistant_queries is
   'Consultas estructuradas del asistente de Rendiciones. No almacena prompts, conversaciones, comprobantes, OCR, nombres, RUT ni datos bancarios.';
 comment on function public.run_expense_readonly_assistant(uuid, public.expense_assistant_intent, integer) is
-  'Calcula una respuesta tenant-aware, allowlisted y citada. Solo escribe su bitácora; nunca modifica datos financieros.';
+  'Calcula una respuesta tenant-aware, allowlisted y referenciada. Solo escribe su bitácora; nunca modifica datos financieros.';
 comment on function public.purge_expired_expense_assistant_queries() is
   'Purga global diaria de respuestas del asistente mayores a 90 días. Solo service_role.';
