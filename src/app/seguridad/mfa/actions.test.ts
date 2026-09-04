@@ -45,6 +45,12 @@ test("la pantalla de inscripción nunca usa el cliente service_role", () => {
   assert.doesNotMatch(source, /createAdminClient|SUPABASE_SERVICE_ROLE_KEY|admin-client/);
 });
 
+test('el módulo "use server" solo exporta funciones async en runtime', () => {
+  const source = readSource();
+  assert.match(source, /^"use server";/);
+  assert.doesNotMatch(source, /^export\s+(?:const|let|var|class)\s/m);
+});
+
 test("ni el secreto TOTP ni el QR se escriben en el log", () => {
   const source = readSource();
   for (const match of source.matchAll(/console\.[a-z]+\([^)]*\)/g)) {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isUuid } from "./route";
+import { isUuid } from "./route-helpers";
 
 /**
  * `batchId` viene de la URL y se interpola en el header `Content-Disposition`.

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
-import { isValidCronSecret, worstHttpStatus, datesReadyForRuleEngine } from "./route";
+import { isValidCronSecret, worstHttpStatus, datesReadyForRuleEngine } from "./route-helpers";
 
 function requestWithAuth(header?: string): NextRequest {
   const headers = new Headers();

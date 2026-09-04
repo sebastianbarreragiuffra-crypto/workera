@@ -3,6 +3,7 @@ import { createClient } from "../../../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../../../lib/auth/session";
 import { buildPayrollExportWorkbook } from "../../../../../lib/payroll/payroll-export";
 import type { PayrollBatchItemResult } from "../../../../../lib/payroll/invoice-import";
+import { isUuid } from "./route-helpers";
 
 /**
  * Descarga del Excel final de un lote de nómina ya generado -- vuelve a
@@ -10,19 +11,6 @@ import type { PayrollBatchItemResult } from "../../../../../lib/payroll/invoice-
  * actuales, no un snapshot congelado al momento de generar el lote) y
  * arma el archivo en el mismo momento de la descarga.
  */
-/**
- * `batchId` llega desde la URL y termina interpolado en el header
- * `Content-Disposition`. Sin validarlo, unas comillas permiten inventar un
- * segundo `filename=` y un CRLF hace que Node rechace el header y la descarga
- * muera con un 500. Exigir un UUID -- que es lo único que la columna acepta --
- * cierra las dos puertas y de paso evita mandar basura a Postgres.
- */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export function isUuid(value: string): boolean {
-  return UUID_PATTERN.test(value);
-}
-
 export async function GET(_request: Request, { params }: { params: Promise<{ batchId: string }> }) {
   const profile = await getCurrentProfile();
   if (!profile?.role || (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH")) {

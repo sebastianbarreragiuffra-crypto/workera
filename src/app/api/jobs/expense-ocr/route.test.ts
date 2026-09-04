@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
-import { GET, isAuthorizedExpenseOcrCron } from "./route";
+import { GET } from "./route";
+import { isAuthorizedExpenseOcrCron } from "./route-helpers";
 
 function request(header?: string): NextRequest {
   return new NextRequest("http://localhost/api/jobs/expense-ocr", { headers: header ? { authorization: header } : undefined });

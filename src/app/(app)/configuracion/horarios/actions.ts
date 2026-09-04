@@ -30,8 +30,6 @@ export interface ScheduleActionState {
   message: string;
 }
 
-export const SCHEDULE_ACTION_INITIAL: ScheduleActionState = { status: "idle", message: "" };
-
 async function requireScheduleAdmin() {
   const profile = await getCurrentProfile();
   if (!profile?.role) redirect("/login");

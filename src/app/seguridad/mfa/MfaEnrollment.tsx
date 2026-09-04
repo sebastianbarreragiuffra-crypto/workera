@@ -3,10 +3,15 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import {
-  MFA_ENROLLMENT_INITIAL_STATE,
   mfaEnrollmentAction,
   type MfaEnrollmentState,
 } from "./actions";
+
+const MFA_ENROLLMENT_INITIAL_STATE: MfaEnrollmentState = {
+  status: "idle",
+  message: "",
+  enrollment: null,
+};
 
 export interface MfaFactorView {
   id: string;

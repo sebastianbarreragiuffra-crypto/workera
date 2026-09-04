@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { requireYearMonth } from "./route";
+import { requireYearMonth } from "./route-helpers";
 
 /**
  * `mes` llega por query string y los resolvers de período hacen aritmética

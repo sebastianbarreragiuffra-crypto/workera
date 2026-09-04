@@ -31,6 +31,12 @@ test("el desafío nunca usa el cliente service_role", () => {
   assert.doesNotMatch(read(CHALLENGE_ACTIONS_PATH), /createAdminClient|SUPABASE_SERVICE_ROLE_KEY|admin-client/);
 });
 
+test('el módulo "use server" solo exporta funciones async en runtime', () => {
+  const source = read(CHALLENGE_ACTIONS_PATH);
+  assert.match(source, /^"use server";/);
+  assert.doesNotMatch(source, /^export\s+(?:const|let|var|class)\s/m);
+});
+
 test("el factorId recibido del navegador se valida como uuid", () => {
   assert.match(read(CHALLENGE_ACTIONS_PATH), /factorId:\s*z\.string\(\)\.uuid\(\)/);
 });

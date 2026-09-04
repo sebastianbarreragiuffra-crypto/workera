@@ -2,7 +2,14 @@
 
 import { useActionState } from "react";
 import type { ScheduleAdminRow, WorkScheduleSummary } from "../../../../lib/schedules/schedule-administration";
-import { assignScheduleAction, setExemptionAction, clearExemptionAction, SCHEDULE_ACTION_INITIAL } from "./actions";
+import {
+  assignScheduleAction,
+  setExemptionAction,
+  clearExemptionAction,
+  type ScheduleActionState,
+} from "./actions";
+
+const SCHEDULE_ACTION_INITIAL: ScheduleActionState = { status: "idle", message: "" };
 
 /**
  * Editor de una sola fila. Se monta únicamente para el trabajador expandido,
