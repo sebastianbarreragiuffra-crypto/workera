@@ -1,5 +1,6 @@
 /* GESTORA PWA: shell mínimo. Nunca persiste datos de negocio ni respuestas autenticadas. */
-const CACHE_VERSION = "gestora-shell-v1";
+const CACHE_VERSION = "gestora-shell-v2";
+const MAX_RUNTIME_STATIC_ENTRIES = 80;
 const OFFLINE_URL = "/offline";
 const PRECACHE_URLS = [
   OFFLINE_URL,
@@ -16,6 +17,21 @@ function isCacheableStaticUrl(url) {
     || url.pathname.startsWith("/icons/")
     || url.pathname === "/manifest.webmanifest"
     || url.pathname === "/favicon.ico";
+}
+
+async function storeRuntimeStaticAsset(cache, request, response) {
+  try {
+    await cache.put(request, response);
+    const keys = await cache.keys();
+    const runtimeKeys = keys.filter((key) => new URL(key.url).pathname.startsWith("/_next/static/"));
+    const excess = runtimeKeys.length - MAX_RUNTIME_STATIC_ENTRIES;
+    if (excess > 0) {
+      await Promise.all(runtimeKeys.slice(0, excess).map((key) => cache.delete(key)));
+    }
+  } catch {
+    // Cache Storage es una optimización. Cuota llena, modo privado o una
+    // caché corrupta nunca deben convertir una respuesta de red válida en error.
+  }
 }
 
 self.addEventListener("install", (event) => {
@@ -58,7 +74,8 @@ self.addEventListener("fetch", (event) => {
         if (!response.ok || response.type !== "basic") return response;
         const copy = response.clone();
         return caches.open(CACHE_VERSION)
-          .then((cache) => cache.put(request, copy))
+          .then((cache) => storeRuntimeStaticAsset(cache, request, copy))
+          .catch(() => undefined)
           .then(() => response);
       });
     })
