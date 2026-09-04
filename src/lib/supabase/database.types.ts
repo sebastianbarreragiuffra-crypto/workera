@@ -1798,6 +1798,149 @@ export type Database = {
           },
         ]
       }
+      expense_accounting_export_events: {
+        Row: {
+          actor_id: string | null
+          company_id: string
+          event_type: string
+          export_id: string
+          id: number
+          metadata: Json
+          occurred_at: string
+        }
+        Insert: {
+          actor_id?: string | null
+          company_id: string
+          event_type: string
+          export_id: string
+          id?: never
+          metadata?: Json
+          occurred_at?: string
+        }
+        Update: {
+          actor_id?: string | null
+          company_id?: string
+          event_type?: string
+          export_id?: string
+          id?: never
+          metadata?: Json
+          occurred_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_accounting_export_events_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_accounting_export_events_company_id_export_id_fkey"
+            columns: ["company_id", "export_id"]
+            isOneToOne: false
+            referencedRelation: "expense_accounting_exports"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "expense_accounting_export_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_accounting_exports: {
+        Row: {
+          attempt_count: number
+          available_at: string
+          company_id: string
+          exported_at: string | null
+          external_reference: string | null
+          id: string
+          idempotency_key: string
+          last_error_code: string | null
+          last_error_summary: string | null
+          lease_expires_at: string | null
+          lease_token: string | null
+          max_attempts: number
+          payload: Json
+          payload_sha256: string
+          provider_code: string
+          report_id: string
+          requested_at: string
+          requested_by: string
+          status: Database["public"]["Enums"]["expense_accounting_export_status"]
+          updated_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          available_at?: string
+          company_id: string
+          exported_at?: string | null
+          external_reference?: string | null
+          id?: string
+          idempotency_key: string
+          last_error_code?: string | null
+          last_error_summary?: string | null
+          lease_expires_at?: string | null
+          lease_token?: string | null
+          max_attempts?: number
+          payload: Json
+          payload_sha256: string
+          provider_code?: string
+          report_id: string
+          requested_at?: string
+          requested_by: string
+          status?: Database["public"]["Enums"]["expense_accounting_export_status"]
+          updated_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          available_at?: string
+          company_id?: string
+          exported_at?: string | null
+          external_reference?: string | null
+          id?: string
+          idempotency_key?: string
+          last_error_code?: string | null
+          last_error_summary?: string | null
+          lease_expires_at?: string | null
+          lease_token?: string | null
+          max_attempts?: number
+          payload?: Json
+          payload_sha256?: string
+          provider_code?: string
+          report_id?: string
+          requested_at?: string
+          requested_by?: string
+          status?: Database["public"]["Enums"]["expense_accounting_export_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_accounting_exports_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_accounting_exports_company_id_report_id_fkey"
+            columns: ["company_id", "report_id"]
+            isOneToOne: false
+            referencedRelation: "expense_reports"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "expense_accounting_exports_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expense_advances: {
         Row: {
           amount: number
@@ -5297,6 +5440,17 @@ export type Database = {
         Args: { p_advance_id: string }
         Returns: undefined
       }
+      claim_expense_accounting_exports: {
+        Args: { p_limit?: number }
+        Returns: {
+          attempt_count: number
+          company_id: string
+          export_id: string
+          idempotency_key: string
+          lease_token: string
+          payload: Json
+        }[]
+      }
       claim_expense_bank_upload: {
         Args: {
           p_actor_id: string
@@ -5372,6 +5526,18 @@ export type Database = {
       company_has_module: {
         Args: { p_company_id: string; p_module_key: string }
         Returns: boolean
+      }
+      complete_expense_accounting_export: {
+        Args: {
+          p_error_code?: string
+          p_error_summary?: string
+          p_export_id: string
+          p_external_reference?: string
+          p_lease_token: string
+          p_retryable?: boolean
+          p_succeeded: boolean
+        }
+        Returns: Database["public"]["Enums"]["expense_accounting_export_status"]
       }
       complete_expense_ocr_job: {
         Args: { p_extraction: Json; p_job_id: string; p_worker_id: string }
@@ -5532,6 +5698,17 @@ export type Database = {
       link_expense_report_to_advance: {
         Args: { p_advance_id: string | null; p_report_id: string }
         Returns: undefined
+      }
+      list_expense_accounting_ready_reports: {
+        Args: { p_company_id: string }
+        Returns: {
+          currency_code: string
+          paid_at: string
+          reference_number: string
+          report_id: string
+          title: string
+          total_amount: number
+        }[]
       }
       list_expense_reconciliation_candidates: {
         Args: { p_company_id: string; p_transaction_id: string }
@@ -5711,6 +5888,10 @@ export type Database = {
       provision_expense_defaults: {
         Args: { p_actor_id: string; p_company_id: string }
         Returns: undefined
+      }
+      queue_expense_accounting_export: {
+        Args: { p_company_id: string; p_report_id: string }
+        Returns: string
       }
       reclaim_stale_expense_ocr_jobs: {
         Args: { p_stale_after_seconds?: number }
@@ -5919,6 +6100,13 @@ export type Database = {
         | "SYNC_CONFLICT"
         | "CORRECTED_AFTER_REVIEW"
         | "READY_FOR_WEEKLY_CLOSE"
+      expense_accounting_export_status:
+        | "QUEUED"
+        | "PROCESSING"
+        | "RETRY"
+        | "SUCCEEDED"
+        | "FAILED"
+        | "CANCELLED"
       expense_advance_status: "PENDING" | "SETTLED" | "CANCELLED"
       expense_approval_decision: "APPROVED" | "REJECTED" | "RETURNED"
       expense_bank_transaction_status: "UNMATCHED" | "MATCHED" | "IGNORED"
@@ -6142,6 +6330,14 @@ export const Constants = {
         "SYNC_CONFLICT",
         "CORRECTED_AFTER_REVIEW",
         "READY_FOR_WEEKLY_CLOSE",
+      ],
+      expense_accounting_export_status: [
+        "QUEUED",
+        "PROCESSING",
+        "RETRY",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED",
       ],
       expense_advance_status: ["PENDING", "SETTLED", "CANCELLED"],
       expense_approval_decision: ["APPROVED", "REJECTED", "RETURNED"],

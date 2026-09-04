@@ -82,6 +82,7 @@ test("createAdminClient nunca se importa fuera de los límites server-only audit
       !f.includes(`${path.sep}lib${path.sep}expense-ocr${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}expense-capture${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}expense-bank${path.sep}`) &&
+      !f.includes(`${path.sep}lib${path.sep}expense-accounting${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}expense-email${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}expense-whatsapp${path.sep}`)
   );
@@ -138,6 +139,17 @@ test("el importador bancario privilegiado es server-only y ninguna acción obtie
     [],
     "ninguna Server Action debe obtener service_role directamente"
   );
+});
+
+test("el worker contable mantiene service_role detrás de un límite server-only", () => {
+  const accountingRoot = path.join(SRC_ROOT, "lib", "expense-accounting");
+  const privileged = listFilesRecursively(accountingRoot).filter((filePath) => /createAdminClient/.test(readFileSync(filePath, "utf8")));
+  assert.ok(privileged.length > 0, "debe existir un único punto de entrada privilegiado contable");
+  for (const filePath of privileged) {
+    assert.match(readFileSync(filePath, "utf8"), /import\s+["']server-only["']/, `${filePath} debe ser server-only`);
+  }
+  const appFiles = listFilesRecursively(path.join(SRC_ROOT, "app"));
+  assert.deepEqual(appFiles.filter((filePath) => /createAdminClient/.test(readFileSync(filePath, "utf8"))), []);
 });
 
 test("el conector privilegiado de correo es server-only", () => {

@@ -64,6 +64,12 @@ export function isAuthorizedExpenseOcrCronRequest(request: NextRequest): boolean
   return isValidCronSecretHeader(request.headers.get("authorization"));
 }
 
+/** Mismo bypass acotado para el worker durable de salidas contables. */
+export function isAuthorizedExpenseAccountingCronRequest(request: NextRequest): boolean {
+  if (request.method !== "GET" || request.nextUrl.pathname !== "/api/jobs/expense-accounting") return false;
+  return isValidCronSecretHeader(request.headers.get("authorization"));
+}
+
 interface AuthClaimsResult {
   data: { claims: Record<string, unknown> } | null;
   error: { message: string } | null;
@@ -133,7 +139,11 @@ export async function updateSession(
   const isPublic = isPublicPath(pathname) || isExternalWebhookRequest(request);
   const isApi = isApiPath(pathname);
 
-  if (isAuthorizedWorkeraCronRequest(request) || isAuthorizedExpenseOcrCronRequest(request)) {
+  if (
+    isAuthorizedWorkeraCronRequest(request)
+    || isAuthorizedExpenseOcrCronRequest(request)
+    || isAuthorizedExpenseAccountingCronRequest(request)
+  ) {
     return responseRef.current;
   }
 

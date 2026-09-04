@@ -5,6 +5,7 @@ import type { ExpenseCompanyContext } from "./access";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { isCalendarDate, nextDate, santiagoDayStartIso } from "@/lib/view-models/date-utils";
 import { unwrapEmbed } from "@/lib/supabase/embed";
+import { parseExpenseAccountingPayload } from "@/lib/expense-accounting/payload";
 
 export type ExpenseReportStatus = Database["public"]["Enums"]["expense_report_status"];
 export type ExpenseBankTransactionStatus = Database["public"]["Enums"]["expense_bank_transaction_status"];
@@ -544,6 +545,69 @@ export async function getExpenseBankCandidates(
     dateDistanceDays: candidate.date_distance_days,
     score: candidate.score,
   }));
+}
+
+export type ExpenseAccountingExportStatus = Database["public"]["Enums"]["expense_accounting_export_status"];
+
+export interface ExpenseAccountingReadyReport {
+  id: string;
+  referenceNumber: string;
+  title: string;
+  totalAmount: number;
+  currencyCode: string;
+  paidAt: string;
+}
+
+export interface ExpenseAccountingExportItem extends ExpenseAccountingReadyReport {
+  exportId: string;
+  status: ExpenseAccountingExportStatus;
+  attemptCount: number;
+  requestedAt: string;
+  exportedAt: string | null;
+  externalReference: string | null;
+  lastErrorSummary: string | null;
+}
+
+export async function getExpenseAccountingDashboard(
+  supabase: SupabaseClient<Database>,
+  context: ExpenseCompanyContext
+): Promise<{ ready: ExpenseAccountingReadyReport[]; exports: ExpenseAccountingExportItem[] }> {
+  if (!context.canReconcile && !context.canManage) return { ready: [], exports: [] };
+  const [readyResult, exportsResult] = await Promise.all([
+    supabase.rpc("list_expense_accounting_ready_reports", { p_company_id: context.id }),
+    supabase.from("expense_accounting_exports")
+      .select("id, report_id, status, attempt_count, requested_at, exported_at, external_reference, last_error_summary, payload")
+      .eq("company_id", context.id).order("requested_at", { ascending: false }).limit(100),
+  ]);
+  if (readyResult.error || exportsResult.error) throw new Error("No se pudo cargar la bandeja contable.");
+
+  const ready = (readyResult.data ?? []).map((report) => ({
+    id: report.report_id,
+    referenceNumber: report.reference_number,
+    title: report.title,
+    totalAmount: Number(report.total_amount),
+    currencyCode: report.currency_code,
+    paidAt: report.paid_at,
+  }));
+  const exports = (exportsResult.data ?? []).map((item) => {
+    const snapshot = parseExpenseAccountingPayload(item.payload);
+    return {
+      id: item.report_id,
+      referenceNumber: snapshot.report.referenceNumber,
+      title: snapshot.report.title,
+      totalAmount: snapshot.report.totalAmount,
+      currencyCode: snapshot.report.currency,
+      paidAt: snapshot.report.paidAt,
+      exportId: item.id,
+      status: item.status,
+      attemptCount: item.attempt_count,
+      requestedAt: item.requested_at,
+      exportedAt: item.exported_at,
+      externalReference: item.external_reference,
+      lastErrorSummary: item.last_error_summary,
+    };
+  });
+  return { ready, exports };
 }
 
 export interface ExpensePolicySettings {
