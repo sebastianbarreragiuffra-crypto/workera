@@ -89,6 +89,9 @@ select lives_ok(
   'se habilita Rendiciones para la segunda empresa'
 );
 reset role;
+update public.company_modules
+set settings = jsonb_set(settings, '{expense_accounting_export_enabled}', 'true'::jsonb, true)
+where company_id = 'c1000000-0000-0000-0000-000000000001' and module_key = 'expenses';
 
 -- Fixtures financieros. Se insertan como dueño del esquema para poder fijar
 -- estados y fechas sin probar aquí los flujos ya cubiertos por EX-1..Fase 4.

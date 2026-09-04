@@ -51,6 +51,9 @@ set local request.jwt.claim.sub = 'b1000000-0000-0000-0000-000000000101';
 select public.platform_set_company_module_status('b1000000-0000-0000-0000-000000000001', 'expenses', 'PILOT');
 select public.platform_set_company_module_status('b1000000-0000-0000-0000-000000000002', 'expenses', 'PILOT');
 reset role;
+update public.company_modules
+set settings = jsonb_set(settings, '{expense_accounting_export_enabled}', 'true'::jsonb, true)
+where company_id = 'b1000000-0000-0000-0000-000000000001' and module_key = 'expenses';
 
 set local role authenticated;
 set local request.jwt.claim.sub = 'b1000000-0000-0000-0000-000000000102';
@@ -131,26 +134,31 @@ select throws_ok(
 reset role;
 
 set local role service_role;
-select is((select count(*)::integer from public.claim_expense_accounting_exports(10)), 1, 'worker reclama una salida');
+create temporary table f4_first_claim as select * from public.claim_expense_accounting_exports(10);
+select is((select count(*)::integer from f4_first_claim), 1, 'worker reclama una salida');
+reset role;
 select is((select status::text from public.expense_accounting_exports), 'PROCESSING', 'claim activa el lease');
-select is((select attempt_count from public.expense_accounting_exports), 1, 'claim incrementa intento');
-select ok((select lease_token is not null and lease_expires_at > now() from public.expense_accounting_exports), 'lease tiene token y vencimiento');
+select is((select attempt_count from f4_first_claim), 1, 'claim incrementa intento');
+select ok((select lease_token is not null from f4_first_claim) and (select lease_expires_at > now() from public.expense_accounting_exports), 'lease tiene token y vencimiento');
+set local role service_role;
 select is((select count(*)::integer from public.claim_expense_accounting_exports(10)), 0, 'SKIP LOCKED no reclama el trabajo en curso');
 select throws_ok(
-  $$select public.complete_expense_accounting_export((select id from public.expense_accounting_exports), gen_random_uuid(), true, 'X')$$,
+  $$select public.complete_expense_accounting_export((select export_id from f4_first_claim), gen_random_uuid(), true, 'X')$$,
   '23514', 'Lease contable inválido o vencido.', 'un token falso no puede cerrar el trabajo'
 );
 
 select is(
   public.complete_expense_accounting_export(
-    (select id from public.expense_accounting_exports),
-    (select lease_token from public.expense_accounting_exports),
-    false, null, 'PROVIDER_TIMEOUT', 'El proveedor no respondió.', true
+    (select export_id from f4_first_claim),
+    (select lease_token from f4_first_claim),
+    false, null, 'RATE_LIMIT', 'El proveedor rechazó temporalmente la solicitud.', true
   )::text,
   'RETRY', 'un error transitorio programa reintento'
 );
+reset role;
 select ok((select available_at > now() and status = 'RETRY' from public.expense_accounting_exports), 'retry aplica backoff y libera lease');
 update public.expense_accounting_exports set available_at = now() - interval '1 second';
+set local role service_role;
 create temporary table f4_claim as select * from public.claim_expense_accounting_exports(10);
 select is((select attempt_count from f4_claim), 2, 'segundo claim incrementa el intento');
 select is(
@@ -159,6 +167,7 @@ select is(
   )::text,
   'SUCCEEDED', 'el adapter cierra con referencia externa'
 );
+reset role;
 select ok((select status = 'SUCCEEDED' and exported_at is not null and external_reference = 'DRYRUN-F4-001' from public.expense_accounting_exports), 'éxito queda terminal y auditable');
 select is((select count(*)::integer from public.expense_accounting_export_events where event_type = 'SUCCEEDED'), 1, 'éxito registra evento');
 

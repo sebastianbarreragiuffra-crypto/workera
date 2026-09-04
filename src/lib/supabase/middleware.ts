@@ -73,6 +73,12 @@ export function isAuthorizedExpenseAccountingCronRequest(request: NextRequest): 
   return isValidCronSecretHeader(request.headers.get("authorization"));
 }
 
+/** Watchdog separado: observa la cola pero nunca reclama trabajos. */
+export function isAuthorizedExpenseAccountingWatchdogRequest(request: NextRequest): boolean {
+  if (request.method !== "GET" || request.nextUrl.pathname !== "/api/jobs/expense-accounting-watchdog") return false;
+  return isValidCronSecretHeader(request.headers.get("authorization"));
+}
+
 /** Mismo bypass acotado para la purga de historial del asistente. */
 export function isAuthorizedExpenseAssistantRetentionCronRequest(request: NextRequest): boolean {
   if (request.method !== "GET" || request.nextUrl.pathname !== "/api/jobs/expense-assistant-retention") return false;
@@ -152,6 +158,7 @@ export async function updateSession(
     isAuthorizedWorkeraCronRequest(request)
     || isAuthorizedExpenseOcrCronRequest(request)
     || isAuthorizedExpenseAccountingCronRequest(request)
+    || isAuthorizedExpenseAccountingWatchdogRequest(request)
     || isAuthorizedExpenseAssistantRetentionCronRequest(request)
   ) {
     return responseRef.current;

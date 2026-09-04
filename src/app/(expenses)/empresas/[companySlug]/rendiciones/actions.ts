@@ -13,6 +13,7 @@ import { getExpenseWhatsappProviderConfig, whatsappLink } from "@/lib/expense-wh
 import { discardExpenseCapture, storeExpenseCapture, storeExpenseReceipt } from "@/lib/expense-capture/service";
 import { runExpenseOcrWorkerWithServiceRole } from "@/lib/expense-ocr/service";
 import { runExpenseAccountingWorkerWithServiceRole } from "@/lib/expense-accounting/service";
+import { readExpenseAccountingConfig } from "@/lib/expense-accounting/config";
 import { createClient } from "@/lib/supabase/server";
 import { unwrapEmbed } from "@/lib/supabase/embed";
 import type { Json } from "@/lib/supabase/database.types";
@@ -96,6 +97,16 @@ const bankTransactionInput = z.object({ companySlug: slug, transactionId: uuid }
 const bankMatchInput = bankTransactionInput.extend({ reportId: uuid });
 const bankIgnoreInput = bankTransactionInput.extend({ reason: z.string().trim().min(3).max(240) });
 const accountingExportInput = reportActionInput;
+const accountingResolutionInput = z.object({
+  companySlug: slug,
+  exportId: uuid,
+  resolution: z.enum(["REQUEUE", "CONFIRM_SUCCEEDED", "CANCEL"]),
+  reason: z.string().trim().min(8).max(240),
+  externalReference: z.string().optional()
+    .transform((value) => value?.trim() || null)
+    .pipe(z.string().max(160).nullable()),
+  confirmNotExported: z.string().optional().transform((value) => value === "on"),
+});
 const decisionInput = reportActionInput.extend({
   decision: z.enum(["APPROVED", "REJECTED", "RETURNED"]),
   comment: z.string().trim().max(1000).transform((value) => value || null),
@@ -414,6 +425,9 @@ export async function queueExpenseAccountingExportAction(
   const supabase = await createClient();
   const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
   if (!context?.canReconcile) return failed("Tu rol no permite preparar salidas contables.");
+  if (!readExpenseAccountingConfig().enabled) {
+    return failed("La integración contable está pausada. Actívala antes de preparar nuevas salidas.");
+  }
 
   const { data: exportId, error } = await supabase.rpc("queue_expense_accounting_export", {
     p_company_id: context.id,
@@ -421,12 +435,56 @@ export async function queueExpenseAccountingExportAction(
   });
   if (error?.code === "23514") return failed("Solo las rendiciones pagadas pueden enviarse a contabilidad.");
   if (error?.code === "54000") return failed("La salida contable supera el límite operativo.");
+  if (error?.code === "55000") return failed("La integración contable está pausada para esta empresa.");
   if (error?.code === "42501") return failed("Tu rol ya no permite preparar esta salida.");
   if (error || !exportId) return failed("No pudimos preparar la salida contable.");
 
   revalidatePath(`/empresas/${context.slug}/rendiciones/contabilidad`);
   kickExpenseAccountingAfterResponse();
   return { status: "success", message: "Salida preparada. El reintento es seguro y no crea duplicados." };
+}
+
+export async function resolveExpenseAccountingExportAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = accountingResolutionInput.safeParse(entries(formData));
+  if (!parsed.success) return failed("Completa el motivo y la confirmación requerida.");
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canManage) return failed("Tu rol no permite resolver fallos contables.");
+  if (parsed.data.resolution === "REQUEUE" && !readExpenseAccountingConfig().enabled) {
+    return failed("El replay está pausado globalmente. Aún puedes confirmar o cancelar la salida.");
+  }
+
+  const { data: nextStatus, error } = await supabase.rpc("resolve_expense_accounting_export", {
+    p_company_id: context.id,
+    p_export_id: parsed.data.exportId,
+    p_resolution: parsed.data.resolution,
+    p_reason: parsed.data.reason,
+    p_external_reference: parsed.data.externalReference,
+    p_confirm_not_exported: parsed.data.confirmNotExported,
+  });
+  if (error?.code === "42501") return failed("Tu rol ya no permite resolver este fallo.");
+  if (error?.code === "P0002") return failed("La salida contable ya no está disponible.");
+  if (error?.code === "55000") {
+    return failed("El replay está pausado para esta empresa. Aún puedes confirmar o cancelar la salida.");
+  }
+  if (error?.code === "23514") {
+    return failed("No se pudo resolver: revisa la confirmación, los datos y que otra persona haya preparado la salida.");
+  }
+  if (error || !nextStatus) return failed("No pudimos resolver la salida contable.");
+
+  revalidatePath(`/empresas/${context.slug}/rendiciones/contabilidad`);
+  if (parsed.data.resolution === "REQUEUE") kickExpenseAccountingAfterResponse();
+
+  const message = parsed.data.resolution === "REQUEUE"
+    ? "Salida reencolada con la misma clave segura; el worker volverá a procesarla."
+    : parsed.data.resolution === "CONFIRM_SUCCEEDED"
+      ? "Asiento confirmado manualmente con su referencia externa."
+      : "Salida cancelada y registrada en la auditoría.";
+  return { status: "success", message };
 }
 
 export async function matchExpenseBankTransactionAction(

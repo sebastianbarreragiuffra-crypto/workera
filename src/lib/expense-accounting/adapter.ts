@@ -16,7 +16,10 @@ export interface ExpenseAccountingAdapterResult {
 
 export interface ExpenseAccountingAdapter {
   readonly providerCode: "LEDGER_CSV_V1";
-  export(job: ExpenseAccountingExportJob): Promise<ExpenseAccountingAdapterResult>;
+  export(
+    job: ExpenseAccountingExportJob,
+    context?: { signal: AbortSignal }
+  ): Promise<ExpenseAccountingAdapterResult>;
 }
 
 export class ExpenseAccountingProviderError extends Error {

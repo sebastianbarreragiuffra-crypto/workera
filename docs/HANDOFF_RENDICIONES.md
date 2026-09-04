@@ -254,11 +254,50 @@ quedaron `CLEAN`.
 
 La revisión arquitectónica posterior acotó el lenguaje: el asistente es
 **reproducible**, no evidencia audit-grade; las referencias son una muestra y el
-SHA-256 no es firma. También confirmó que el endpoint contable aún no tiene cron
-provisionado y que faltan DLQ/replay/reconciliación antes de un piloto real.
+SHA-256 no es firma.
 
-Validación final de la rama después de las correcciones: 870 tests de aplicación
-(868 aprobados, 2 opt-in omitidos), 65 suites pgTAP / 1.380 aserciones, lint de
+### Fase 4B — operación del scheduler y DLQ
+
+El cierre posterior agregó cuatro migraciones forward-only y tres suites pgTAP:
+
+- ledger durable de ejecuciones, exclusión de schedulers concurrentes, fencing,
+  cierre de runs abandonados, catch-up por lotes y snapshot de salud server-only;
+- cron y watchdog diarios, ambos protegidos por `CRON_SECRET` y excluidos de la
+  caché/PWA y del guard de sesión humana solo en su ruta GET exacta;
+- salud tenant-aware visible para Contabilidad; y
+- resolución maker-checker de `FAILED`: replay con la misma idempotency key,
+  confirmación de asiento existente o cancelación, siempre con motivo auditado.
+
+La revisión final del comité endureció además el bloque: heartbeat exclusivamente
+`CRON` con ventana coherente con la cadencia diaria; deadline/timeout por salida y
+claim de a un trabajo; ledger inaccesible directamente incluso para
+`service_role`; confirmaciones SQL fail-closed con `NULL`; DLQ separada y paginada;
+alertas distintas para decisión humana y recuperación técnica; modo pausado
+visible, guarda tenant-aware autoritativa en PostgreSQL y 503 cuando el ambiente
+esperaba la integración activa. Los timeouts genéricos ya no se reintentan: van
+a reconciliación humana porque el ERP pudo haber creado el asiento. La pausa
+tenant-aware cubre nuevos inserts, replays y backlog; se opera mediante un RPC
+de plataforma con motivo, versionado y auditoría atómica.
+La última migración redefine el claim/complete ya existentes para que upgrades y
+resets reciban la misma política: solo empresas activas se procesan y únicamente
+`RATE_LIMIT` puede reintentarse automáticamente. Timeouts, red y códigos nuevos
+quedan en reconciliación humana. El watchdog conserva salud read-only durante una
+pausa y el dashboard distingue backlog retenido de un fallo técnico.
+
+La persona que preparó la salida no puede resolverla y el replay exige confirmar
+en el ERP que el asiento no existe. Se limita a tres replays manuales. El único
+adapter sigue siendo `dry-run`; los flags continúan apagados y no se desplegó ni
+aplicó nada en staging. La cadencia diaria de `vercel.json` cabe en Hobby, pero
+un SLO de 30 minutos requiere Pro/Enterprise o scheduler externo y monitoreo
+independiente. Procedimiento: `docs/EXPENSE_ACCOUNTING_OUTBOX.md`.
+
+Validación aislada de base para este cierre: reset completo y 68 suites pgTAP /
+1.483 aserciones en verde. Los tipos Supabase fueron contrastados contra ese
+esquema y se conservaron las nulabilidades reales que el generador no infiere en
+argumentos/retornos de funciones ni columnas completadas por triggers.
+
+Validación final de la rama después de las correcciones: 901 tests de aplicación
+(899 aprobados, 2 opt-in omitidos), 68 suites pgTAP / 1.483 aserciones, lint de
 base sin hallazgos, TypeScript, ESLint y build de producción en verde. La
 arquitectura y los bloqueos reales de lanzamiento están en
 `docs/TARGET_ARCHITECTURE_PHASES_2_6.md`.
