@@ -16,6 +16,64 @@ function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
   return ts.canHaveModifiers(node) && (ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) ?? false);
 }
 
+function isAsyncFunctionExpression(node: ts.Expression | undefined): boolean {
+  return (
+    !!node &&
+    (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
+    hasModifier(node, ts.SyntaxKind.AsyncKeyword)
+  );
+}
+
+function isRuntimeExportViolation(statement: ts.Statement): boolean {
+  if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) return false;
+
+  if (ts.isExportDeclaration(statement)) {
+    if (statement.isTypeOnly) return false;
+    if (
+      statement.exportClause &&
+      ts.isNamedExports(statement.exportClause) &&
+      statement.exportClause.elements.every((specifier) => specifier.isTypeOnly)
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  if (ts.isExportAssignment(statement)) {
+    return !isAsyncFunctionExpression(statement.expression);
+  }
+
+  if (!hasModifier(statement, ts.SyntaxKind.ExportKeyword)) return false;
+
+  if (ts.isFunctionDeclaration(statement)) {
+    return !hasModifier(statement, ts.SyntaxKind.AsyncKeyword);
+  }
+
+  if (ts.isVariableStatement(statement)) {
+    return !statement.declarationList.declarations.every((declaration) =>
+      isAsyncFunctionExpression(declaration.initializer)
+    );
+  }
+
+  return true;
+}
+
+function parseStatement(source: string): ts.Statement {
+  const sourceFile = ts.createSourceFile("fixture.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const statement = sourceFile.statements.at(-1);
+  assert.ok(statement);
+  return statement;
+}
+
+test("el clasificador AST cubre reexports y exports default", () => {
+  assert.equal(isRuntimeExportViolation(parseStatement('export { value } from "./other";')), true);
+  assert.equal(isRuntimeExportViolation(parseStatement('export * from "./other";')), true);
+  assert.equal(isRuntimeExportViolation(parseStatement("export default value;")), true);
+  assert.equal(isRuntimeExportViolation(parseStatement("export default async () => true;")), false);
+  assert.equal(isRuntimeExportViolation(parseStatement('export type { Value } from "./other";')), false);
+  assert.equal(isRuntimeExportViolation(parseStatement('export { type Value } from "./other";')), false);
+});
+
 test('los módulos con "use server" solo exportan funciones async en runtime', () => {
   const sourceRoot = join(import.meta.dirname, "..", "..");
   const violations: string[] = [];
@@ -32,23 +90,7 @@ test('los módulos con "use server" solo exportan funciones async en runtime', (
     }
 
     for (const statement of sourceFile.statements) {
-      const exported = hasModifier(statement, ts.SyntaxKind.ExportKeyword);
-      if (!exported || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) continue;
-
-      const asyncFunction =
-        ts.isFunctionDeclaration(statement) && hasModifier(statement, ts.SyntaxKind.AsyncKeyword);
-      const asyncVariables =
-        ts.isVariableStatement(statement) &&
-        statement.declarationList.declarations.every((declaration) => {
-          const initializer = declaration.initializer;
-          return (
-            !!initializer &&
-            (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) &&
-            hasModifier(initializer, ts.SyntaxKind.AsyncKeyword)
-          );
-        });
-
-      if (!asyncFunction && !asyncVariables) {
+      if (isRuntimeExportViolation(statement)) {
         const { line } = sourceFile.getLineAndCharacterOfPosition(statement.getStart(sourceFile));
         violations.push(`${file}:${line + 1}: ${statement.getText(sourceFile).split(/\r?\n/, 1)[0]}`);
       }
