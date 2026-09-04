@@ -12,6 +12,7 @@ import { getExpenseEmailDomain } from "@/lib/expense-email/config";
 import { getExpenseWhatsappProviderConfig, whatsappLink } from "@/lib/expense-whatsapp/config";
 import { discardExpenseCapture, storeExpenseCapture, storeExpenseReceipt } from "@/lib/expense-capture/service";
 import { runExpenseOcrWorkerWithServiceRole } from "@/lib/expense-ocr/service";
+import { runExpenseAccountingWorkerWithServiceRole } from "@/lib/expense-accounting/service";
 import { createClient } from "@/lib/supabase/server";
 import { unwrapEmbed } from "@/lib/supabase/embed";
 import type { Json } from "@/lib/supabase/database.types";
@@ -35,6 +36,17 @@ function kickExpenseOcrAfterResponse(): void {
       await runExpenseOcrWorkerWithServiceRole();
     } catch {
       console.error("[expense-ocr] el disparo posterior a la respuesta no pudo completar la cola");
+    }
+  });
+}
+
+function kickExpenseAccountingAfterResponse(): void {
+  if (process.env.EXPENSE_ACCOUNTING_EXPORT_ENABLED !== "true") return;
+  after(async () => {
+    try {
+      await runExpenseAccountingWorkerWithServiceRole();
+    } catch {
+      console.error("[expense-accounting] el disparo posterior a la respuesta no pudo completar la cola");
     }
   });
 }
@@ -83,6 +95,7 @@ const reconcileInput = reportActionInput.extend({
 const bankTransactionInput = z.object({ companySlug: slug, transactionId: uuid });
 const bankMatchInput = bankTransactionInput.extend({ reportId: uuid });
 const bankIgnoreInput = bankTransactionInput.extend({ reason: z.string().trim().min(3).max(240) });
+const accountingExportInput = reportActionInput;
 const decisionInput = reportActionInput.extend({
   decision: z.enum(["APPROVED", "REJECTED", "RETURNED"]),
   comment: z.string().trim().max(1000).transform((value) => value || null),
@@ -389,6 +402,31 @@ export async function reconcileExpenseReportAction(
   revalidatePath(`/empresas/${context.slug}/rendiciones/conciliacion`);
   revalidatePath(`/empresas/${context.slug}/rendiciones`);
   return { status: "success", message: "Rendición conciliada -- queda registrada como pagada." };
+}
+
+export async function queueExpenseAccountingExportAction(
+  _previousState: ExpenseActionState,
+  formData: FormData
+): Promise<ExpenseActionState> {
+  const parsed = accountingExportInput.safeParse(entries(formData));
+  if (!parsed.success) return failed("Selecciona una rendición pagada válida.");
+
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canReconcile) return failed("Tu rol no permite preparar salidas contables.");
+
+  const { data: exportId, error } = await supabase.rpc("queue_expense_accounting_export", {
+    p_company_id: context.id,
+    p_report_id: parsed.data.reportId,
+  });
+  if (error?.code === "23514") return failed("Solo las rendiciones pagadas pueden enviarse a contabilidad.");
+  if (error?.code === "54000") return failed("La salida contable supera el límite operativo.");
+  if (error?.code === "42501") return failed("Tu rol ya no permite preparar esta salida.");
+  if (error || !exportId) return failed("No pudimos preparar la salida contable.");
+
+  revalidatePath(`/empresas/${context.slug}/rendiciones/contabilidad`);
+  kickExpenseAccountingAfterResponse();
+  return { status: "success", message: "Salida preparada. El reintento es seguro y no crea duplicados." };
 }
 
 export async function matchExpenseBankTransactionAction(

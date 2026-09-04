@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { NextRequest, NextResponse } from "next/server";
 import {
   isApiPath,
+  isAuthorizedExpenseAccountingCronRequest,
   isAuthorizedExpenseOcrCronRequest,
   isAuthorizedWorkeraCronRequest,
   isExternalWebhookRequest,
@@ -751,5 +752,52 @@ test("cron OCR: solo GET exacto con Bearer correcto evita el guard de sesión", 
       header: "Bearer incorrecto",
       path: "/api/jobs/expense-ocr",
     })), false);
+  });
+});
+
+test("cron contable: solo GET exacto con Bearer correcto evita el guard de sesión", () => {
+  withCronSecret(CRON_SECRET_FAKE, () => {
+    const header = `Bearer ${CRON_SECRET_FAKE}`;
+    assert.equal(isAuthorizedExpenseAccountingCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-accounting",
+    })), true);
+    assert.equal(isAuthorizedExpenseAccountingCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-accounting/extra",
+    })), false);
+    assert.equal(isAuthorizedExpenseAccountingCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-accounting",
+      method: "POST",
+    })), false);
+    assert.equal(isAuthorizedExpenseAccountingCronRequest(cronRequest({
+      header: "Bearer incorrecto",
+      path: "/api/jobs/expense-accounting",
+    })), false);
+  });
+});
+
+test("cron contable: el bypass llega al handler sin consultar una sesión humana", async () => {
+  await new Promise<void>((resolve, reject) => {
+    withCronSecret(CRON_SECRET_FAKE, () => {
+      updateSession(
+        cronRequest({
+          header: `Bearer ${CRON_SECRET_FAKE}`,
+          path: "/api/jobs/expense-accounting",
+        }),
+        () => ({
+          auth: {
+            async getClaims() {
+              reject(new Error("el bypass no debe consultar getClaims"));
+              return { data: null, error: { message: "unexpected" } };
+            },
+          },
+        })
+      ).then((response) => {
+        assert.equal(response.status, 200);
+        resolve();
+      }, reject);
+    });
   });
 });

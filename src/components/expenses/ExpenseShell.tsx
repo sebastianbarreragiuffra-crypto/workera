@@ -61,6 +61,9 @@ export function ExpenseShell({
           {context.canReconcile && (
             <Link href={`${base}/conciliacion`} className="min-h-11 shrink-0 rounded-md px-3 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">Conciliación</Link>
           )}
+          {context.canReconcile && (
+            <Link href={`${base}/contabilidad`} className="min-h-11 shrink-0 rounded-md px-3 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">Contabilidad</Link>
+          )}
           {(context.canSubmit || context.canReadAll || context.canApprove || context.canReconcile || context.canManage) && (
             <Link href={`${base}/anticipos`} className="min-h-11 shrink-0 rounded-md px-3 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">Anticipos</Link>
           )}
