@@ -72,13 +72,17 @@ continuación están en
   (`EXPENSE_OCR_ENABLED=false` por defecto) hasta configurar credenciales
   reales -- ningún resultado de esta fase fue probado contra la API de Azure
   en producción.
-- MFA (TOTP) para cuentas privilegiadas está implementado en `feat/mfa-totp`:
-  inscripción y gestión de factores, desafío en el login, gate de middleware
-  detrás de `MFA_ENFORCEMENT_ENABLED` (default `false`), guarda `aal2` dentro de
-  los RPC sensibles, reseteo en tres niveles y bitácora append-only
-  `mfa_events`. El bloqueo se activa en dos pasos y la migración que endurece
-  los RPC va en el segundo; el procedimiento completo, incluido el break-glass
-  del OWNER, está en
+- MFA (TOTP) para cuentas privilegiadas está **en master y sin desplegar**:
+  inscripción y gestión de factores, desafío en el login por contraseña y por
+  OAuth, gate de middleware detrás de `MFA_ENFORCEMENT_ENABLED` (default
+  `false`), guarda `aal2` dentro de los RPC sensibles y en las Server Actions
+  que cambian factores, reseteo solo por el OWNER de plataforma y bitácora
+  append-only `mfa_events`. La migración `20260904150000` corrige, además, un
+  agujero previo y ajeno a MFA: cinco guardas de autorización devolvían NULL en
+  vez de `false`, y en PL/pgSQL `if not guarda()` sobre NULL nunca lanza la
+  excepción. El bloqueo se activa en dos pasos y **el orden de aplicación de las
+  migraciones ya no es libre**: el procedimiento vigente, incluido el
+  break-glass del OWNER, está en
   [docs/PLATFORM_OWNER_RUNBOOK.md](docs/PLATFORM_OWNER_RUNBOOK.md).
 - El dashboard usa KPIs agregados y la cartera se busca, filtra y pagina en el
   servidor. El detalle carga solo la pestaña solicitada y pagina membresías;
@@ -101,10 +105,16 @@ continuación están en
   reemplazar comprobante y aislamiento entre empresas) se prueba en
   `045_expenses_ocr_pipeline.sql`; la conciliación de EX-6 (solo aprobadas,
   referencia obligatoria, no se concilia dos veces, aislamiento entre
-  empresas) se prueba en `046_expense_report_reconciliation.sql`. La fundación
-  de MFA (quién exige segundo factor, la guarda `aal2` de los RPC sensibles, los
-  tres niveles de reseteo y que `mfa_events` sea append-only incluso para
-  `postgres`) se prueba en `049_mfa_totp_foundation.sql`.
+  empresas) se prueba en `046_expense_report_reconciliation.sql`. MFA se prueba
+  en tres archivos: `049_mfa_totp_foundation.sql` cubre quién exige segundo
+  factor, la guarda `aal2`, el reseteo restringido al OWNER, que una cuenta
+  desactivada no conserve ninguna de esas capacidades y que `mfa_events` sea
+  append-only incluso para `postgres`; `050_null_authorization_guard_fixes.sql`
+  fija que las guardas de autorización devuelvan `false` y nunca NULL; y
+  `051_mfa_security_hardening.sql` lleva esa comprobación extremo a extremo a
+  las seis superficies del control plane que modifican estado. El nombre del
+  tercero es engañoso: cubre las guardas NULL, no el endurecimiento de MFA, que
+  vive en el primero.
 
 ## Desarrollo local
 

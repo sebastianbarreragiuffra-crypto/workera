@@ -8,10 +8,24 @@ Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base d
 - **Organización**: Arcotex DEV
 - **Región**: `sa-east-1` (São Paulo)
 - **Ref**: ver tu `.env.staging` local (nunca en este doc — este archivo se sube a Git)
-- **Migraciones remotas verificadas**: 59 aplicadas hasta `20260901180000`. Las
-  migraciones locales EX-1/EX-2/EX-3 de Rendiciones (`20260901190000` a
-  `20260901192000`) todavía no se despliegan; deben revisarse y aplicarse con
-  `supabase db push`, nunca con un reset remoto.
+- **Migraciones remotas verificadas**: aplicadas hasta `20260902170000`,
+  comprobado con `npx supabase db push --dry-run --linked` el 4 de septiembre
+  de 2026. La cifra anterior de este documento, 59 hasta `20260901180000`,
+  había quedado desactualizada. El dry run no escribe nada y es la única forma
+  confiable de saber dónde está staging: vuelve a correrlo antes de cualquier
+  despliegue en vez de creerle a esta línea.
+- **Pendiente de master**: cinco migraciones, `20260903100000` y las cuatro de
+  MFA, de `20260903140000` a `20260904160000`.
+- **Pendiente de `codex/phases2-6-autonomous`**: diez migraciones,
+  `20260903100000` y de `20260904170000` en adelante.
+
+> **Orden entre ramas: master va primero.** Las cinco migraciones de master son
+> todas anteriores a las diez de la rama de contabilidad de Rendiciones. Si esas
+> diez se empujan primero, las de master quedan con fecha del pasado y ya no
+> aplican en orden. Es el mismo error que describe la regla 3 de `AGENTS.md`,
+> pero entre dos ramas en vez de dentro de una, y no se manifiesta en local
+> porque ahí las migraciones se ordenan por nombre y se aplican todas. Lo más
+> limpio es rebasar esa rama sobre master y hacer un solo push desde ahí.
 - **Datos maestros**: pendiente de importar (ver Fase 5 abajo)
 
 ## Cómo trabaja PC1 (o cualquiera, día a día)

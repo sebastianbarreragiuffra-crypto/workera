@@ -146,16 +146,50 @@ El orden importa y no es intercambiable.
    licencias.
 4. Confirmar que las cuatro cuentas tienen factor verificado con la consulta de
    la sección 2.
-5. Recién entonces: poner `MFA_ENFORCEMENT_ENABLED=true` **y aplicar la
-   migración `20260904120000_mfa_aal2_for_privileged_rpcs.sql`**, y redesplegar.
+5. Recién entonces: poner `MFA_ENFORCEMENT_ENABLED=true` y redesplegar.
 
-> **Por qué la migración va en el paso 5 y no en el 1.** Esa migración agrega la
-> guarda `aal2` dentro de los RPC de licencias médicas y de gestión de
-> plataforma. Una función de base de datos no lee variables de entorno, así que
-> esa guarda **no** obedece a `MFA_ENFORCEMENT_ENABLED` — esa independencia es lo
-> que la hace una segunda capa y no una copia de la primera. Aplicarla en el paso
-> 1 dejaría al gerente sin poder aprobar licencias antes de haber tenido la
-> oportunidad de inscribirse.
+> **Por qué la guarda de base de datos no puede ir en el paso 1.**
+> `20260904120000_mfa_aal2_for_privileged_rpcs.sql` agrega la guarda `aal2`
+> dentro de los RPC de licencias médicas y de gestión de plataforma. Una función
+> de base de datos no lee variables de entorno, así que esa guarda **no** obedece
+> a `MFA_ENFORCEMENT_ENABLED` — esa independencia es lo que la hace una segunda
+> capa y no una copia de la primera. Aplicarla antes de que el gerente haya
+> tenido la oportunidad de inscribirse lo deja sin poder aprobar licencias.
+
+### Cómo aplicar las migraciones sin romper ese orden
+
+Esta parte cambió cuando MFA bajó a master y hay que leerla antes de correr
+nada. `supabase db push` aplica **todas** las migraciones pendientes en orden de
+versión; no existe un "aplicar hasta la versión X". Las cuatro de MFA quedaron
+así:
+
+| Migración | Qué hace |
+|---|---|
+| `20260903140000` | Fundación: `mfa_events`, helpers, RLS. Inerte. |
+| `20260904120000` | Guarda `aal2` en los RPC sensibles. **No es inerte.** |
+| `20260904150000` | Corrige las guardas de autorización que devolvían NULL. |
+| `20260904160000` | Endurecimiento de la bitácora y del reseteo. |
+
+La que no es inerte quedó **en medio**, así que no se puede aplicar las dos
+últimas sin aplicar antes la del medio. La versión anterior de este runbook
+pedía justamente eso y ya no es ejecutable. Hay dos caminos y la elección es del
+OWNER:
+
+- **Aplicar las cinco de una vez desde master** y que las cuatro personas
+  inscriban su factor ese mismo día. Es la recomendada. `20260904150000` cierra
+  un agujero de autorización real, explotable por cualquier cuenta recién
+  registrada, y postergarlo cambia un hueco vivo por una comodidad de
+  calendario. El bloqueo que causa `20260904120000` está acotado, afecta a
+  cuatro personas identificadas y lo levantan ellas mismas inscribiéndose.
+- **Empujar primero solo la fundación**, desde un checkout del commit `42325ec`
+  (`MFA etapa E`), que contiene `20260903140000` y todavía no las tres
+  posteriores. Inscribir a las cuatro, y recién entonces empujar el resto desde
+  master. No hay ventana de bloqueo, pero la corrección de las guardas NULL
+  espera hasta el paso 5.
+
+En cualquiera de los dos casos, las migraciones de master van a staging **antes**
+que las de `codex/phases2-6-autonomous`, por la razón explicada en
+[STAGING_ENVIRONMENT.md](STAGING_ENVIRONMENT.md).
 
 ## 8. Si el bloqueo causa un incidente
 
