@@ -469,14 +469,19 @@ test("el matcher de proxy.ts excluye _next/static, _next/image, favicon y extens
 });
 
 // Cobertura directa de los helpers de clasificación de rutas.
-test("isPublicPath: solo login y callback OAuth son páginas públicas", () => {
+test("isPublicPath: solo auth y el shell público de la PWA quedan sin sesión", () => {
   assert.equal(isPublicPath("/login"), true);
   assert.equal(isPublicPath("/auth/callback"), true);
+  assert.equal(isPublicPath("/offline"), true);
+  assert.equal(isPublicPath("/sw.js"), true);
+  assert.equal(isPublicPath("/manifest.webmanifest"), true);
   assert.equal(isPublicPath("/api/webhooks/resend/expense-receipts"), false);
   assert.equal(isPublicPath("/"), false);
   assert.equal(isPublicPath("/login/"), false);
   assert.equal(isPublicPath("/dashboard"), false);
   assert.equal(isPublicPath("/auth/callback/"), false);
+  assert.equal(isPublicPath("/offline/empresa"), false);
+  assert.equal(isPublicPath("/sw.js/extra"), false);
   assert.equal(isPublicPath("/api/webhooks/resend/expense-receipts/extra"), false);
 });
 
