@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "../../../lib/supabase/server";
 import { acceptCurrentUserInvitations } from "../../../lib/platform/invitations";
+import { resolvePostLoginDestination } from "../../../lib/auth/mfa-account";
 
 /**
  * Destino de vuelta de OAuth (Google, u otro proveedor que se habilite a
@@ -8,12 +9,17 @@ import { acceptCurrentUserInvitations } from "../../../lib/platform/invitations"
  * `PUBLIC_PATHS`) porque llega ANTES de que exista sesión -- este handler es
  * el que recién la crea vía `exchangeCodeForSession`.
  *
- * Tras crear la sesión, redirige a `/` exactamente igual que el login de
- * email+password (`src/app/login/actions.ts`) -- mismo destino, mismo
- * gate de acceso real: el layout de `(app)` exige `profile.role` y
- * `profile.active`, así que un usuario de Google sin rol asignado
- * simplemente rebota a `/login` desde ahí, nunca entra a ninguna pantalla.
- * Este route handler NO decide autorización por sí mismo, solo sesión.
+ * Tras crear la sesión resuelve el destino con la MISMA función que el login de
+ * email+password (`src/app/login/actions.ts`). Las dos formas de crear sesión
+ * tienen que decidir el segundo factor igual: si esta se quedara redirigiendo a
+ * `/`, una cuenta privilegiada que entra por Google no recibiría el desafío
+ * mientras `MFA_ENFORCEMENT_ENABLED` está apagado, que es justo el período en
+ * que hay que comprobar que el flujo funciona antes de encender el bloqueo.
+ *
+ * Este route handler sigue sin decidir autorización por sí mismo, solo sesión:
+ * el gate de acceso real es el layout de `(app)`, que exige `profile.role` y
+ * `profile.active`, así que un usuario de Google sin rol asignado rebota a
+ * `/login` desde ahí y nunca entra a ninguna pantalla.
  */
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -24,7 +30,22 @@ export async function GET(request: NextRequest) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
       await acceptCurrentUserInvitations(supabase);
-      return NextResponse.redirect(`${origin}/`);
+
+      // Fail-closed: si no se puede determinar el estado de segundo factor, la
+      // sesión ya existe y hay que mandarla a algún lado. `/seguridad/mfa` es
+      // el destino seguro -- es la pantalla que resuelve exactamente esa
+      // indeterminación y está permitida en aal1 -- mientras que `/` daría
+      // acceso sin haber podido comprobar nada.
+      let destination: string = "/seguridad/mfa";
+      try {
+        destination = await resolvePostLoginDestination(supabase);
+      } catch {
+        console.error("[auth] no se pudo resolver el destino post-login de OAuth", {
+          event: "oauth_post_login_destination_failed",
+        });
+      }
+
+      return NextResponse.redirect(`${origin}${destination}`);
     }
   }
 

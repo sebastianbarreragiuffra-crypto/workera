@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { GestoraBrand } from "@/components/platform/GestoraBrand";
 import { MfaChallenge, type MfaChallengeFactor } from "@/components/auth/MfaChallenge";
+import { MfaSignOut } from "@/components/auth/MfaSignOut";
 import { getMfaAccountState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
 
@@ -48,6 +49,10 @@ export default async function LoginMfaPage() {
 
           <div className="mt-6">
             <MfaChallenge factors={verifiedFactors} />
+          </div>
+
+          <div className="mt-6 flex justify-center border-t border-login-border-soft pt-4">
+            <MfaSignOut />
           </div>
         </div>
       </div>

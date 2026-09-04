@@ -42,6 +42,15 @@ export function PlatformShell({
           <div className="hidden md:block">
             <div className="truncate text-sm font-medium text-white">{displayName}</div>
             <div className="mt-0.5 truncate text-xs text-slate-400">{ROLE_LABEL[role]}</div>
+            {/* El OWNER y los ADMIN de plataforma son justamente las cuentas que
+                exigen segundo factor. Sin este enlace la pantalla de inscripción
+                solo se alcanza escribiendo la URL. */}
+            <Link
+              href="/seguridad/mfa"
+              className="mt-2 block text-xs font-medium text-slate-400 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            >
+              Segundo factor
+            </Link>
           </div>
           <form action={logout} className="mt-0 md:mt-3">
             <button

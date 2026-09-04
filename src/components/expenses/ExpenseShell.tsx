@@ -31,6 +31,9 @@ export function ExpenseShell({
                 Cambiar empresa
               </Link>
             )}
+            <Link href="/seguridad/mfa" className="rounded-md border border-white/20 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-white/10">
+              Segundo factor
+            </Link>
             <form action={logout}>
               <button type="submit" className="rounded-md border border-white/20 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-white/10">
                 Salir

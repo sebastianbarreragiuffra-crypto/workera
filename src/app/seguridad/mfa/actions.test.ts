@@ -80,3 +80,34 @@ test("dar de baja un factor deja el evento UNENROLLED en la bitácora", () => {
   const recordIdx = body.indexOf('eventType: "UNENROLLED"');
   assert.ok(unenrollIdx > 0 && recordIdx > unenrollIdx);
 });
+
+/**
+ * Con un factor verificado ya inscrito, inscribir otro o dar de baja el actual
+ * desde una sesión que solo presentó la contraseña es el bypass completo del
+ * segundo factor. La pantalla ya no ofrece esos botones en aal1, pero una
+ * Server Action es un endpoint y ocultar el botón no la protege.
+ */
+test("inscribir y dar de baja exigen el desafío ANTES de tocar Supabase Auth", () => {
+  const source = readSource();
+
+  for (const fnName of ["startMfaEnrollmentAction", "discardMfaFactorAction"]) {
+    const body = bodyOf(source, fnName);
+    const guardIdx = body.indexOf("mustChallengeBeforeChangingFactors(supabase)");
+    const mutationIdx = body.search(/supabase\.auth\.mfa\.(enroll|unenroll)\(/);
+
+    assert.ok(guardIdx > 0, `${fnName} debe exigir el desafío con un factor verificado presente`);
+    assert.ok(mutationIdx > 0, `${fnName} debe modificar factores en Supabase Auth`);
+    assert.ok(guardIdx < mutationIdx, `${fnName} debe exigirlo antes de modificar el factor`);
+  }
+});
+
+test("la guarda de cambio de factores falla cerrada y solo cede ante aal2", () => {
+  const source = readSource();
+  const start = source.indexOf("async function mustChallengeBeforeChangingFactors");
+  assert.ok(start > 0, "la guarda debe existir");
+  const body = source.slice(start, source.indexOf("\n}", start));
+
+  assert.match(body, /if \(!aal \|\| !factors\) return true;/, "sin datos legibles debe bloquear");
+  assert.match(body, /aal\.currentLevel === "aal2"/, "solo una sesión en aal2 queda liberada");
+  assert.match(body, /factors\.totp \?\? \[\]\)\.length > 0/, "sin factor verificado no hay nada que exigir");
+});

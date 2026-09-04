@@ -42,13 +42,26 @@ test("ningún archivo fuente usa NEXT_PUBLIC_SUPABASE_SERVICE_ROLE (la service_r
   assert.deepEqual(offenders, [], `Se encontró NEXT_PUBLIC_SUPABASE_SERVICE_ROLE en: ${offenders.join(", ")}`);
 });
 
+/**
+ * Los directorios server-only donde `createAdminClient` puede aparecer. Es la
+ * misma allowlist cerrada que verifica el test siguiente, escrita una sola vez.
+ */
+const SERVICE_ROLE_DIRECTORIES = ["supabase", "admin", "sync", "rule-engine", "expense-ocr"];
+
 test("los límites que usan privilegios administrativos declaran server-only", () => {
-  const guardedFiles = [
-    path.join(import.meta.dirname, "..", "supabase", "admin-client.ts"),
-    path.join(import.meta.dirname, "user-management.ts"),
-    path.join(import.meta.dirname, "company-invitations.ts"),
-    path.join(import.meta.dirname, "mfa-reset.ts"),
-  ];
+  // La lista se DERIVA de quién referencia `createAdminClient`, en vez de
+  // mantenerse a mano. Una lista escrita a mano se queda corta apenas aparece
+  // un límite nuevo, y ya se quedó: `mfa-audit.ts` obtiene el cliente admin y
+  // no estaba enumerado. Declaraba `server-only`, así que no hubo exposición,
+  // pero eso fue suerte y no lo que el test comprobaba.
+  const guardedFiles = SERVICE_ROLE_DIRECTORIES.flatMap((directory) =>
+    listFilesRecursively(path.join(SRC_ROOT, "lib", directory))
+  ).filter((file) => /createAdminClient/.test(readFileSync(file, "utf8")));
+
+  assert.ok(
+    guardedFiles.length > 0,
+    "no se encontró ningún archivo con createAdminClient: el test dejó de comprobar algo"
+  );
 
   for (const filePath of guardedFiles) {
     const content = readFileSync(filePath, "utf8");
@@ -74,13 +87,10 @@ test("createAdminClient nunca se importa fuera de los límites server-only audit
   // escritura para `authenticated`. Ese directorio contiene EXCLUSIVAMENTE el
   // punto de entrada service_role, para que ningún Route Handler ni Server
   // Action bajo src/app/** tenga que obtener el cliente admin por su cuenta.
-  const files = listFilesRecursively(SRC_ROOT).filter(
-    (f) =>
-      !f.includes(`${path.sep}lib${path.sep}supabase${path.sep}`) &&
-      !f.includes(`${path.sep}lib${path.sep}admin${path.sep}`) &&
-      !f.includes(`${path.sep}lib${path.sep}sync${path.sep}`) &&
-      !f.includes(`${path.sep}lib${path.sep}rule-engine${path.sep}`) &&
-      !f.includes(`${path.sep}lib${path.sep}expense-ocr${path.sep}`)
+  const files = listFilesRecursively(SRC_ROOT).filter((file) =>
+    SERVICE_ROLE_DIRECTORIES.every(
+      (directory) => !file.includes(`${path.sep}lib${path.sep}${directory}${path.sep}`)
+    )
   );
   const offenders: string[] = [];
 

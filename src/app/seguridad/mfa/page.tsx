@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { GestoraBrand } from "@/components/platform/GestoraBrand";
 import { MfaChallenge } from "@/components/auth/MfaChallenge";
+import { MfaSignOut } from "@/components/auth/MfaSignOut";
 import { getMfaAccountState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
 import { MfaEnrollment, type MfaFactorView } from "./MfaEnrollment";
@@ -54,12 +55,15 @@ export default async function MfaPage() {
     <main className="mx-auto w-full max-w-3xl px-6 py-12">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <GestoraBrand subtitle="Acceso seguro" />
-        <Link
-          href="/"
-          className="text-sm font-medium text-arcotex-blue hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
-        >
-          Volver
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/"
+            className="text-sm font-medium text-arcotex-blue hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+          >
+            Volver
+          </Link>
+          <MfaSignOut />
+        </div>
       </div>
 
       <h1 className="mt-8 text-2xl font-semibold text-foreground">Segundo factor de autenticación</h1>

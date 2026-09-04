@@ -62,6 +62,39 @@ function error(message: string, enrollment: MfaEnrollment | null = null): MfaEnr
   return { status: "error", message, enrollment };
 }
 
+const CHALLENGE_FIRST_MESSAGE =
+  "Verifica el segundo factor que ya tienes antes de cambiar esta configuración.";
+
+type SessionClient = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * ¿Esta sesión debe probar el factor que ya existe antes de tocar la
+ * configuración de segundo factor?
+ *
+ * Quien ya tiene un factor verificado y llega en `aal1` presentó solo una
+ * contraseña. Dejarla inscribir otro dispositivo o dar de baja el actual sería
+ * el bypass completo del segundo factor: se descarta el factor de la persona,
+ * se inscribe el propio y la sesión sube a `aal2` sin haber probado nada.
+ *
+ * La pantalla ya evita ofrecer esos botones en `aal1` -- muestra el desafío --,
+ * pero una Server Action es un endpoint y ocultar el botón no la protege.
+ * Supabase Auth también rechaza ambas operaciones en `aal1`; esta guarda existe
+ * para que la propiedad no dependa de que ese comportamiento del proveedor se
+ * mantenga, y para que se pueda probar acá.
+ */
+async function mustChallengeBeforeChangingFactors(supabase: SessionClient): Promise<boolean> {
+  const [{ data: aal }, { data: factors }] = await Promise.all([
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+    supabase.auth.mfa.listFactors(),
+  ]);
+
+  // Fail-closed: sin poder leer el nivel o los factores se asume que hay algo
+  // que proteger. El costo de equivocarse hacia este lado es un desafío de más.
+  if (!aal || !factors) return true;
+  if (aal.currentLevel === "aal2") return false;
+  return (factors.totp ?? []).length > 0;
+}
+
 /**
  * Paso 1: crea un factor sin verificar y devuelve su QR y su secreto.
  *
@@ -76,6 +109,10 @@ export async function startMfaEnrollmentAction(
   const supabase = await createClient();
   const account = await getMfaAccountState(supabase);
   if (!account) return error("Tu sesión expiró. Vuelve a iniciar sesión.");
+
+  if (await mustChallengeBeforeChangingFactors(supabase)) {
+    return error(CHALLENGE_FIRST_MESSAGE);
+  }
 
   const parsed = friendlyNameInput.safeParse(entries(formData));
   if (!parsed.success) {
@@ -175,6 +212,10 @@ export async function discardMfaFactorAction(
   const supabase = await createClient();
   const account = await getMfaAccountState(supabase);
   if (!account) return error("Tu sesión expiró. Vuelve a iniciar sesión.");
+
+  if (await mustChallengeBeforeChangingFactors(supabase)) {
+    return error(CHALLENGE_FIRST_MESSAGE);
+  }
 
   const parsed = factorInput.safeParse(entries(formData));
   if (!parsed.success) return error("No reconocimos ese dispositivo.");

@@ -101,6 +101,16 @@ export function Sidebar({
             {areaLabel}
           </span>
         )}
+        {/* Sin este enlace la pantalla de inscripción solo se alcanza escribiendo
+            la URL, y el paso 1 del rollout de MFA depende de que la gente pueda
+            llegar sola. Se muestra a todos: quien no exige segundo factor
+            igual puede inscribir uno. */}
+        <Link
+          href="/seguridad/mfa"
+          className="mt-2 block text-xs font-medium text-slate-400 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        >
+          Segundo factor
+        </Link>
       </div>
 
       <nav className="flex-1 space-y-4 overflow-y-auto px-2 pb-4">

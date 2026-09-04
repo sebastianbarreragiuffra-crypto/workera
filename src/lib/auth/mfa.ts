@@ -67,6 +67,14 @@ export function profileRequiresMfa(account: MfaAccount): boolean {
  * `aal1`, que es exactamente la condición que el gate bloquea. Sin esta
  * entrada, el redirect que hace `login/actions.ts` nunca llegaría a destino.
  *
+ * NO hay entrada `/logout`: cerrar sesión no es una ruta sino la Server Action
+ * `logout` de `src/app/login/actions.ts`, y una Server Action se postea a la
+ * ruta que la renderiza. Listar una ruta inexistente hacía creer que la salida
+ * estaba resuelta cuando en realidad una sesión privilegiada en aal1 quedaba
+ * sin ninguna forma de cerrar sesión: el gate la sacaba de toda página que
+ * mostrara el botón. La salida real son los botones de las dos pantallas MFA,
+ * que postean a `/seguridad/mfa` y `/login/mfa`, ambas ya permitidas acá.
+ *
  * Los assets no aparecen acá porque no llegan al gate: el matcher de
  * `src/proxy.ts` ya los excluye del middleware.
  */
@@ -74,7 +82,6 @@ export const MFA_ALLOWED_PATHS: readonly string[] = [
   "/seguridad/mfa",
   "/login",
   "/login/mfa",
-  "/logout",
   "/auth/callback",
   "/auth/confirm",
 ];

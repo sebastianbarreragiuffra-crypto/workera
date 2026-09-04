@@ -157,9 +157,16 @@ if enforcement and isAuthenticated:
             return redirect('/seguridad/mfa')
 ```
 
-- `MFA_ALLOWED_PATHS`: `/seguridad/mfa`, `/login`, `/logout`, `/auth/callback`,
-  `/auth/confirm`, y los assets. Una cuenta `aal1` privilegiada solo puede
-  llegar a esas rutas.
+- `MFA_ALLOWED_PATHS`: `/seguridad/mfa`, `/login`, `/login/mfa`,
+  `/auth/callback`, `/auth/confirm`, y los assets. Una cuenta `aal1`
+  privilegiada solo puede llegar a esas rutas.
+- **No hay entrada `/logout`.** Esta lista la tuvo, y era una ruta que no
+  existe: cerrar sesión es la Server Action `logout` de
+  `src/app/login/actions.ts`, y una Server Action se postea a la ruta que la
+  renderiza. El resultado era que una cuenta privilegiada en `aal1` no tenía
+  ninguna forma de cerrar sesión, porque el gate la sacaba de toda página que
+  mostrara el botón del shell. La salida son los botones de las dos pantallas
+  MFA (`MfaSignOut`), que postean a rutas ya permitidas acá.
 - `MFA_ENFORCEMENT_ENABLED` env, **default `false`**. Mismo patrón que
   `WORKERA_SYNC_ENABLED` / `EXPENSE_OCR_ENABLED`. Con `false`, todo el bloque
   se salta (paso 1 del rollout: la pantalla existe, nadie está forzado).
@@ -197,6 +204,15 @@ Server component + client component para el paso interactivo.
    forma de entrar si perdés el teléfono."
 4. Un factor `enroll`-ado pero nunca verificado no cuenta (Supabase lo marca
    `unverified`). La página ofrece descartarlo y reintentar.
+5. **Con un factor verificado ya inscrito, inscribir otro o dar de baja el
+   actual exige `aal2`.** Sin esa condición, una sesión con solo la contraseña
+   podría descartar el factor de la persona, inscribir el suyo y subir a
+   `aal2`: el bypass completo. La pantalla ya muestra el desafío en vez de esos
+   botones, pero la comprobación vive además en las propias Server Actions
+   (`mustChallengeBeforeChangingFactors`), porque una Server Action es un
+   endpoint y ocultar el botón no la protege. Supabase Auth también rechaza
+   ambas operaciones en `aal1`; la guarda existe para que la propiedad no
+   dependa de que ese comportamiento del proveedor se mantenga.
 
 ### 6.2 Desafío en login — `/login/mfa`
 Tras `signInWithPassword` correcto en `src/app/login/actions.ts`:
@@ -216,6 +232,14 @@ else:
 Éxito → `mfa_events` (VERIFY_SUCCESS) → `redirect('/')`. Fallo →
 `mfa_events` (VERIFY_FAILURE) + mensaje. Supabase ya limita la tasa de
 `verify`; el registro de fallos es la señal de fuerza bruta.
+
+**El login por OAuth decide igual.** `src/app/auth/callback/route.ts` llama a
+la misma `resolvePostLoginDestination`. La primera versión redirigía siempre a
+`/`, así que una cuenta privilegiada con factor verificado que entraba por
+Google no recibía el desafío mientras el bloqueo estaba apagado — justo el
+período en que hay que comprobar que el flujo funciona. Con el bloqueo
+encendido el middleware la atrapaba igual, pero las dos formas de crear sesión
+tienen que tomar la misma decisión y no dos distintas.
 
 ### 6.3 Reseteo del MFA de otra persona — server action
 `resetUserMfaAction(targetUserId)`:

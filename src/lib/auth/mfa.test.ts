@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   profileRequiresMfa,
   isMfaAllowedPath,
@@ -98,11 +100,32 @@ test("basta con uno de los dos lados: rol de workspace inactivo pero plataforma 
 });
 
 test("las rutas alcanzables en aal1 son exactamente las declaradas", () => {
-  for (const path of MFA_ALLOWED_PATHS) {
-    assert.equal(isMfaAllowedPath(path), true, `${path} debería ser alcanzable en aal1`);
+  for (const allowed of MFA_ALLOWED_PATHS) {
+    assert.equal(isMfaAllowedPath(allowed), true, `${allowed} debería ser alcanzable en aal1`);
   }
   assert.equal(isMfaAllowedPath("/seguridad/mfa"), true);
   assert.equal(isMfaAllowedPath("/login/mfa"), true);
+});
+
+test("/logout no está en la lista: no existe esa ruta, cerrar sesión es una Server Action", () => {
+  assert.equal(isMfaAllowedPath("/logout"), false);
+  assert.equal(MFA_ALLOWED_PATHS.includes("/logout"), false);
+});
+
+test("las dos pantallas MFA ofrecen cerrar sesión, que es la salida real en aal1", () => {
+  const pages = [
+    path.join(import.meta.dirname, "..", "..", "app", "seguridad", "mfa", "page.tsx"),
+    path.join(import.meta.dirname, "..", "..", "app", "login", "mfa", "page.tsx"),
+  ];
+
+  for (const page of pages) {
+    const source = readFileSync(page, "utf8");
+    assert.match(
+      source,
+      /<MfaSignOut\s*\/>/,
+      `${page} debe ofrecer cerrar sesión: con el bloqueo activo el gate saca a esta cuenta de toda otra pantalla que muestre el botón`
+    );
+  }
 });
 
 test("la coincidencia es exacta: ni prefijos ni subrutas heredan el permiso", () => {
