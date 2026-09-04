@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExpenseCompanyContext } from "./access";
-import { getExpenseIndicators, parseExpenseIndicators, parseExpenseListFilters } from "./data";
+import { getExpenseBankCandidates, getExpenseIndicators, parseExpenseIndicators, parseExpenseListFilters } from "./data";
 
 /**
  * La query string la escribe cualquiera. Estos filtros terminan en un
@@ -136,4 +136,21 @@ test("getExpenseIndicators convierte un fallo del RPC en un error estable para l
     () => getExpenseIndicators(client as any, context),
     /No se pudieron cargar los indicadores/
   );
+});
+
+test("getExpenseBankCandidates no presenta un fallo operativo como una lista legítimamente vacía", async () => {
+  const client = { async rpc() { return { data: null, error: { message: "network down" } }; } };
+  await assert.rejects(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    () => getExpenseBankCandidates(client as any, { ...context, canReconcile: true }, "tx-1"),
+    /No se pudieron calcular las sugerencias bancarias/
+  );
+});
+
+test("getExpenseBankCandidates no consulta el RPC sin permiso de conciliación", async () => {
+  let called = false;
+  const client = { async rpc() { called = true; return { data: [], error: null }; } };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.deepEqual(await getExpenseBankCandidates(client as any, context, "tx-1"), []);
+  assert.equal(called, false);
 });

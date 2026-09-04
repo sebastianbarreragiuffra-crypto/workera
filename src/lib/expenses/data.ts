@@ -7,6 +7,7 @@ import { isCalendarDate, nextDate, santiagoDayStartIso } from "@/lib/view-models
 import { unwrapEmbed } from "@/lib/supabase/embed";
 
 export type ExpenseReportStatus = Database["public"]["Enums"]["expense_report_status"];
+export type ExpenseBankTransactionStatus = Database["public"]["Enums"]["expense_bank_transaction_status"];
 
 export const EXPENSE_PAGE_SIZE = 25;
 
@@ -448,6 +449,101 @@ export async function getExpenseReconciliationQueue(
   });
 
   return { reports, pagination: { page, pageSize: EXPENSE_PAGE_SIZE, totalCount: count ?? reports.length } };
+}
+
+export interface ExpenseBankTransactionListItem {
+  id: string;
+  transactionDate: string;
+  amount: number;
+  currencyCode: string;
+  bankReference: string;
+  description: string | null;
+  status: ExpenseBankTransactionStatus;
+  matchedReportId: string | null;
+  ignoredReason: string | null;
+  createdAt: string;
+}
+
+export interface ExpenseBankCandidate {
+  reportId: string;
+  referenceNumber: string;
+  title: string;
+  submitterName: string;
+  submittedAt: string;
+  totalAmount: number;
+  currencyCode: string;
+  dateDistanceDays: number;
+  score: number;
+}
+
+export const EXPENSE_BANK_TRANSACTION_STATUSES: readonly ExpenseBankTransactionStatus[] = ["UNMATCHED", "MATCHED", "IGNORED"];
+
+/**
+ * Bandeja bancaria deliberadamente acotada. Las cartolas pueden acumular miles
+ * de filas, pero la pantalla operacional solo necesita el siguiente lote.
+ */
+export async function getExpenseBankTransactions(
+  supabase: SupabaseClient<Database>,
+  context: ExpenseCompanyContext,
+  status: ExpenseBankTransactionStatus = "UNMATCHED"
+): Promise<{ transactions: ExpenseBankTransactionListItem[]; totalCount: number }> {
+  if (!context.canReconcile && !context.canManage) return { transactions: [], totalCount: 0 };
+  const safeStatus = EXPENSE_BANK_TRANSACTION_STATUSES.includes(status) ? status : "UNMATCHED";
+  const { data, error, count } = await supabase
+    .from("expense_bank_transactions")
+    .select(
+      "id, transaction_date, amount, currency_code, bank_reference, description, status, matched_report_id, ignored_reason, created_at",
+      { count: "exact" }
+    )
+    .eq("company_id", context.id)
+    .eq("status", safeStatus)
+    .order("transaction_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(EXPENSE_PAGE_SIZE);
+  if (error) throw new Error("No se pudo cargar la bandeja bancaria.");
+  return {
+    transactions: (data ?? []).map((transaction) => ({
+      id: transaction.id,
+      transactionDate: transaction.transaction_date,
+      amount: Number(transaction.amount),
+      currencyCode: transaction.currency_code,
+      bankReference: transaction.bank_reference,
+      description: transaction.description,
+      status: transaction.status,
+      matchedReportId: transaction.matched_report_id,
+      ignoredReason: transaction.ignored_reason,
+      createdAt: transaction.created_at,
+    })),
+    totalCount: count ?? data?.length ?? 0,
+  };
+}
+
+/**
+ * Las sugerencias provienen de PostgreSQL y son solo lectura. Coinciden en
+ * monto/moneda y están dentro de 45 días; el usuario debe confirmar el enlace.
+ */
+export async function getExpenseBankCandidates(
+  supabase: SupabaseClient<Database>,
+  context: ExpenseCompanyContext,
+  transactionId: string | null
+): Promise<ExpenseBankCandidate[]> {
+  if ((!context.canReconcile && !context.canManage) || !transactionId) return [];
+  const { data, error } = await supabase.rpc("list_expense_reconciliation_candidates", {
+    p_company_id: context.id,
+    p_transaction_id: transactionId,
+  });
+  if (error) throw new Error("No se pudieron calcular las sugerencias bancarias.");
+  return (data ?? []).map((candidate) => ({
+    reportId: candidate.report_id,
+    referenceNumber: candidate.reference_number,
+    title: candidate.title,
+    submitterName: candidate.submitter_name,
+    submittedAt: candidate.submitted_at,
+    totalAmount: Number(candidate.total_amount),
+    currencyCode: candidate.currency_code,
+    dateDistanceDays: candidate.date_distance_days,
+    score: candidate.score,
+  }));
 }
 
 export interface ExpensePolicySettings {

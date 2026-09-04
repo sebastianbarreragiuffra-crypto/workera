@@ -1995,6 +1995,168 @@ export type Database = {
           },
         ]
       }
+      expense_bank_import_usage_windows: {
+        Row: {
+          attempt_count: number
+          company_id: string
+          payload_bytes: number
+          scope_key: string
+          updated_at: string
+          window_started_at: string
+        }
+        Insert: {
+          attempt_count: number
+          company_id: string
+          payload_bytes: number
+          scope_key: string
+          updated_at?: string
+          window_started_at: string
+        }
+        Update: {
+          attempt_count?: number
+          company_id?: string
+          payload_bytes?: number
+          scope_key?: string
+          updated_at?: string
+          window_started_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_bank_import_usage_windows_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_bank_imports: {
+        Row: {
+          company_id: string
+          content_checksum_sha256: string
+          id: string
+          imported_at: string
+          row_count: number
+          source_channel: string
+          uploaded_by: string
+        }
+        Insert: {
+          company_id: string
+          content_checksum_sha256: string
+          id?: string
+          imported_at?: string
+          row_count: number
+          source_channel: string
+          uploaded_by: string
+        }
+        Update: {
+          company_id?: string
+          content_checksum_sha256?: string
+          id?: string
+          imported_at?: string
+          row_count?: number
+          source_channel?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_bank_imports_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_bank_imports_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_bank_transactions: {
+        Row: {
+          amount: number
+          bank_reference: string
+          company_id: string
+          created_at: string
+          currency_code: string
+          description: string | null
+          id: string
+          ignored_reason: string | null
+          import_id: string
+          match_fingerprint: string
+          match_method: string | null
+          matched_at: string | null
+          matched_by: string | null
+          matched_report_id: string | null
+          source_row_number: number
+          status: Database["public"]["Enums"]["expense_bank_transaction_status"]
+          transaction_date: string
+        }
+        Insert: {
+          amount: number
+          bank_reference: string
+          company_id: string
+          created_at?: string
+          currency_code: string
+          description?: string | null
+          id?: string
+          ignored_reason?: string | null
+          import_id: string
+          match_fingerprint: string
+          match_method?: string | null
+          matched_at?: string | null
+          matched_by?: string | null
+          matched_report_id?: string | null
+          source_row_number: number
+          status?: Database["public"]["Enums"]["expense_bank_transaction_status"]
+          transaction_date: string
+        }
+        Update: {
+          amount?: number
+          bank_reference?: string
+          company_id?: string
+          created_at?: string
+          currency_code?: string
+          description?: string | null
+          id?: string
+          ignored_reason?: string | null
+          import_id?: string
+          match_fingerprint?: string
+          match_method?: string | null
+          matched_at?: string | null
+          matched_by?: string | null
+          matched_report_id?: string | null
+          source_row_number?: number
+          status?: Database["public"]["Enums"]["expense_bank_transaction_status"]
+          transaction_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_bank_transactions_import_fk"
+            columns: ["company_id", "import_id"]
+            isOneToOne: false
+            referencedRelation: "expense_bank_imports"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "expense_bank_transactions_matched_by_fkey"
+            columns: ["matched_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_bank_transactions_report_fk"
+            columns: ["company_id", "matched_report_id"]
+            isOneToOne: false
+            referencedRelation: "expense_reports"
+            referencedColumns: ["company_id", "id"]
+          },
+        ]
+      }
       expense_categories: {
         Row: {
           active: boolean
@@ -2821,6 +2983,61 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_reconciliation_events: {
+        Row: {
+          actor_id: string
+          company_id: string
+          event_type: string
+          id: number
+          metadata: Json
+          occurred_at: string
+          report_id: string | null
+          transaction_id: string
+        }
+        Insert: {
+          actor_id: string
+          company_id: string
+          event_type: string
+          id?: never
+          metadata?: Json
+          occurred_at?: string
+          report_id?: string | null
+          transaction_id: string
+        }
+        Update: {
+          actor_id?: string
+          company_id?: string
+          event_type?: string
+          id?: never
+          metadata?: Json
+          occurred_at?: string
+          report_id?: string | null
+          transaction_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_reconciliation_events_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_reconciliation_events_report_fk"
+            columns: ["company_id", "report_id"]
+            isOneToOne: false
+            referencedRelation: "expense_reports"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "expense_reconciliation_events_transaction_fk"
+            columns: ["company_id", "transaction_id"]
+            isOneToOne: false
+            referencedRelation: "expense_bank_transactions"
+            referencedColumns: ["company_id", "id"]
           },
         ]
       }
@@ -5134,6 +5351,14 @@ export type Database = {
         Args: { p_advance_id: string }
         Returns: undefined
       }
+      claim_expense_bank_upload: {
+        Args: {
+          p_actor_id: string
+          p_company_id: string
+          p_declared_bytes: number
+        }
+        Returns: undefined
+      }
       claim_expense_ocr_jobs: {
         Args: { p_limit?: number; p_worker_id: string }
         Returns: {
@@ -5334,6 +5559,19 @@ export type Database = {
         Args: { p_employee_group_id: string; p_permission_code: string }
         Returns: boolean
       }
+      ignore_expense_bank_transaction: {
+        Args: { p_reason: string; p_transaction_id: string }
+        Returns: undefined
+      }
+      import_expense_bank_statement: {
+        Args: {
+          p_actor_id: string
+          p_company_id: string
+          p_rows: Json
+          p_source_channel: string
+        }
+        Returns: string
+      }
       is_active_company_member: {
         Args: { p_company_id: string }
         Returns: boolean
@@ -5348,6 +5586,28 @@ export type Database = {
       is_supervisor_production: { Args: never; Returns: boolean }
       link_expense_report_to_advance: {
         Args: { p_advance_id: string | null; p_report_id: string }
+        Returns: undefined
+      }
+      list_expense_reconciliation_candidates: {
+        Args: { p_company_id: string; p_transaction_id: string }
+        Returns: {
+          currency_code: string
+          date_distance_days: number
+          reference_number: string
+          report_id: string
+          score: number
+          submitted_at: string
+          submitter_name: string
+          title: string
+          total_amount: number
+        }[]
+      }
+      match_expense_bank_transaction: {
+        Args: {
+          p_method?: string
+          p_report_id: string
+          p_transaction_id: string
+        }
         Returns: undefined
       }
       max_approvable_overtime_minutes: {
@@ -5718,6 +5978,7 @@ export type Database = {
         | "READY_FOR_WEEKLY_CLOSE"
       expense_advance_status: "PENDING" | "SETTLED" | "CANCELLED"
       expense_approval_decision: "APPROVED" | "REJECTED" | "RETURNED"
+      expense_bank_transaction_status: "UNMATCHED" | "MATCHED" | "IGNORED"
       expense_ocr_job_status:
         | "QUEUED"
         | "RUNNING"
@@ -5941,6 +6202,7 @@ export const Constants = {
       ],
       expense_advance_status: ["PENDING", "SETTLED", "CANCELLED"],
       expense_approval_decision: ["APPROVED", "REJECTED", "RETURNED"],
+      expense_bank_transaction_status: ["UNMATCHED", "MATCHED", "IGNORED"],
       expense_ocr_job_status: [
         "QUEUED",
         "RUNNING",

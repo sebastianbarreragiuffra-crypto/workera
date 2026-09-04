@@ -53,6 +53,7 @@ const SERVICE_ROLE_DIRECTORIES = [
   "rule-engine",
   "expense-ocr",
   "expense-capture",
+  "expense-bank",
   "expense-email",
   "expense-whatsapp",
 ];
@@ -133,6 +134,19 @@ test("el límite OCR privilegiado es server-only y ninguna ruta obtiene createAd
 test("el límite privilegiado de comprobantes es server-only y ninguna acción obtiene createAdminClient", () => {
   const captureRoot = path.join(SRC_ROOT, "lib", "expense-capture");
   for (const filePath of listFilesRecursively(captureRoot)) {
+    assert.match(readFileSync(filePath, "utf8"), /import\s+["']server-only["']/, `${filePath} debe ser server-only`);
+  }
+  const appFiles = listFilesRecursively(path.join(SRC_ROOT, "app"));
+  assert.deepEqual(
+    appFiles.filter((filePath) => /createAdminClient/.test(readFileSync(filePath, "utf8"))),
+    [],
+    "ninguna Server Action debe obtener service_role directamente"
+  );
+});
+
+test("el importador bancario privilegiado es server-only y ninguna acción obtiene createAdminClient", () => {
+  const bankRoot = path.join(SRC_ROOT, "lib", "expense-bank");
+  for (const filePath of listFilesRecursively(bankRoot)) {
     assert.match(readFileSync(filePath, "utf8"), /import\s+["']server-only["']/, `${filePath} debe ser server-only`);
   }
   const appFiles = listFilesRecursively(path.join(SRC_ROOT, "app"));
