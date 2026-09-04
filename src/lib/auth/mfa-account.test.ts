@@ -7,6 +7,7 @@ import {
   getMfaAccountState,
   MfaRequiredError,
   recordMfaEvent,
+  resolvePostLoginDestination,
 } from "./mfa-account";
 
 interface MockOptions {
@@ -15,6 +16,7 @@ interface MockOptions {
   membership?: { role: string; active: boolean } | null;
   insertError?: { message: string } | null;
   currentLevel?: string | null;
+  nextLevel?: string | null;
 }
 
 function mockClient(options: MockOptions) {
@@ -28,7 +30,10 @@ function mockClient(options: MockOptions) {
       }),
       mfa: {
         getAuthenticatorAssuranceLevel: async () => ({
-          data: { currentLevel: options.currentLevel ?? "aal1", nextLevel: "aal2" },
+          data: {
+            currentLevel: options.currentLevel ?? "aal1",
+            nextLevel: options.nextLevel ?? "aal1",
+          },
           error: null,
         }),
       },
@@ -187,5 +192,65 @@ test("una cuenta fuera del conjunto MFA no se ve afectada por la guarda de nómi
   });
   await withEnforcement("true", async () => {
     await assertSecondFactorForPrivileged(client);
+  });
+});
+
+test("con el flag apagado, una cuenta privilegiada sin factor entra directo", async () => {
+  const { client } = mockClient({
+    userId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    profile: { role: "ADMIN_RRHH", active: true },
+    currentLevel: "aal1",
+    nextLevel: "aal1",
+  });
+  await withEnforcement("false", async () => {
+    assert.equal(await resolvePostLoginDestination(client), "/");
+  });
+});
+
+test("el desafío de quien ya inscribió no depende del flag", async () => {
+  const { client } = mockClient({
+    userId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+    profile: { role: "ADMIN_RRHH", active: true },
+    currentLevel: "aal1",
+    nextLevel: "aal2",
+  });
+  await withEnforcement("false", async () => {
+    assert.equal(await resolvePostLoginDestination(client), "/login/mfa");
+  });
+});
+
+test("con el flag activo, una cuenta privilegiada sin factor va a inscribirse", async () => {
+  const { client } = mockClient({
+    userId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+    profile: { role: "ADMIN_RRHH", active: true },
+    currentLevel: "aal1",
+    nextLevel: "aal1",
+  });
+  await withEnforcement("true", async () => {
+    assert.equal(await resolvePostLoginDestination(client), "/seguridad/mfa");
+  });
+});
+
+test("una sesión que ya llegó a aal2 entra sin desvíos", async () => {
+  const { client } = mockClient({
+    userId: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+    profile: { role: "ADMIN_RRHH", active: true },
+    currentLevel: "aal2",
+    nextLevel: "aal2",
+  });
+  await withEnforcement("true", async () => {
+    assert.equal(await resolvePostLoginDestination(client), "/");
+  });
+});
+
+test("una cuenta sin privilegios entra directo con el flag encendido", async () => {
+  const { client } = mockClient({
+    userId: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+    profile: { role: "SUPERVISOR_PRODUCTION", active: true },
+    currentLevel: "aal1",
+    nextLevel: "aal1",
+  });
+  await withEnforcement("true", async () => {
+    assert.equal(await resolvePostLoginDestination(client), "/");
   });
 });

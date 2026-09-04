@@ -372,6 +372,14 @@ para que la próxima sesión no lo lea como una desviación accidental.
   layout de `(app)` exige `profile.role`, y la cuenta OWNER puede no tenerlo:
   ahí adentro, el gate la mandaría a una ruta que su propio layout devuelve al
   login.
+- **El redirect del login a la pantalla de inscripción respeta
+  `MFA_ENFORCEMENT_ENABLED`**, aunque la sección 6.2 no lo pide. Sin eso, el
+  paso 1 del rollout ya cambiaba lo que ven las cuatro cuentas privilegiadas al
+  entrar, antes de que se les avisara. El flag gobierna la obligación de
+  inscribirse, no el desafío: a quien YA tiene un factor verificado se le sigue
+  pidiendo el código con el flag apagado, porque se inscribió a propósito y es
+  lo que permite comprobar que el flujo entero funciona antes de encender el
+  bloqueo.
 - **La guarda de nómina respeta `MFA_ENFORCEMENT_ENABLED`; la de los RPC no.**
   Una función de base de datos no lee variables de entorno. Las dos capas que
   corren en la aplicación se encienden con el mismo interruptor; la de base de

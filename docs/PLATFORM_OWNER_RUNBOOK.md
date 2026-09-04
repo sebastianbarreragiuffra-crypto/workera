@@ -125,8 +125,15 @@ problema de la aplicación.
 
 El orden importa y no es intercambiable.
 
-1. Desplegar con `MFA_ENFORCEMENT_ENABLED=false`. `/seguridad/mfa` queda
-   accesible y nadie está bloqueado todavía.
+1. Desplegar con `MFA_ENFORCEMENT_ENABLED=false`. Este paso es **invisible**:
+   `/seguridad/mfa` queda accesible para quien entre a propósito, pero nadie es
+   redirigido ahí ni bloqueado. Avisar a las cuatro cuentas por fuera de la
+   aplicación y pasarles el enlace.
+
+   Desde el momento en que una de ellas inscribe y verifica su factor, sus
+   siguientes inicios de sesión sí le van a pedir el código, con el flag todavía
+   apagado. Es a propósito: es la única forma de comprobar que el flujo completo
+   funciona antes del paso 5.
 2. **El OWNER se inscribe primero**, con sus dos factores (sección 2).
 3. Se inscriben el gerente y las dos cuentas `ADMIN_RRHH` que aprueban
    licencias.

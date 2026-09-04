@@ -119,6 +119,19 @@ export async function recordMfaEvent(
  * `nextLevel` llega en `aal2` exactamente cuando la cuenta tiene al menos un
  * factor verificado, así que no hace falta listar factores para saberlo: es el
  * mismo dato, y evita una llamada de red en cada login.
+ *
+ * `MFA_ENFORCEMENT_ENABLED` gobierna la OBLIGACIÓN de inscribirse, no el
+ * desafío de quien ya se inscribió. Las dos mitades se comportan distinto a
+ * propósito:
+ *
+ *   - Con el flag apagado, una cuenta privilegiada que todavía no inscribió
+ *     nada entra directo. El paso 1 del rollout queda así completamente
+ *     invisible: nadie ve una pantalla nueva antes de que se le avise.
+ *   - El desafío de quien SÍ tiene un factor verificado no depende del flag.
+ *     Esa persona se inscribió a propósito, y pedirle el código es lo que
+ *     permite comprobar que el flujo completo funciona antes de encender el
+ *     bloqueo. Saltárselo dejaría su segundo factor sin efecto justo en los
+ *     días en que hay que verificar que quedó bien.
  */
 export async function resolvePostLoginDestination(
   supabase: SupabaseClient<Database>
@@ -134,7 +147,7 @@ export async function resolvePostLoginDestination(
   return postLoginDestination({
     currentLevel,
     nextLevel,
-    requiresMfa: account?.requiresMfa ?? false,
+    requiresMfa: isMfaEnforcementEnabled() && (account?.requiresMfa ?? false),
     hasVerifiedFactor: nextLevel === "aal2",
   });
 }
