@@ -16,18 +16,30 @@ import type { Database } from "./database.types";
  * (`profile.role`/`profile.active`), exactamente igual para ambos métodos de
  * login.
  *
- * El webhook de Resend también debe llegar sin una sesión humana. Su acceso
- * público se limita a una ruta exacta y el Route Handler exige la firma Svix
- * del proveedor antes de procesar cualquier dato.
+ * Los webhooks externos se clasifican aparte porque su exposición también
+ * depende del método HTTP. Cada Route Handler valida la firma o desafío del
+ * proveedor antes de procesar cualquier dato.
  */
 const PUBLIC_PATHS = new Set<string>([
   "/login",
   "/auth/callback",
-  "/api/webhooks/resend/expense-receipts",
+]);
+
+const EXTERNAL_WEBHOOK_METHODS = new Map<string, ReadonlySet<string>>([
+  ["/api/webhooks/resend/expense-receipts", new Set(["POST"])],
+  ["/api/webhooks/meta/expense-receipts", new Set(["GET", "POST"])],
 ]);
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.has(pathname);
+}
+
+/**
+ * Webhooks sin sesión humana, limitados por ruta Y método exactos. Esto evita
+ * que un prefijo, una subruta o un verbo nuevo queden públicos por accidente.
+ */
+export function isExternalWebhookRequest(request: NextRequest): boolean {
+  return EXTERNAL_WEBHOOK_METHODS.get(request.nextUrl.pathname)?.has(request.method) ?? false;
 }
 
 /** Futuras rutas /api/* reciben 401 JSON en vez de un redirect HTML. */
@@ -43,6 +55,12 @@ export function isApiPath(pathname: string): boolean {
  */
 export function isAuthorizedWorkeraCronRequest(request: NextRequest): boolean {
   if (request.method !== "GET" || request.nextUrl.pathname !== "/api/sync/workera") return false;
+  return isValidCronSecretHeader(request.headers.get("authorization"));
+}
+
+/** Mismo bypass acotado para el worker OCR de Rendiciones. */
+export function isAuthorizedExpenseOcrCronRequest(request: NextRequest): boolean {
+  if (request.method !== "GET" || request.nextUrl.pathname !== "/api/jobs/expense-ocr") return false;
   return isValidCronSecretHeader(request.headers.get("authorization"));
 }
 
@@ -112,10 +130,10 @@ export async function updateSession(
   const supabase = createClientForRequest(request, responseRef);
 
   const pathname = request.nextUrl.pathname;
-  const isPublic = isPublicPath(pathname);
+  const isPublic = isPublicPath(pathname) || isExternalWebhookRequest(request);
   const isApi = isApiPath(pathname);
 
-  if (isAuthorizedWorkeraCronRequest(request)) {
+  if (isAuthorizedWorkeraCronRequest(request) || isAuthorizedExpenseOcrCronRequest(request)) {
     return responseRef.current;
   }
 

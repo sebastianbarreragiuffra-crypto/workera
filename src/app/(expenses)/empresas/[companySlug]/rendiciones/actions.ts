@@ -3,6 +3,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { z } from "zod";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
 import { getExpenseSpecialRates } from "@/lib/expenses/data";
@@ -10,6 +11,7 @@ import { validateExpenseReceiptFile } from "@/lib/expenses/receipts";
 import { getExpenseEmailDomain } from "@/lib/expense-email/config";
 import { getExpenseWhatsappProviderConfig, whatsappLink } from "@/lib/expense-whatsapp/config";
 import { discardExpenseCapture, storeExpenseCapture, storeExpenseReceipt } from "@/lib/expense-capture/service";
+import { runExpenseOcrWorkerWithServiceRole } from "@/lib/expense-ocr/service";
 import { createClient } from "@/lib/supabase/server";
 import { unwrapEmbed } from "@/lib/supabase/embed";
 import type { Json } from "@/lib/supabase/database.types";
@@ -19,6 +21,22 @@ export interface ExpenseActionState {
   message: string;
   pairingCode?: string;
   pairingUrl?: string;
+}
+
+/**
+ * Da una primera oportunidad de procesamiento apenas se adjunta el archivo,
+ * sin hacer esperar al teléfono. La cola PostgreSQL sigue siendo la fuente de
+ * verdad: si esta ejecución best-effort se corta, el cron diario retoma el job.
+ */
+function kickExpenseOcrAfterResponse(): void {
+  if (process.env.EXPENSE_OCR_ENABLED !== "true") return;
+  after(async () => {
+    try {
+      await runExpenseOcrWorkerWithServiceRole();
+    } catch {
+      console.error("[expense-ocr] el disparo posterior a la respuesta no pudo completar la cola");
+    }
+  });
 }
 
 const slug = z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(63);
@@ -410,6 +428,7 @@ export async function uploadExpenseReceiptAction(
   if (!stored.ok && stored.reason === "STORAGE") return failed("No pudimos guardar el comprobante en el almacenamiento privado.");
   if (!stored.ok) return failed("No pudimos asociar el comprobante al gasto. Intenta nuevamente.");
 
+  kickExpenseOcrAfterResponse();
   revalidatePath(reportPath(context.slug, parsed.data.reportId));
   return { status: "success", message: "Comprobante adjuntado de forma privada." };
 }
@@ -554,6 +573,7 @@ export async function attachExpenseReceiptCaptureAction(
     return failed("No pudimos asociar el comprobante. Intenta nuevamente.");
   }
 
+  kickExpenseOcrAfterResponse();
   revalidatePath(`/empresas/${context.slug}/rendiciones/comprobantes`);
   revalidatePath(`/empresas/${context.slug}/rendiciones`);
   return { status: "success", message: "Comprobante asociado al gasto y enviado a procesamiento." };

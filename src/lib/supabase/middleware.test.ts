@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NextRequest, NextResponse } from "next/server";
-import { isApiPath, isPublicPath, isAuthorizedWorkeraCronRequest, updateSession } from "./middleware";
+import {
+  isApiPath,
+  isAuthorizedExpenseOcrCronRequest,
+  isAuthorizedWorkeraCronRequest,
+  isExternalWebhookRequest,
+  isPublicPath,
+  updateSession,
+} from "./middleware";
 import { isValidCronSecretHeader } from "../auth/cron-secret";
 
 /**
@@ -10,8 +17,12 @@ import { isValidCronSecretHeader } from "../auth/cron-secret";
  * updateSession(), controlando exactamente qué devuelve getClaims().
  */
 
-function makeRequest(pathname: string, cookies: Record<string, string> = {}): NextRequest {
-  const request = new NextRequest(new URL(pathname, "http://localhost:3000"));
+function makeRequest(
+  pathname: string,
+  cookies: Record<string, string> = {},
+  method = "GET"
+): NextRequest {
+  const request = new NextRequest(new URL(pathname, "http://localhost:3000"), { method });
   for (const [name, value] of Object.entries(cookies)) {
     request.cookies.set(name, value);
   }
@@ -235,19 +246,43 @@ test("/api/example sin sesión responde 401 JSON genérico", async () => {
   assert.deepEqual(body, { error: "unauthorized" });
 });
 
-test("solo el webhook exacto de Resend llega sin sesión para validar su firma", async () => {
+test("solo POST al webhook exacto de Resend llega sin sesión para validar su firma", async () => {
   const calls = { count: 0 };
   const allowed = await updateSession(
-    makeRequest("/api/webhooks/resend/expense-receipts"),
+    makeRequest("/api/webhooks/resend/expense-receipts", {}, "POST"),
     unauthenticatedFactory(calls)
   );
   assert.equal(allowed.status, 200);
 
+  const wrongMethod = await updateSession(
+    makeRequest("/api/webhooks/resend/expense-receipts"),
+    unauthenticatedFactory({ count: 0 })
+  );
+  assert.equal(wrongMethod.status, 401);
+
   const nearMatch = await updateSession(
-    makeRequest("/api/webhooks/resend/expense-receipts/extra"),
+    makeRequest("/api/webhooks/resend/expense-receipts/extra", {}, "POST"),
     unauthenticatedFactory({ count: 0 })
   );
   assert.equal(nearMatch.status, 401);
+});
+
+test("Meta permite solo GET/POST en la ruta exacta y conserva la validación del handler", async () => {
+  for (const method of ["GET", "POST"]) {
+    const allowed = await updateSession(
+      makeRequest("/api/webhooks/meta/expense-receipts", {}, method),
+      unauthenticatedFactory({ count: 0 })
+    );
+    assert.equal(allowed.status, 200, `${method} debe llegar al handler`);
+  }
+
+  for (const request of [
+    makeRequest("/api/webhooks/meta/expense-receipts", {}, "DELETE"),
+    makeRequest("/api/webhooks/meta/expense-receipts/extra", {}, "POST"),
+  ]) {
+    const blocked = await updateSession(request, unauthenticatedFactory({ count: 0 }));
+    assert.equal(blocked.status, 401);
+  }
 });
 
 // 7. /api/example con claims válidos -> permitido
@@ -433,15 +468,24 @@ test("el matcher de proxy.ts excluye _next/static, _next/image, favicon y extens
 });
 
 // Cobertura directa de los helpers de clasificación de rutas.
-test("isPublicPath: login, callback OAuth y el webhook exacto de Resend son públicos", () => {
+test("isPublicPath: solo login y callback OAuth son páginas públicas", () => {
   assert.equal(isPublicPath("/login"), true);
   assert.equal(isPublicPath("/auth/callback"), true);
-  assert.equal(isPublicPath("/api/webhooks/resend/expense-receipts"), true);
+  assert.equal(isPublicPath("/api/webhooks/resend/expense-receipts"), false);
   assert.equal(isPublicPath("/"), false);
   assert.equal(isPublicPath("/login/"), false);
   assert.equal(isPublicPath("/dashboard"), false);
   assert.equal(isPublicPath("/auth/callback/"), false);
   assert.equal(isPublicPath("/api/webhooks/resend/expense-receipts/extra"), false);
+});
+
+test("isExternalWebhookRequest limita proveedor, método y ruta exactos", () => {
+  assert.equal(isExternalWebhookRequest(makeRequest("/api/webhooks/resend/expense-receipts", {}, "POST")), true);
+  assert.equal(isExternalWebhookRequest(makeRequest("/api/webhooks/resend/expense-receipts")), false);
+  assert.equal(isExternalWebhookRequest(makeRequest("/api/webhooks/meta/expense-receipts")), true);
+  assert.equal(isExternalWebhookRequest(makeRequest("/api/webhooks/meta/expense-receipts", {}, "POST")), true);
+  assert.equal(isExternalWebhookRequest(makeRequest("/api/webhooks/meta/expense-receipts", {}, "PATCH")), false);
+  assert.equal(isExternalWebhookRequest(makeRequest("/api/webhooks/meta/expense-receipts/extra", {}, "POST")), false);
 });
 
 test("isApiPath: reconoce /api y cualquier subruta", () => {
@@ -461,7 +505,7 @@ test("isApiPath: reconoce /api y cualquier subruta", () => {
  * tiene que ser exactamente un método y una ruta. El route handler revalida el
  * secreto por su cuenta: esto solo evita el redirect al login.
  */
-const CRON_SECRET_FAKE = "test-secret-fake-000000000000";
+const CRON_SECRET_FAKE = "test-secret-fake-000000000000000000000000";
 
 function cronRequest(
   options: { header?: string; method?: string; path?: string } = {}
@@ -499,6 +543,16 @@ test("cron: sin CRON_SECRET configurado -> nunca autoriza (fail-closed)", () => 
   });
 });
 
+test("cron: un secreto configurado con menos de 32 bytes falla cerrado", () => {
+  withCronSecret("demasiado-corto", () => {
+    assert.equal(isAuthorizedWorkeraCronRequest(cronRequest({ header: "Bearer demasiado-corto" })), false);
+    assert.equal(isAuthorizedExpenseOcrCronRequest(cronRequest({
+      header: "Bearer demasiado-corto",
+      path: "/api/jobs/expense-ocr",
+    })), false);
+  });
+});
+
 test("cron: secreto incorrecto, ausente o sin prefijo Bearer -> no autoriza", () => {
   withCronSecret(CRON_SECRET_FAKE, () => {
     assert.equal(isAuthorizedWorkeraCronRequest(cronRequest({ header: "Bearer secreto-equivocado-00000" })), false);
@@ -526,5 +580,28 @@ test("cron: middleware y route handler comparten la MISMA decisión", () => {
         `deben coincidir para ${JSON.stringify(header)}`
       );
     }
+  });
+});
+
+test("cron OCR: solo GET exacto con Bearer correcto evita el guard de sesión", () => {
+  withCronSecret(CRON_SECRET_FAKE, () => {
+    const header = `Bearer ${CRON_SECRET_FAKE}`;
+    assert.equal(isAuthorizedExpenseOcrCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-ocr",
+    })), true);
+    assert.equal(isAuthorizedExpenseOcrCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-ocr/extra",
+    })), false);
+    assert.equal(isAuthorizedExpenseOcrCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-ocr",
+      method: "POST",
+    })), false);
+    assert.equal(isAuthorizedExpenseOcrCronRequest(cronRequest({
+      header: "Bearer incorrecto",
+      path: "/api/jobs/expense-ocr",
+    })), false);
   });
 });

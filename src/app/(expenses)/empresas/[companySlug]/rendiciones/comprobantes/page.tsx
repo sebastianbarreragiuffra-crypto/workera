@@ -46,12 +46,17 @@ export default async function ExpenseReceiptInboxPage({
 
   return (
     <div className="space-y-6">
-      <header>
-        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-arcotex-blue">Captura rápida</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">Bandeja de comprobantes</h1>
-        <p className="mt-2 max-w-3xl text-sm text-slate-500">
-          Fotografía o sube una boleta apenas la recibas. Quedará privada en tu bandeja hasta que la asocies a un gasto en borrador.
-        </p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-arcotex-blue">Captura rápida</p>
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">Mis comprobantes</h1>
+          <p className="mt-2 max-w-3xl text-sm text-slate-500">
+            Fotografía o sube una boleta apenas la recibas. Quedará privada hasta que la asocies a una rendición.
+          </p>
+        </div>
+        <div className="inline-flex min-h-11 items-center self-start rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm sm:self-auto">
+          {captures.length} pendiente{captures.length === 1 ? "" : "s"}
+        </div>
       </header>
 
       <ExpenseCaptureUploadForms companySlug={context.slug} />
@@ -107,7 +112,17 @@ export default async function ExpenseReceiptInboxPage({
                     {capture.source === "WEB_CAMERA" ? "Foto" : capture.source === "EMAIL" ? "Correo" : capture.source === "WHATSAPP" ? "WhatsApp" : "Archivo"} · {fileSize(capture.fileSize)} · {captureDate(capture.createdAt)}
                   </p>
                 </div>
-                <ExpenseCaptureDiscardForm companySlug={context.slug} captureId={capture.id} />
+                <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+                  <Link
+                    href={`${base}/comprobantes/capturas/${capture.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Ver comprobante
+                  </Link>
+                  <ExpenseCaptureDiscardForm companySlug={context.slug} captureId={capture.id} />
+                </div>
               </li>
             ))}
             </ul>

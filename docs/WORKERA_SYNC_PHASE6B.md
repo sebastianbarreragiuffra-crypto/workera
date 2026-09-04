@@ -48,7 +48,7 @@ Un evento reportado `MODIFICADO`/`INACTIVO` en una reconciliación se versiona c
 
 ## 5. Autenticación del cron — `CRON_SECRET`
 
-`GET /api/sync/workera` exige `Authorization: Bearer <CRON_SECRET>`, comparado con `crypto.timingSafeEqual` (mitiga ataques de timing) tras verificar longitud igual. **Fail-closed**: sin `CRON_SECRET` configurado en el servidor, el camino de cron nunca se acepta, sin importar qué header llegue.
+`GET /api/sync/workera` exige `Authorization: Bearer <CRON_SECRET>`, comparado con `crypto.timingSafeEqual` (mitiga ataques de timing) tras verificar longitud igual. **Fail-closed**: sin `CRON_SECRET` configurado en el servidor, o con menos de 32 bytes, el camino de cron nunca se acepta. Debe generarse con un CSPRNG (por ejemplo `openssl rand -base64 48`), guardarse solo en el gestor de secretos del ambiente y rotarse ante una sospecha de exposición.
 
 `CRON_SECRET` es un secreto **independiente** de `WORKERA_API_KEY` y de `SUPABASE_SERVICE_ROLE_KEY` — ninguno de esos dos se reutiliza como secreto de cron. Server-only, nunca `NEXT_PUBLIC_CRON_SECRET`, nunca impreso en logs, `.env.example` solo documenta la clave vacía.
 

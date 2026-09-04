@@ -41,28 +41,28 @@ export function ExpenseShell({
       </header>
 
       <div className="border-b border-slate-200 bg-white">
-        <nav className="mx-auto flex max-w-7xl items-center gap-1 px-4 py-2 sm:px-6 lg:px-8" aria-label="Rendiciones">
-          <Link href={base} className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">Resumen</Link>
+        <nav className="mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4 py-2 [scrollbar-width:none] sm:px-6 lg:px-8" aria-label="Rendiciones">
+          <Link href={base} className="min-h-11 shrink-0 rounded-md px-3 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">Resumen</Link>
           {context.canSubmit && (
-            <Link href={`${base}/nueva`} className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">Nueva rendición</Link>
+            <Link href={`${base}/nueva`} className="min-h-11 shrink-0 rounded-md px-3 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">Nueva rendición</Link>
           )}
           {context.canSubmit && (
-            <Link href={`${base}/comprobantes`} className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">Comprobantes</Link>
+            <Link href={`${base}/comprobantes`} className="min-h-11 shrink-0 rounded-md px-3 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">Comprobantes</Link>
           )}
           {(context.canApprove || context.canManage) && (
-            <Link href={`${base}/aprobaciones`} className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">Aprobaciones</Link>
+            <Link href={`${base}/aprobaciones`} className="min-h-11 shrink-0 rounded-md px-3 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">Aprobaciones</Link>
           )}
           {(context.canReadAll || context.canApprove || context.canManage) && (
-            <Link href={`${base}/indicadores`} className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">Indicadores</Link>
+            <Link href={`${base}/indicadores`} className="min-h-11 shrink-0 rounded-md px-3 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">Indicadores</Link>
           )}
           {context.canReconcile && (
-            <Link href={`${base}/conciliacion`} className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">Conciliación</Link>
+            <Link href={`${base}/conciliacion`} className="min-h-11 shrink-0 rounded-md px-3 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">Conciliación</Link>
           )}
           {(context.canSubmit || context.canReadAll || context.canApprove || context.canReconcile || context.canManage) && (
-            <Link href={`${base}/anticipos`} className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">Anticipos</Link>
+            <Link href={`${base}/anticipos`} className="min-h-11 shrink-0 rounded-md px-3 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">Anticipos</Link>
           )}
           {(context.canConfigure || context.canManage) && (
-            <Link href={`${base}/politicas`} className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">Políticas</Link>
+            <Link href={`${base}/politicas`} className="min-h-11 shrink-0 rounded-md px-3 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">Políticas</Link>
           )}
         </nav>
       </div>
