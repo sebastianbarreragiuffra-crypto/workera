@@ -4,6 +4,13 @@ create extension if not exists pgtap;
 begin;
 select plan(63);
 
+-- Desde la etapa F de MFA (docs/MFA_DESIGN.md sección 7), los RPC sensibles
+-- llaman a `enforce_mfa_for_privileged()`. Las sesiones de esta prueba ejercen
+-- operaciones privilegiadas, así que declaran el nivel que tendría una sesión
+-- real después de verificar su segundo factor. No relaja nada: que la guarda
+-- distinga aal1 de aal2 se prueba en 049.
+set local request.jwt.claim.aal = 'aal2';
+
 select has_function('public', 'platform_create_company',
   array['text', 'text', 'text', 'text', 'text', 'text', 'text', 'text'],
   'existe el RPC atomico para crear empresas');

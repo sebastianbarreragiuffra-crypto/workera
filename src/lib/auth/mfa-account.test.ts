@@ -2,13 +2,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
-import { getMfaAccountState, recordMfaEvent } from "./mfa-account";
+import {
+  assertSecondFactorForPrivileged,
+  getMfaAccountState,
+  MfaRequiredError,
+  recordMfaEvent,
+} from "./mfa-account";
 
 interface MockOptions {
   userId?: string | null;
   profile?: { role: string | null; active: boolean } | null;
   membership?: { role: string; active: boolean } | null;
   insertError?: { message: string } | null;
+  currentLevel?: string | null;
 }
 
 function mockClient(options: MockOptions) {
@@ -20,6 +26,12 @@ function mockClient(options: MockOptions) {
         data: options.userId ? { claims: { sub: options.userId } } : null,
         error: null,
       }),
+      mfa: {
+        getAuthenticatorAssuranceLevel: async () => ({
+          data: { currentLevel: options.currentLevel ?? "aal1", nextLevel: "aal2" },
+          error: null,
+        }),
+      },
     },
     from(table: string) {
       if (table === "mfa_events") {
@@ -120,4 +132,60 @@ test("recordMfaEvent no lanza cuando la base rechaza el registro: el factor ya e
     eventType: "VERIFY_SUCCESS",
   });
   assert.equal(ok, false);
+});
+
+async function withEnforcement<T>(value: string | undefined, run: () => Promise<T>): Promise<T> {
+  const previous = process.env.MFA_ENFORCEMENT_ENABLED;
+  if (value === undefined) delete process.env.MFA_ENFORCEMENT_ENABLED;
+  else process.env.MFA_ENFORCEMENT_ENABLED = value;
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) delete process.env.MFA_ENFORCEMENT_ENABLED;
+    else process.env.MFA_ENFORCEMENT_ENABLED = previous;
+  }
+}
+
+test("con el flag apagado, nómina no exige segundo factor a nadie", async () => {
+  const { client } = mockClient({
+    userId: "77777777-7777-7777-7777-777777777777",
+    profile: { role: "ADMIN_RRHH", active: true },
+    currentLevel: "aal1",
+  });
+  await withEnforcement("false", async () => {
+    await assertSecondFactorForPrivileged(client);
+  });
+});
+
+test("con el flag activo, una cuenta privilegiada en aal1 no puede generar nómina", async () => {
+  const { client } = mockClient({
+    userId: "88888888-8888-8888-8888-888888888888",
+    profile: { role: "ADMIN_RRHH", active: true },
+    currentLevel: "aal1",
+  });
+  await withEnforcement("true", async () => {
+    await assert.rejects(() => assertSecondFactorForPrivileged(client), MfaRequiredError);
+  });
+});
+
+test("la misma cuenta pasa cuando la sesión llegó a aal2", async () => {
+  const { client } = mockClient({
+    userId: "99999999-9999-9999-9999-999999999999",
+    profile: { role: "ADMIN_RRHH", active: true },
+    currentLevel: "aal2",
+  });
+  await withEnforcement("true", async () => {
+    await assertSecondFactorForPrivileged(client);
+  });
+});
+
+test("una cuenta fuera del conjunto MFA no se ve afectada por la guarda de nómina", async () => {
+  const { client } = mockClient({
+    userId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    profile: { role: "SUPERVISOR_PRODUCTION", active: true },
+    currentLevel: "aal1",
+  });
+  await withEnforcement("true", async () => {
+    await assertSecondFactorForPrivileged(client);
+  });
 });

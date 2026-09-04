@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
+import { isMfaEnforcementEnabled } from "../supabase/middleware";
 import {
   postLoginDestination,
   profileRequiresMfa,
@@ -136,4 +137,44 @@ export async function resolvePostLoginDestination(
     requiresMfa: account?.requiresMfa ?? false,
     hasVerifiedFactor: nextLevel === "aal2",
   });
+}
+
+/** Se lanza cuando una operación sensible se pide sin segundo factor. */
+export class MfaRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MfaRequiredError";
+  }
+}
+
+/**
+ * Equivalente en la aplicación de `enforce_mfa_for_privileged()`, para las
+ * operaciones sensibles que NO pasan por un RPC y por lo tanto no tienen dónde
+ * apoyarse en la base. Hoy: la generación de lotes de nómina (sección 7 del
+ * diseño).
+ *
+ * A diferencia de la guarda SQL, esta respeta `MFA_ENFORCEMENT_ENABLED`. No es
+ * una excepción al bloqueo inmediato: es lo que mantiene coherente el
+ * despliegue en dos pasos. Las dos capas que corren en la aplicación se
+ * encienden con el mismo interruptor y en el mismo momento; la de base de
+ * datos, que no puede leer variables de entorno, se enciende al aplicar su
+ * migración, que por eso va en el paso 5 del rollout.
+ *
+ * Igual que la versión SQL, deja pasar a quien no exige MFA: es segura de
+ * agregar a cualquier operación sin cambiar el comportamiento de nadie más.
+ */
+export async function assertSecondFactorForPrivileged(
+  supabase: SupabaseClient<Database>
+): Promise<void> {
+  if (!isMfaEnforcementEnabled()) return;
+
+  const account = await getMfaAccountState(supabase);
+  if (!account?.requiresMfa) return;
+
+  const { data } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (data?.currentLevel !== "aal2") {
+    throw new MfaRequiredError(
+      "Esta operación requiere verificación de segundo factor (MFA)."
+    );
+  }
 }

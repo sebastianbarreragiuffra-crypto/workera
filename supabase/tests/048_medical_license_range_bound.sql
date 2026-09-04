@@ -9,6 +9,13 @@ create extension if not exists pgtap;
 begin;
 select plan(6);
 
+-- Desde la etapa F de MFA (docs/MFA_DESIGN.md sección 7), los RPC sensibles
+-- llaman a `enforce_mfa_for_privileged()`. Las sesiones de esta prueba ejercen
+-- operaciones privilegiadas, así que declaran el nivel que tendría una sesión
+-- real después de verificar su segundo factor. No relaja nada: que la guarda
+-- distinga aal1 de aal2 se prueba en 049.
+set local request.jwt.claim.aal = 'aal2';
+
 -- ---------------------------------------------------------------------------
 -- Fixtures: un trabajador, la cuenta aprobadora y una licencia pendiente.
 insert into public.employees (external_workera_id, first_name, last_name, display_name, employee_group_id) values

@@ -8,7 +8,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(33);
+select plan(37);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures: dos empresas, un OWNER de plataforma que además es miembro de la
@@ -239,6 +239,61 @@ select throws_ok(
   '23514', null,
   'un evento propio no puede atribuirse a un administrador'
 );
+
+-- ---------------------------------------------------------------------------
+-- 8. Etapa F: los RPC sensibles exigen aal2.
+
+select is(
+  (
+    select count(*)::integer
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.prosrc like '%enforce_mfa_for_privileged()%'
+      and p.proname in (
+        'approve_medical_license', 'reject_medical_license',
+        'platform_create_company', 'platform_assign_company_role',
+        'platform_set_company_module_status', 'platform_set_onboarding_step_completed',
+        'platform_create_company_invitation', 'platform_create_organization_unit'
+      )
+  ),
+  8,
+  'los ocho RPC sensibles llaman a la guarda de segundo factor'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000106';
+select throws_ok(
+  $$select public.platform_create_company('MFA Gate', 'mfa-gate-alpha')$$,
+  'P0001', 'Esta operación requiere verificación de segundo factor (MFA).',
+  'un ADMIN de plataforma en aal1 no puede crear una empresa'
+);
+
+set local request.jwt.claim.aal = 'aal2';
+select lives_ok(
+  $$select public.platform_create_company('MFA Gate', 'mfa-gate-alpha')$$,
+  'el mismo ADMIN de plataforma sí puede cuando llega en aal2'
+);
+
+-- El orden importa: la guarda de MFA va DESPUÉS de la de rol. Quien no está
+-- autorizado debe recibir el error de autorización y no uno de MFA, que le
+-- confirmaría que su rol alcanzaba y que lo único que falta es el código.
+--
+-- Se usa `approve_medical_license` y no un RPC de plataforma porque su guarda
+-- (`is_medical_license_approver()`) devuelve false y no null para quien no lo
+-- es. Las guardas de plataforma se apoyan en `can_manage_platform()`, que
+-- devuelve NULL cuando la cuenta no tiene membresía, y un `if` sobre NULL no
+-- se ejecuta: ese camino no rechaza a nadie. Es un hallazgo previo a MFA y
+-- ajeno a esta rama, anotado para no fijarlo acá como si fuera correcto.
+set local request.jwt.claim.aal = '';
+set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000102';
+select throws_ok(
+  $$select public.approve_medical_license(
+      '96000000-0000-0000-0000-0000000000f1', date '2026-08-20', date '2026-08-22')$$,
+  'P0001', 'No autorizado para aprobar licencias médicas.',
+  'a quien no está autorizado se le responde por rol, nunca por MFA'
+);
+reset role;
 
 select * from finish();
 rollback;

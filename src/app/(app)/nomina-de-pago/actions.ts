@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../lib/auth/session";
+import { assertSecondFactorForPrivileged } from "../../../lib/auth/mfa-account";
 import { isPrivilegedAdmin } from "../../../lib/supabase/authorize";
 import { parseSuppliersExcel, importSuppliers, deactivateSupplier } from "../../../lib/payroll/suppliers-import";
 import { parseInvoiceExcel, generatePayrollBatch } from "../../../lib/payroll/invoice-import";
@@ -22,6 +23,12 @@ async function requirePayrollAccess() {
   if (!isPrivilegedAdmin(profile.role)) {
     throw new Error("Esta operación requiere rol SUPER_ADMIN o ADMIN_RRHH.");
   }
+  // Nómina es la operación sensible que NO pasa por un RPC, así que no tiene
+  // dónde apoyarse en `enforce_mfa_for_privileged()`. Este es su equivalente
+  // (sección 7 del diseño). Va DESPUÉS del chequeo de rol: quien no está
+  // autorizado debe seguir recibiendo el error de rol y no uno de MFA, que le
+  // revelaría que su rol sí alcanzaba.
+  await assertSecondFactorForPrivileged(await createClient());
   return profile;
 }
 
