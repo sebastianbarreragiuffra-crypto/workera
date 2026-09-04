@@ -37,9 +37,17 @@ test("el permiso se consulta con el cliente de sesión, nunca con el admin", () 
   assert.doesNotMatch(source, /admin\.rpc\(/);
 });
 
-test("el evento ADMIN_RESET se registra con la sesión, para que la RLS lo revalide", () => {
+test("la bitácora se abre antes de borrar el primer factor", () => {
   const source = read(RESET_PATH);
-  assert.match(source, /recordMfaEvent\(supabase,\s*\{/);
+  const startedIdx = source.indexOf('eventType: "ADMIN_RESET_STARTED"');
+  const deleteIdx = source.indexOf("admin.auth.admin.mfa.deleteFactor");
+  assert.ok(startedIdx > 0 && deleteIdx > startedIdx);
+  assert.match(source, /if \(!startedRecorded\)/);
+});
+
+test("un fallo intermedio registra si el reseteo fue parcial o total", () => {
+  const source = read(RESET_PATH);
+  assert.match(source, /removedFactors > 0 \? "ADMIN_RESET_PARTIAL" : "ADMIN_RESET_FAILED"/);
   assert.match(source, /eventType: "ADMIN_RESET"/);
   assert.match(source, /performedBy: account\.userId/);
 });

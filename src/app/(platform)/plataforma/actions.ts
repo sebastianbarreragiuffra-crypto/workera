@@ -344,12 +344,10 @@ export async function createOrganizationUnitAction(
 /**
  * Reinicia el segundo factor de otra persona (sección 6.3 del diseño).
  *
- * A diferencia de las demás acciones de este archivo, NO pasa por
- * `requirePlatformManager()`: los niveles de reseteo no coinciden con los
- * roles de plataforma. Un admin de empresa puede resetear a un miembro de su
- * empresa sin administrar la plataforma, y un ADMIN de plataforma no alcanza
- * al OWNER. Toda esa regla vive en `can_reset_mfa_for()`, que es lo que
- * `resetUserMfa` consulta, con la sesión real del llamador.
+ * La autorización real vive en `can_reset_mfa_for()`: únicamente el OWNER de
+ * plataforma puede resetear a otra persona. El chequeo se hace con la sesión
+ * real antes de usar service_role, aunque la interfaz también oculte el botón
+ * para cualquier otro rol.
  */
 export async function resetMemberMfaAction(
   _previousState: PlatformActionState,

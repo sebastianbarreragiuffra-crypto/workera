@@ -22,14 +22,20 @@ test("un SUPER_ADMIN activo del workspace exige segundo factor", () => {
 
 test("el OWNER de plataforma exige segundo factor aunque no tenga rol de workspace", () => {
   assert.equal(
-    profileRequiresMfa(account({ platformMembership: { role: "OWNER", active: true } })),
+    profileRequiresMfa(account({
+      profile: { role: null, active: true },
+      platformMembership: { role: "OWNER", active: true },
+    })),
     true
   );
 });
 
 test("un ADMIN de plataforma exige segundo factor", () => {
   assert.equal(
-    profileRequiresMfa(account({ platformMembership: { role: "ADMIN", active: true } })),
+    profileRequiresMfa(account({
+      profile: { role: null, active: true },
+      platformMembership: { role: "ADMIN", active: true },
+    })),
     true
   );
 });
@@ -61,7 +67,20 @@ test("una cuenta privilegiada desactivada no exige segundo factor", () => {
 
 test("una membresía de plataforma inactiva no exige segundo factor", () => {
   assert.equal(
-    profileRequiresMfa(account({ platformMembership: { role: "OWNER", active: false } })),
+    profileRequiresMfa(account({
+      profile: { role: null, active: true },
+      platformMembership: { role: "OWNER", active: false },
+    })),
+    false
+  );
+});
+
+test("una membresía de plataforma activa no reactiva un profile desactivado", () => {
+  assert.equal(
+    profileRequiresMfa(account({
+      profile: { role: null, active: false },
+      platformMembership: { role: "OWNER", active: true },
+    })),
     false
   );
 });

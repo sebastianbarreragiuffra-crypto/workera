@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { getMfaAccountState, recordMfaEvent } from "@/lib/auth/mfa-account";
+import { recordMfaEvent } from "@/lib/admin/mfa-audit";
+import { getMfaAccountState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -54,7 +55,7 @@ export async function verifyMfaChallengeAction(
   if (error) {
     // Supabase ya limita la tasa de verificación. Registrar el fallo es lo que
     // convierte un intento de fuerza bruta en una señal visible.
-    await recordMfaEvent(supabase, {
+    await recordMfaEvent({
       userId: account.userId,
       eventType: "VERIFY_FAILURE",
       factorId: parsed.data.factorId,
@@ -62,7 +63,7 @@ export async function verifyMfaChallengeAction(
     return { status: "error", message: INVALID_CODE_MESSAGE };
   }
 
-  await recordMfaEvent(supabase, {
+  await recordMfaEvent({
     userId: account.userId,
     eventType: "VERIFY_SUCCESS",
     factorId: parsed.data.factorId,

@@ -11,25 +11,24 @@ import {
   type PostLoginDestination,
 } from "./mfa";
 
-/** Los cinco eventos que la bitácora acepta (ver la migración de la etapa A). */
-export type MfaEventType =
-  | "ENROLLED"
-  | "VERIFY_SUCCESS"
-  | "VERIFY_FAILURE"
-  | "UNENROLLED"
-  | "ADMIN_RESET";
-
 export interface MfaAccountState {
   userId: string;
   /** Espejo de `account_requires_mfa`; la autoridad sigue siendo la base. */
   requiresMfa: boolean;
-  /**
-   * El OWNER de plataforma necesita DOS factores TOTP: Supabase Auth no tiene
-   * códigos de recuperación de un solo uso, así que el segundo factor guardado
-   * fuera del teléfono es su única forma de volver a entrar sin pasar por el
-   * break-glass del panel de Supabase.
-   */
+  /** Permite recomendar un autenticador de respaldo al OWNER de plataforma. */
   isPlatformOwner: boolean;
+}
+
+/**
+ * No se pudo determinar de forma confiable el estado MFA de la identidad.
+ * Las operaciones privilegiadas deben tratar este caso como bloqueo, nunca
+ * como "esta cuenta no exige MFA".
+ */
+export class MfaStateUnavailableError extends Error {
+  constructor() {
+    super("No pudimos verificar el estado de seguridad de tu cuenta.");
+    this.name = "MfaStateUnavailableError";
+  }
 }
 
 /**
@@ -57,9 +56,14 @@ export async function getMfaAccountState(
       .maybeSingle(),
   ]);
 
-  const profile = profileResult.data
-    ? { role: profileResult.data.role as AppRole | null, active: profileResult.data.active }
-    : null;
+  if (profileResult.error || membershipResult.error || !profileResult.data) {
+    throw new MfaStateUnavailableError();
+  }
+
+  const profile = {
+    role: profileResult.data.role as AppRole | null,
+    active: profileResult.data.active,
+  };
   const platformMembership = membershipResult.data
     ? { role: membershipResult.data.role as PlatformRole, active: membershipResult.data.active }
     : null;
@@ -67,50 +71,9 @@ export async function getMfaAccountState(
   return {
     userId,
     requiresMfa: profileRequiresMfa({ profile, platformMembership }),
-    isPlatformOwner: platformMembership?.role === "OWNER" && platformMembership.active,
+    isPlatformOwner:
+      profile.active && platformMembership?.role === "OWNER" && platformMembership.active,
   };
-}
-
-export interface MfaEventInput {
-  userId: string;
-  eventType: MfaEventType;
-  factorId?: string | null;
-  /** Solo para ADMIN_RESET: quién ejecutó el reseteo de otra persona. */
-  performedBy?: string | null;
-}
-
-/**
- * Registra un evento en la bitácora con el cliente de sesión, no con
- * `service_role`: la misma policy que autoriza la operación autoriza su
- * registro, así que un intento de registrar un evento ajeno se rechaza en la
- * base y no solo acá.
- *
- * No lanza. Cuando esto se llama, el factor ya fue verificado o borrado en
- * Supabase Auth: hacer fallar la pantalla dejaría a la persona con un segundo
- * factor que sí funciona y un error que no puede resolver. Devuelve si pudo
- * registrar para que el llamador lo refleje, y deja el fallo en el log del
- * servidor sin identificadores ni mensajes del proveedor.
- */
-export async function recordMfaEvent(
-  supabase: SupabaseClient<Database>,
-  input: MfaEventInput
-): Promise<boolean> {
-  const { error } = await supabase.from("mfa_events").insert({
-    user_id: input.userId,
-    event_type: input.eventType,
-    factor_id: input.factorId ?? null,
-    performed_by: input.performedBy ?? null,
-  });
-
-  if (error) {
-    console.error("[mfa] no se pudo registrar el evento de segundo factor", {
-      event: "mfa_event_insert_failed",
-      eventType: input.eventType,
-    });
-    return false;
-  }
-
-  return true;
 }
 
 /**
@@ -140,6 +103,10 @@ export async function resolvePostLoginDestination(
     supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
     getMfaAccountState(supabase),
   ]);
+
+  if (aalResult.error || !account) {
+    throw new MfaStateUnavailableError();
+  }
 
   const currentLevel = aalResult.data?.currentLevel ?? null;
   const nextLevel = aalResult.data?.nextLevel ?? null;
@@ -182,10 +149,11 @@ export async function assertSecondFactorForPrivileged(
   if (!isMfaEnforcementEnabled()) return;
 
   const account = await getMfaAccountState(supabase);
-  if (!account?.requiresMfa) return;
+  if (!account) throw new MfaRequiredError("No pudimos verificar tu sesión de seguridad.");
+  if (!account.requiresMfa) return;
 
-  const { data } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (data?.currentLevel !== "aal2") {
+  const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (error || data?.currentLevel !== "aal2") {
     throw new MfaRequiredError(
       "Esta operación requiere verificación de segundo factor (MFA)."
     );

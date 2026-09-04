@@ -40,8 +40,8 @@ OWNER (sección 6).
 | Despliegue | **Bloqueo inmediato.** Sin plazo de gracia, ni para cuentas existentes ni para nuevas. Implica despliegue en dos pasos (sección 8). |
 | Frecuencia del desafío | **En cada inicio de sesión.** Sin "recordar este dispositivo". Dentro de una sesión activa no se vuelve a pedir. |
 | Chequeo en base de datos | **Sí, doble capa.** Los RPC sensibles exigen `aal2` además del gate del middleware. |
-| Break-glass del OWNER de plataforma | **Dos factores TOTP** (celular + secreto guardado offline/impreso) **+** ruta documentada de borrado desde el panel de Supabase. |
-| Reseteo del MFA de otra persona | **Tres niveles.** (1) El **OWNER de plataforma** (S. Barrera) resetea a cualquiera, en cualquier empresa — último recurso cuando el admin de una empresa no puede. (2) Un **admin de empresa** (`company_memberships.role` en `SUPER_ADMIN`/`ADMIN_RRHH`; para ARCOTEX = el gerente) resetea **solo** a usuarios de su misma empresa. (3) La cuenta del **OWNER de plataforma no tiene reseteo desde la app** — su recuperación es el break-glass. Nadie se resetea a sí mismo en ningún nivel. |
+| Break-glass del OWNER de plataforma | Un factor TOTP obligatorio, un segundo secreto offline/impreso **recomendado**, y ruta documentada de borrado desde el panel de Supabase. |
+| Reseteo del MFA de otra persona | Solo el **OWNER de plataforma** puede resetear a otra identidad. Un administrador tenant no puede borrar factores globales que protegen otras empresas. La cuenta OWNER no se resetea desde la app y nadie se resetea a sí mismo. |
 | Cuentas privilegiadas nuevas (post-enforcement) | Mismo bloqueo inmediato. Ven la pantalla de inscripción en su primer login y no pasan de ahí hasta inscribirse. |
 
 ## 3. Fuera de alcance (explícito)
@@ -115,10 +115,9 @@ create function public.enforce_mfa_for_privileged() returns void
 $$;
 
 -- ¿El usuario actual puede resetear el MFA de p_target?
---   Nivel 1: OWNER de plataforma -> a cualquiera (menos a sí mismo).
---   Nivel 2: admin de una empresa -> solo a otros miembros de esa empresa.
--- Un OWNER de plataforma NO puede ser reseteado por un admin de empresa,
--- aunque compartan `company_memberships` (el gerente no resetea a S. Barrera).
+-- Solo el OWNER de plataforma puede resetear a otra persona. El factor
+-- pertenece a la identidad global de Auth, no a una membresía tenant.
+-- La cuenta OWNER nunca se resetea desde la aplicación.
 create function public.can_reset_mfa_for(p_target uuid) returns boolean
   language sql stable security definer set search_path = '' as $$
   select
@@ -127,19 +126,9 @@ create function public.can_reset_mfa_for(p_target uuid) returns boolean
       select 1 from public.platform_memberships pm
       where pm.user_id = p_target and pm.active and pm.role = 'OWNER'
     )
-    and (
-      exists (select 1 from public.platform_memberships pm
-              where pm.user_id = auth.uid() and pm.active and pm.role = 'OWNER')
-      or exists (
-        select 1
-        from public.company_memberships me
-        join public.company_memberships target
-          on target.company_id = me.company_id and target.active
-        where me.user_id = auth.uid() and me.active
-          and me.role in ('SUPER_ADMIN','ADMIN_RRHH')
-          and target.user_id = p_target
-      )
-    );
+    and exists (select 1 from public.platform_memberships pm
+                join public.profiles p on p.id = pm.user_id and p.active
+                where pm.user_id = auth.uid() and pm.active and pm.role = 'OWNER');
 $$;
 ```
 
@@ -236,9 +225,10 @@ else:
 - Verifica que el llamador esté en `aal2` (un admin reseteando MFA es una
   operación sensible).
 - `listFactors` del target vía admin API → `deleteFactor` de cada uno.
-- `mfa_events` (ADMIN_RESET, `performed_by` = llamador).
-- Envía **email al usuario afectado**: "Un administrador reinició tu segundo
-  factor. Si no lo solicitaste, avisá de inmediato."
+- Registra `ADMIN_RESET_STARTED` **antes** de borrar el primer factor y después
+  `ADMIN_RESET`, `ADMIN_RESET_PARTIAL` o `ADMIN_RESET_FAILED`.
+- Pide al OWNER avisar manualmente a la persona afectada mientras el proveedor
+  transaccional siga pendiente. No simula un correo que no se envió.
 - **No puede** apuntar a `auth.uid()` (ya cubierto por `can_reset_mfa_for`).
 
 ### 6.4 Break-glass del OWNER (sin código — procedimiento)
@@ -274,8 +264,8 @@ pgTAP (`049`):
 - Cada RPC endurecido: mismo patrón. Setear `request.jwt.claim.aal` en el test.
 - `mfa_events` es append-only: `throws_ok` en UPDATE y DELETE, incluso como
   OWNER / postgres.
-- `can_reset_mfa_for`: OWNER puede a un tercero, no a sí mismo; admin de
-  empresa A puede a un usuario de A, no a uno de B, no al OWNER.
+- `can_reset_mfa_for`: OWNER puede a un tercero, no a sí mismo ni a otro OWNER;
+  un administrador tenant no puede borrar factores globales.
 
 ---
 
@@ -283,8 +273,9 @@ pgTAP (`049`):
 
 1. **Desplegar con `MFA_ENFORCEMENT_ENABLED=false`.** `/seguridad/mfa` es
    accesible. Avisar a las 4 cuentas (OWNER + gerente + 2 RRHH).
-2. **El OWNER se inscribe primero:** dos factores TOTP, el segundo secreto
-   impreso y guardado físicamente. Confirmar en la base:
+2. **El OWNER se inscribe primero:** un factor TOTP obligatorio. Se recomienda
+   fuertemente un segundo secreto impreso y guardado físicamente para evitar
+   depender del break-glass. Confirmar en la base:
    `select user_id, status from auth.mfa_factors where status = 'verified';`
 3. Gerente y 2 RRHH se inscriben y verifican.
 4. Confirmar que las 4 aparecen con un factor `verified`.

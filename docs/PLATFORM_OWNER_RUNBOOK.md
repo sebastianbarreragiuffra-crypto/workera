@@ -18,12 +18,14 @@ recuperación es inscribir más de un factor. Cualquier documento anterior que
 mencione "códigos de respaldo impresos" para esta aplicación describe algo que
 el proveedor no ofrece.
 
-Eso define todo lo que sigue: el respaldo del OWNER es un **segundo factor TOTP**
-guardado fuera del teléfono.
+Por eso se recomienda que el respaldo del OWNER sea un **segundo factor TOTP**
+guardado fuera del teléfono. La aplicación exige al menos uno; el segundo evita
+depender del procedimiento break-glass.
 
-## 2. Lo que el OWNER debe tener antes de activar el bloqueo
+## 2. Preparación recomendada antes de activar el bloqueo
 
-1. **Dos factores TOTP verificados** en `/seguridad/mfa`.
+1. **Un factor TOTP verificado** en `/seguridad/mfa` y, como recuperación
+   recomendada, un segundo factor.
    - El primero, en el teléfono de uso diario.
    - El segundo, con su código QR o su secreto **impreso en papel** y guardado
      en un lugar físico seguro. No en el mismo teléfono, no en el mismo gestor
@@ -32,7 +34,7 @@ guardado fuera del teléfono.
 2. **Credenciales del panel de Supabase** (login separado del de la aplicación),
    guardadas con el mismo criterio.
 
-Confirmación de que los dos factores quedaron activos:
+Confirmación de los factores activos:
 
 ```sql
 select user_id, friendly_name, status
@@ -41,7 +43,8 @@ where status = 'verified'
 order by user_id, created_at;
 ```
 
-El `user_id` del OWNER debe aparecer **dos veces**.
+El `user_id` del OWNER debe aparecer al menos una vez; dos filas confirman que
+también se preparó el respaldo recomendado.
 
 ## 3. Si el OWNER pierde el teléfono
 
@@ -52,9 +55,11 @@ Después de entrar, y **el mismo día**:
 
 1. Dar de baja el factor del teléfono perdido en `/seguridad/mfa`.
 2. Inscribir un factor nuevo en el teléfono de reemplazo.
-3. Volver a tener dos factores verificados antes de cerrar sesión.
+3. Volver a crear el factor principal y, de ser posible, el respaldo antes de
+   cerrar sesión.
 
-Quedarse con un solo factor es quedarse sin respaldo.
+Un solo factor cumple el bloqueo, pero deja la recuperación dependiente del
+panel de Supabase.
 
 ## 4. Break-glass: si se perdieron los dos factores
 
@@ -74,13 +79,14 @@ Esta es la única ruta de recuperación y no pasa por la aplicación.
    toda la plataforma.
 4. Iniciar sesión en la aplicación. Como la cuenta ya no tiene factores
    verificados, el gate la manda a `/seguridad/mfa` a inscribir de nuevo.
-5. Inscribir **los dos** factores otra vez, incluido el impreso.
+5. Inscribir el factor principal y, como recomendación de recuperación, volver
+   a crear también el respaldo impreso.
 
 ### Registrar el incidente
 
 El borrado desde el panel no pasa por la aplicación, así que no deja rastro en
-`mfa_events`. Registrarlo a mano, con la sesión del OWNER ya recuperada y en
-aal2:
+`mfa_events`. Registrarlo a mano desde el SQL Editor de Supabase, cuya sesión
+administrativa es una frontera confiable:
 
 ```sql
 insert into public.mfa_events (user_id, event_type, factor_id)
@@ -98,10 +104,10 @@ deliberado: si la aplicación pudiera reiniciar el segundo factor del
 administrador de la plataforma, ese camino sería el eslabón más débil de todo el
 esquema. El precio es este runbook.
 
-Un admin de empresa (`SUPER_ADMIN` / `ADMIN_RRHH` en `company_memberships`) sí
-puede reiniciar el factor de otro miembro **de su misma empresa**, y el OWNER
-puede hacerlo con cualquiera menos consigo mismo. Eso cubre el caso corriente:
-alguien perdió el teléfono y necesita volver a inscribir.
+El factor pertenece a la identidad global de Auth y puede abrir acceso a más
+de una empresa. Por eso un admin tenant no puede reiniciarlo: solo el OWNER de
+plataforma puede hacerlo con otra persona. El reseteo queda registrado antes y
+después de tocar la API de Auth.
 
 ## 6. Habilitar el proveedor TOTP
 
@@ -134,7 +140,8 @@ El orden importa y no es intercambiable.
    siguientes inicios de sesión sí le van a pedir el código, con el flag todavía
    apagado. Es a propósito: es la única forma de comprobar que el flujo completo
    funciona antes del paso 5.
-2. **El OWNER se inscribe primero**, con sus dos factores (sección 2).
+2. **El OWNER se inscribe primero**, con su factor obligatorio y, de ser
+   posible, el respaldo recomendado (sección 2).
 3. Se inscriben el gerente y las dos cuentas `ADMIN_RRHH` que aprueban
    licencias.
 4. Confirmar que las cuatro cuentas tienen factor verificado con la consulta de

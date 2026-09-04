@@ -8,7 +8,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(37);
+select plan(40);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures: dos empresas, un OWNER de plataforma que además es miembro de la
@@ -36,7 +36,8 @@ insert into public.profiles (id, display_name, role, active) values
 
 insert into public.platform_memberships (user_id, role, active) values
   ('96000000-0000-0000-0000-000000000101', 'OWNER', true),
-  ('96000000-0000-0000-0000-000000000106', 'ADMIN', true);
+  ('96000000-0000-0000-0000-000000000106', 'ADMIN', true),
+  ('96000000-0000-0000-0000-000000000107', 'ADMIN', true);
 
 insert into public.company_memberships (id, user_id, company_id, role, active) values
   ('96000000-0000-0000-0000-000000000201', '96000000-0000-0000-0000-000000000101', '96000000-0000-0000-0000-00000000000a', 'ADMIN_RRHH', true),
@@ -59,8 +60,13 @@ select is(
       and g.table_name = 'mfa_events'
       and g.grantee = 'authenticated'
   ),
-  array['INSERT', 'SELECT'],
-  'authenticated solo puede leer e insertar la bitácora, nunca modificarla'
+  array['SELECT'],
+  'authenticated solo puede leer la bitácora; los eventos vienen del backend confiable'
+);
+
+select ok(
+  has_table_privilege('service_role', 'public.mfa_events', 'INSERT'),
+  'service_role puede registrar eventos desde el límite server-only'
 );
 
 set local role authenticated;
@@ -93,7 +99,7 @@ select ok(
 );
 select ok(
   not public.account_requires_mfa('96000000-0000-0000-0000-000000000107'),
-  'una cuenta privilegiada desactivada no exige segundo factor'
+  'una cuenta desactivada no exige segundo factor aunque conserve membresías privilegiadas'
 );
 select ok(
   not public.account_requires_mfa(null),
@@ -153,8 +159,8 @@ select ok(
 
 set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000102';
 select ok(
-  public.can_reset_mfa_for('96000000-0000-0000-0000-000000000103'),
-  'un admin de empresa resetea a un miembro de su misma empresa'
+  not public.can_reset_mfa_for('96000000-0000-0000-0000-000000000103'),
+  'un admin de empresa no borra factores globales aunque comparta empresa'
 );
 select ok(
   not public.can_reset_mfa_for('96000000-0000-0000-0000-000000000104'),
@@ -181,13 +187,24 @@ select ok(
   'quien no administra ninguna empresa no resetea a nadie'
 );
 
+set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000107';
+select ok(
+  not public.can_reset_mfa_for('96000000-0000-0000-0000-000000000103'),
+  'una cuenta desactivada no conserva capacidad de resetear MFA'
+);
+select ok(
+  not public.can_read_mfa_events_for('96000000-0000-0000-0000-000000000103'),
+  'una cuenta desactivada tampoco conserva lectura de la bitácora MFA'
+);
+
 -- ---------------------------------------------------------------------------
 -- 6. RLS de la bitácora.
 
-select lives_ok(
+select throws_ok(
   $$insert into public.mfa_events (user_id, event_type, factor_id)
     values ('96000000-0000-0000-0000-000000000103', 'ENROLLED', 'factor-alpha-1')$$,
-  'cada persona registra sus propios eventos de segundo factor'
+  '42501', null,
+  'una sesión no puede fabricar sus propios eventos de segundo factor'
 );
 select throws_ok(
   $$insert into public.mfa_events (user_id, event_type, factor_id)
@@ -197,11 +214,12 @@ select throws_ok(
 );
 
 set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000102';
-select lives_ok(
+select throws_ok(
   $$insert into public.mfa_events (user_id, event_type, performed_by)
     values ('96000000-0000-0000-0000-000000000103', 'ADMIN_RESET',
             '96000000-0000-0000-0000-000000000102')$$,
-  'el reseteo hecho por un admin de la misma empresa queda registrado'
+  '42501', null,
+  'un admin de empresa tampoco puede insertar eventos administrativos'
 );
 select throws_ok(
   $$insert into public.mfa_events (user_id, event_type, performed_by)
@@ -284,6 +302,8 @@ select lives_ok(
 -- es. Las guardas de plataforma se apoyaban en `can_manage_platform()`, que
 -- devolvía NULL cuando la cuenta no tenía membresía -- un hallazgo previo a
 -- MFA, corregido en 20260904150000 y probado en 050, no en este archivo.
+-- El recorrido completo de los RPC del control plane queda cubierto entre
+-- 050 (la función central y el patrón vigente) y 051 (seis llamadas reales).
 set local request.jwt.claim.aal = '';
 set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000102';
 select throws_ok(

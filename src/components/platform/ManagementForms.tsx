@@ -298,11 +298,9 @@ export function OrganizationUnitForm({ companyId, parents, canManage }: { compan
 /**
  * Reinicio del segundo factor de una persona (sección 6.3 del diseño).
  *
- * Se muestra a todo el mundo y la autorización real la resuelve
- * `can_reset_mfa_for()` en la base: los niveles de reseteo no coinciden con
- * `canManage`, porque un admin de empresa puede resetear a un miembro de su
- * empresa sin administrar la plataforma. Ocultar el botón nunca fue la
- * barrera; el mensaje de error cuando no corresponde sí es explícito.
+ * Solo se renderiza para el OWNER. La autorización real se repite en
+ * `can_reset_mfa_for()` porque ocultar el botón no protege una Server Action.
+ * El reseteo es global a la identidad de Auth y no se delega a un tenant.
  */
 export function ResetMfaForm({ userId, displayName }: { userId: string; displayName: string }) {
   const [state, action] = useActionState(resetMemberMfaAction, INITIAL_STATE);

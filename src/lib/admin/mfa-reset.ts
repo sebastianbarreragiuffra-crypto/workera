@@ -2,7 +2,8 @@ import "server-only";
 
 import { createAdminClient } from "../supabase/admin-client";
 import { createClient } from "../supabase/server";
-import { getMfaAccountState, recordMfaEvent } from "../auth/mfa-account";
+import { getMfaAccountState } from "../auth/mfa-account";
+import { recordMfaEvent } from "./mfa-audit";
 
 /**
  * Reseteo del segundo factor de OTRA persona (sección 6.3 del diseño).
@@ -12,11 +13,11 @@ import { getMfaAccountState, recordMfaEvent } from "../auth/mfa-account";
  * en `src/lib/auth/` habría obligado a abrir ahí el cliente admin, y en ese
  * directorio también viven módulos puros que no deben poder alcanzarlo.
  *
- * Tres niveles, y los tres viven en `can_reset_mfa_for()`, no acá: el OWNER de
- * plataforma alcanza a cualquiera, un admin de empresa solo a miembros de su
- * misma empresa, y la cuenta OWNER no se resetea desde la aplicación en ningún
- * nivel -- su recuperación es el break-glass del runbook. Nadie se resetea a
- * sí mismo.
+ * La autorización vive en `can_reset_mfa_for()`, no acá: solo el OWNER de
+ * plataforma puede resetear a otra persona. Un factor pertenece a la identidad
+ * global de Auth, así que permitirlo a un administrador tenant afectaría
+ * también los accesos de esa persona a otras empresas. La propia cuenta OWNER
+ * se recupera únicamente mediante el break-glass del runbook.
  *
  * Este módulo usa el cliente `service_role` para una sola cosa: la API de
  * administración de Supabase Auth, que es lo único que una sesión normal no
@@ -83,6 +84,20 @@ export async function resetUserMfa(targetUserId: string): Promise<MfaResetResult
     throw new MfaResetFailedError("No pudimos leer los factores de esa persona.");
   }
 
+  // Debe existir evidencia ANTES de la primera mutación externa. La API de
+  // Auth no ofrece una transacción que abarque varios factores; si la segunda
+  // eliminación falla, este evento prueba que hubo un intento administrativo.
+  const startedRecorded = await recordMfaEvent({
+    userId: targetUserId,
+    eventType: "ADMIN_RESET_STARTED",
+    performedBy: account.userId,
+  });
+  if (!startedRecorded) {
+    throw new MfaResetFailedError(
+      "No pudimos abrir la bitácora del reinicio. No se modificó ningún factor."
+    );
+  }
+
   let removedFactors = 0;
   for (const factor of factorData?.factors ?? []) {
     const { error: deleteError } = await admin.auth.admin.mfa.deleteFactor({
@@ -90,6 +105,11 @@ export async function resetUserMfa(targetUserId: string): Promise<MfaResetResult
       userId: targetUserId,
     });
     if (deleteError) {
+      await recordMfaEvent({
+        userId: targetUserId,
+        eventType: removedFactors > 0 ? "ADMIN_RESET_PARTIAL" : "ADMIN_RESET_FAILED",
+        performedBy: account.userId,
+      });
       throw new MfaResetFailedError(
         `Se quitaron ${removedFactors} de ${factorData?.factors.length ?? 0} factores. Vuelve a intentarlo.`
       );
@@ -97,10 +117,7 @@ export async function resetUserMfa(targetUserId: string): Promise<MfaResetResult
     removedFactors += 1;
   }
 
-  // Se registra con la SESIÓN, no con service_role: así la misma policy que
-  // autoriza la operación autoriza su registro, y un intento de anotar un
-  // reseteo que no correspondía se rechaza también en la base.
-  const eventRecorded = await recordMfaEvent(supabase, {
+  const eventRecorded = await recordMfaEvent({
     userId: targetUserId,
     eventType: "ADMIN_RESET",
     performedBy: account.userId,

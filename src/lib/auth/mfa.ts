@@ -49,6 +49,8 @@ export function profileRequiresMfa(account: MfaAccount): boolean {
     WORKSPACE_MFA_ROLES.includes(profile.role);
 
   const byPlatformRole =
+    profile !== null &&
+    profile.active &&
     platformMembership !== null &&
     platformMembership.active &&
     PLATFORM_MFA_ROLES.includes(platformMembership.role);

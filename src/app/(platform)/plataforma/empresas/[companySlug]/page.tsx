@@ -117,7 +117,15 @@ function OverviewTab({ detail, canManage }: { detail: PlatformCompanyDetail; can
   );
 }
 
-function UsersTab({ detail, canManage }: { detail: PlatformCompanyDetail; canManage: boolean }) {
+function UsersTab({
+  detail,
+  canManage,
+  canResetMfa,
+}: {
+  detail: PlatformCompanyDetail;
+  canManage: boolean;
+  canResetMfa: boolean;
+}) {
   const assignableRoles = detail.roles
     .filter((role) => role.active && (!detail.workspaceEnabled || role.baseRole !== null))
     .map((role) => ({ id: role.id, name: role.name }));
@@ -152,7 +160,11 @@ function UsersTab({ detail, canManage }: { detail: PlatformCompanyDetail; canMan
                       <MemberRoleForm companyId={detail.header.id} membershipId={member.membershipId} selectedRoleId={member.roleId} roles={assignableRoles} canManage={canManage} membershipActive={member.active} />
                     </td>
                     <td className="pl-4 py-3">
-                      <ResetMfaForm userId={member.userId} displayName={member.displayName} />
+                      {canResetMfa ? (
+                        <ResetMfaForm userId={member.userId} displayName={member.displayName} />
+                      ) : (
+                        <span className="text-xs text-slate-400">Solo OWNER</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -320,7 +332,13 @@ export default async function CompanyDetailPage({
       <CompanyHeader company={detail.header} backHref="/plataforma/empresas" />
       <CompanyTabs tabs={buildTabs(detail.header.slug, selected, detail)} />
       {selected === "overview" && <OverviewTab detail={detail} canManage={session.canManage} />}
-      {selected === "users" && <UsersTab detail={detail} canManage={session.canManage} />}
+      {selected === "users" && (
+        <UsersTab
+          detail={detail}
+          canManage={session.canManage}
+          canResetMfa={session.role === "OWNER"}
+        />
+      )}
       {selected === "modules" && <ModulesTab detail={detail} canManage={session.canManage} />}
       {selected === "organization" && <OrganizationTab detail={detail} canManage={session.canManage} />}
       {selected === "audit" && <AuditTab detail={detail} />}

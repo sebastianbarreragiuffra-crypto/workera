@@ -19,7 +19,7 @@ interface MfaEnrollmentProps {
   unverifiedFactors: MfaFactorView[];
   /** Si la cuenta está en el conjunto que exige segundo factor. */
   requiresMfa: boolean;
-  /** El OWNER de plataforma necesita dos factores, no uno. */
+  /** El OWNER recibe una recomendación explícita de respaldo. */
   isPlatformOwner: boolean;
 }
 
@@ -109,12 +109,12 @@ export function MfaEnrollment({
         {ownerNeedsBackupFactor ? (
           <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <p className="font-medium">
-              {hasSecondFactor ? "Falta tu segundo autenticador." : "Vas a necesitar dos autenticadores."}
+              {hasSecondFactor ? "Recomendación: agrega un autenticador de respaldo." : "Recomendación para recuperación."}
             </p>
             <p className="mt-1">
-              Supabase no entrega códigos de recuperación de un solo uso: inscribir un segundo factor TOTP es tu única
-              forma de entrar si perdés el teléfono. Guardá ese segundo código QR o su secreto impreso, en un lugar
-              físico seguro.
+              Supabase no entrega códigos de recuperación de un solo uso. Te recomendamos inscribir un segundo factor
+              TOTP y guardar su secreto en un lugar físico seguro. Si no lo haces, la recuperación seguirá dependiendo
+              del procedimiento break-glass del panel de Supabase.
             </p>
           </div>
         ) : null}

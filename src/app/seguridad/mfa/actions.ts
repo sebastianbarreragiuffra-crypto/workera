@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { getMfaAccountState, recordMfaEvent } from "@/lib/auth/mfa-account";
+import { recordMfaEvent } from "@/lib/admin/mfa-audit";
+import { getMfaAccountState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -145,7 +146,7 @@ export async function confirmMfaEnrollmentAction(
     return error(INVALID_CODE_MESSAGE, pending);
   }
 
-  const recorded = await recordMfaEvent(supabase, {
+  const recorded = await recordMfaEvent({
     userId: account.userId,
     eventType: "ENROLLED",
     factorId: pending.factorId,
@@ -185,7 +186,7 @@ export async function discardMfaFactorAction(
     return error("No pudimos quitar ese dispositivo. Intenta otra vez.");
   }
 
-  await recordMfaEvent(supabase, {
+  await recordMfaEvent({
     userId: account.userId,
     eventType: "UNENROLLED",
     factorId: parsed.data.factorId,
