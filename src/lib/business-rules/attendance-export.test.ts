@@ -23,6 +23,14 @@ interface MockOpts {
   lates?: { employee_id: string; work_date: string; detected_minutes: number; payroll_minutes?: number }[];
   overtimes?: { employee_id: string; work_date: string; code: string; approved_minutes: number | null }[];
   holidays?: string[];
+  schedules?: {
+    employee_id: string;
+    effective_from: string;
+    effective_to: string | null;
+    work_schedules: {
+      work_schedule_rules: { day_of_week: number; scheduled_start: string; scheduled_end: string }[];
+    };
+  }[];
 }
 
 function mockSupabase(opts: MockOpts) {
@@ -57,6 +65,9 @@ function mockSupabase(opts: MockOpts) {
     if (table === "holidays") {
       return (opts.holidays ?? []).map((d) => ({ holiday_date: d }));
     }
+    // Sin horario asignado: la persona no lleva texto bajo el nombre ni
+    // resaltado de días. Los casos que sí lo ejercitan lo pasan explícito.
+    if (table === "schedule_assignments") return opts.schedules ?? [];
     throw new Error(`mockSupabase: tabla no soportada: ${table}`);
   };
 
@@ -251,9 +262,34 @@ test("libro: bloque de 7 filas por trabajador, con el nombre solo en la primera"
 
 test("libro: los fines de semana quedan en blanco, nunca en 0", async () => {
   const rows = await buildSheet({ employees: ONE_WORKER });
-  // Columnas 8 y 9 = sábado 22 y domingo 23.
-  assert.equal(rows[14][8], null);
-  assert.equal(rows[14][9], null);
+  // Columnas 8 y 9 = sábado 22 y domingo 23. Sin valor, pero la celda ahora
+  // existe para llevar el amarillo del fin de semana que usa la planilla.
+  assert.equal(rows[14][8], "");
+  assert.equal(rows[14][9], "");
+});
+
+test("libro: el fin de semana va amarillo y el feriado magenta, como la planilla", async () => {
+  const bytes = buildAttendanceExportWorkbook(
+    await buildAttendanceExportData(
+      mockSupabase({ employees: ONE_WORKER, holidays: ["2026-08-19"] }),
+      "SUPER_ADMIN",
+      PERIOD
+    )
+  );
+  const wb = XLSX.read(bytes, { type: "array", cellStyles: true });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  // Según con qué lector se relea, el relleno queda en `s.fill` o directamente
+  // en `s`. Se aceptan las dos formas para no atar la prueba al lector.
+  const fill = (r: number, c: number) => {
+    const s = sheet[XLSX.utils.encode_cell({ r, c })]?.s as
+      | { fill?: { fgColor?: { rgb?: string } }; fgColor?: { rgb?: string } }
+      | undefined;
+    return s?.fill?.fgColor?.rgb ?? s?.fgColor?.rgb;
+  };
+
+  assert.equal(fill(14, 8), "FFFF00", "sábado 22");
+  assert.equal(fill(14, 5), "FF00FF", "miércoles 19, feriado");
+  assert.equal(fill(14, 3), undefined, "un día hábil trabajado no lleva relleno");
 });
 
 test("libro: Faltas / Vacaciones / Licencia marcan 1 en su día y totalizan en la columna C", async () => {
@@ -387,7 +423,7 @@ test("libro: la columna de un feriado va en blanco, igual que un fin de semana",
   // 2026-08-17 es lunes -> día 17 en la columna D (índice 3). El 19 (miércoles
   // feriado) está en la columna F (índice 5).
   assert.equal(rows[13][5], 19, "la cabecera de día sí muestra el 19");
-  assert.equal(rows[14][5], null, "pero la fila Asistencia lo deja en blanco");
+  assert.equal(rows[14][5], "", "pero la fila Asistencia lo deja sin valor");
 });
 
 test("libro: Asistencia no cuenta el feriado como día trabajado", async () => {

@@ -97,6 +97,47 @@ export function isWeekend(date: string): boolean {
   return dow === 0 || dow === 6;
 }
 
+export function weekdayOf(date: string): number {
+  return new Date(`${date}T12:00:00Z`).getUTCDay();
+}
+
+const WEEKDAY_NAME = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+/** `07:30:00` -> `07:30`. La planilla no escribe los segundos. */
+function hhmm(value: string): string {
+  return value.slice(0, 5);
+}
+
+/**
+ * Texto del horario tal como lo escribe la planilla de RRHH bajo el nombre:
+ * "Lunes a Jueves: 07:30 a 17:00" y, si el viernes difiere, su propia línea.
+ * Los días con el mismo tramo se agrupan; los sueltos se listan.
+ */
+export function describeSchedule(
+  rules: { dayOfWeek: number; start: string; end: string }[]
+): string | null {
+  if (rules.length === 0) return null;
+
+  const byRange = new Map<string, number[]>();
+  for (const rule of [...rules].sort((a, b) => a.dayOfWeek - b.dayOfWeek)) {
+    const key = `${hhmm(rule.start)} a ${hhmm(rule.end)}`;
+    byRange.set(key, [...(byRange.get(key) ?? []), rule.dayOfWeek]);
+  }
+
+  const lines: string[] = [];
+  for (const [range, dows] of byRange) {
+    const contiguous = dows.every((d, i) => i === 0 || d === dows[i - 1] + 1);
+    const label =
+      dows.length === 1
+        ? WEEKDAY_NAME[dows[0]]
+        : contiguous
+          ? `${WEEKDAY_NAME[dows[0]]} a ${WEEKDAY_NAME[dows[dows.length - 1]]}`
+          : dows.map((d) => WEEKDAY_NAME[d]).join(" y ");
+    lines.push(`${label}: ${range}`);
+  }
+  return lines.join("\n");
+}
+
 // ---------------------------------------------------------------------------
 
 export interface AttendanceExportDay {
@@ -112,6 +153,19 @@ export interface AttendanceExportWorker {
   area: AreaCode;
   /** Indexado por fecha `YYYY-MM-DD`. Un día ausente equivale a "sin novedad". */
   days: Map<string, AttendanceExportDay>;
+  /**
+   * Día de ingreso. La planilla de RRHH pinta de verde los días anteriores:
+   * una persona que entró el 17 no tiene por qué aparecer ausente el 16.
+   */
+  hireDate: string | null;
+  /**
+   * Días de la semana que cubre su horario, en la convención de
+   * `Date.getUTCDay()`: 0 domingo, 1 lunes. Vacío cuando no tiene horario
+   * asignado en el período.
+   */
+  scheduledWeekdays: Set<number>;
+  /** Texto del horario que la planilla escribe bajo el nombre. */
+  scheduleLabel: string | null;
 }
 
 export interface AttendanceExportData {
@@ -135,15 +189,20 @@ export async function buildAttendanceExportData(
 
   const { data: employees, error: employeesError } = await supabase
     .from("employees")
-    .select("id, display_name, employee_groups!employees_company_group_fkey!inner(code)")
+    .select("id, display_name, hire_date, employee_groups!employees_company_group_fkey!inner(code)")
     .eq("active", true)
     .in("employee_groups.code", allowedAreas)
     .order("display_name");
   if (employeesError) throw new Error(`buildAttendanceExportData: fallo listando empleados: ${employeesError.message}`);
 
   const scoped = (employees ?? [])
-    .map((row) => ({ id: row.id, displayName: row.display_name, area: areaOf(row as unknown as EmployeeRow) }))
-    .filter((e): e is { id: string; displayName: string; area: AreaCode } => e.area !== null);
+    .map((row) => ({
+      id: row.id,
+      displayName: row.display_name,
+      hireDate: (row as { hire_date?: string | null }).hire_date ?? null,
+      area: areaOf(row as unknown as EmployeeRow),
+    }))
+    .filter((e): e is { id: string; displayName: string; hireDate: string | null; area: AreaCode } => e.area !== null);
 
   const days = calendarDaysBetween(period.startDate, period.endDate);
   const holidays = await loadHolidaySet(supabase, period.startDate, period.endDate).catch(() => new Set<string>());
@@ -153,6 +212,9 @@ export async function buildAttendanceExportData(
     workerName: e.displayName,
     area: e.area,
     days: new Map(),
+    hireDate: e.hireDate,
+    scheduledWeekdays: new Set<number>(),
+    scheduleLabel: null,
   }));
   const byId = new Map(workers.map((w) => [w.employeeId, w]));
 
@@ -229,6 +291,48 @@ export async function buildAttendanceExportData(
     else day.overtime50Minutes += current.approved_minutes;
   }
 
+  // Horario vigente de cada persona dentro del período. Da las dos cosas que
+  // la planilla muestra y hoy faltaban: el texto bajo el nombre y qué días
+  // cubre realmente, que es lo que decide el resaltado de quien no trabaja de
+  // lunes a viernes.
+  const { data: assignments, error: assignmentsError } = await supabase
+    .from("schedule_assignments")
+    .select(
+      "employee_id, effective_from, effective_to, work_schedules(work_schedule_rules(day_of_week, scheduled_start, scheduled_end))"
+    )
+    .in("employee_id", employeeIds)
+    .lte("effective_from", period.endDate);
+
+  if (assignmentsError) {
+    throw new Error(`buildAttendanceExportData: fallo leyendo horarios: ${assignmentsError.message}`);
+  }
+
+  for (const row of assignments ?? []) {
+    // Una asignación que terminó antes de que empezara el período no describe
+    // este período.
+    const endsBefore = row.effective_to !== null && row.effective_to < period.startDate;
+    if (endsBefore) continue;
+
+    const worker = byId.get(row.employee_id);
+    if (!worker) continue;
+
+    const schedule = unwrap(
+      row.work_schedules as { work_schedule_rules: unknown } | { work_schedule_rules: unknown }[] | null
+    );
+    const rules = ((schedule?.work_schedule_rules ?? []) as {
+      day_of_week: number;
+      scheduled_start: string;
+      scheduled_end: string;
+    }[]).map((rule) => ({
+      dayOfWeek: rule.day_of_week,
+      start: rule.scheduled_start,
+      end: rule.scheduled_end,
+    }));
+
+    for (const rule of rules) worker.scheduledWeekdays.add(rule.dayOfWeek);
+    worker.scheduleLabel = describeSchedule(rules) ?? worker.scheduleLabel;
+  }
+
   return { period, days, workers, holidays };
 }
 
@@ -266,11 +370,32 @@ const FIRST_DAY_COL = 3;
 const HEADER_ROWS = 14; // título + 11 de leyenda + fila de meses + fila de días
 
 const solidFill = (rgb: string) => ({ fill: { patternType: "solid", fgColor: { rgb }, bgColor: { rgb: "000000" } } });
-const FILLED_CELL_STYLE = solidFill("FF9900");
-const EMPTY_DAY_STYLE = solidFill("99CC00");
+
+/**
+ * Los rellenos de la planilla de RRHH, leídos del libro real.
+ *
+ * La versión anterior tenía la regla al revés: pintaba de naranja cualquier
+ * celda con dato y de verde cualquiera sin dato, así que salía un tablero de
+ * ajedrez. En el libro real un día hábil trabajado **no lleva relleno**, y el
+ * color se reserva para lo que es excepción.
+ */
+const WEEKEND_STYLE = solidFill("FFFF00");
+const HOLIDAY_STYLE = solidFill("FF00FF");
+/** Días anteriores al ingreso de la persona: no estaba, no corresponde marcar. */
+const BEFORE_HIRE_STYLE = solidFill("99CC00");
+/** Días que cubre el horario de quien no trabaja de lunes a viernes. */
+const PARTIAL_SCHEDULE_STYLE = solidFill("FF9900");
 const HEADER_STYLE = solidFill("CCFFFF");
 const UNKNOWN_LEGEND_STYLE = solidFill("00CCFF");
 const VIATICOS_STYLE = solidFill("FFCC00");
+
+/** Lunes a viernes. Quien los cubre todos es el caso estándar y no se resalta. */
+const FULL_WEEK = [1, 2, 3, 4, 5];
+
+function hasPartialSchedule(worker: AttendanceExportWorker): boolean {
+  if (worker.scheduledWeekdays.size === 0) return false;
+  return !FULL_WEEK.every((dow) => worker.scheduledWeekdays.has(dow));
+}
 
 type Cell = string | number | null;
 
@@ -302,7 +427,12 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
     const blockStart = rows.length;
 
     for (const label of BLOCK_ROWS) {
-      const line: Cell[] = [label === "Asistencia" ? worker.workerName : null, label, null];
+      // La planilla de RRHH pone el horario bajo el nombre, en la misma celda
+      // combinada. Sin eso no se puede saber, mirando la fila, si un día en
+      // blanco es una marcación que falta o un día que esa persona no trabaja.
+      const nameCell =
+        worker.scheduleLabel === null ? worker.workerName : `${worker.workerName}\n${worker.scheduleLabel}`;
+      const line: Cell[] = [label === "Asistencia" ? nameCell : null, label, null];
       let total = 0;
 
       for (const date of days) {
@@ -403,15 +533,32 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
       const label = BLOCK_ROWS[offset];
       const labelCell = sheet[XLSX.utils.encode_cell({ r: row, c: 1 })];
       if (labelCell && label === "VIATICOS") labelCell.s = VIATICOS_STYLE;
+      const worker = workers[workerIndex];
+      const partial = hasPartialSchedule(worker);
+
       for (let c = FIRST_DAY_COL; c < FIRST_DAY_COL + days.length; c += 1) {
         const ref = XLSX.utils.encode_cell({ r: row, c });
         const dayDate = days[c - FIRST_DAY_COL];
-        // Los fines de semana/feriados se conservan como celdas realmente
-        // vacías, igual que en el mockup y en los lectores que distinguen
-        // null de una cadena vacía.
-        if (!sheet[ref] && (isWeekend(dayDate) || holidays.has(dayDate))) continue;
+
+        // El orden importa y es el del libro real: el fin de semana y el
+        // feriado ganan sobre todo lo demás, porque la empresa no opera; el
+        // verde de "todavía no entraba" gana sobre el horario, porque un
+        // horario asignado no significa nada antes del ingreso.
+        const style = isWeekend(dayDate)
+          ? WEEKEND_STYLE
+          : holidays.has(dayDate)
+            ? HOLIDAY_STYLE
+            : worker.hireDate !== null && dayDate < worker.hireDate
+              ? BEFORE_HIRE_STYLE
+              : partial && worker.scheduledWeekdays.has(weekdayOf(dayDate))
+                ? PARTIAL_SCHEDULE_STYLE
+                : null;
+
+        // Un día hábil trabajado no lleva relleno. Si además no tiene valor,
+        // no se crea la celda: en el libro real esa celda no existe.
+        if (style === null) continue;
         const target = sheet[ref] ?? (sheet[ref] = { v: "", t: "s" });
-        target.s = target.v === "" || target.v === null || target.v === undefined ? EMPTY_DAY_STYLE : FILLED_CELL_STYLE;
+        target.s = style;
       }
     }
   }
