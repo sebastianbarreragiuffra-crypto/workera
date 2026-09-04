@@ -2,7 +2,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(20);
+select plan(23);
 
 select has_column('public', 'suppliers', 'company_id', 'suppliers declara tenant');
 select has_column('public', 'payroll_batches', 'company_id', 'payroll_batches declara tenant');
@@ -165,6 +165,55 @@ select ok(
   ),
   'anon no puede ejecutar el RPC de maestro de proveedores'
 );
+
+-- ---------------------------------------------------------------------------
+-- Las dos superficies que faltaban: el RPC recibe la empresa desde el cliente,
+-- y los archivos del maestro viven en Storage con su propia RLS. Que anon no
+-- pueda ejecutar el RPC no dice nada sobre un miembro legítimo de OTRA empresa
+-- pidiéndolo con un company_id ajeno, que es el caso que importa.
+
+-- El caso anterior desactivó esta membresía; lo que sigue comprueba a la misma
+-- persona operando normalmente.
+update public.company_memberships
+set active = true
+where user_id = '96000000-0000-0000-0000-000000000101'
+  and company_id = '0a4c0000-0000-0000-0000-000000000001';
+
+insert into storage.objects (bucket_id, name) values
+  ('supplier-master-files', '0a4c0000-0000-0000-0000-000000000001/maestro-a.xlsx'),
+  ('supplier-master-files', '96000000-0000-0000-0000-000000000002/maestro-b.xlsx');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000101';
+
+select throws_ok(
+  $$select public.apply_supplier_master_import(
+      '96000000-0000-0000-0000-000000000002',
+      '96000000-0000-0000-0000-000000000403',
+      '96000000-0000-0000-0000-000000000101',
+      'ajeno.xlsx',
+      '96000000-0000-0000-0000-000000000002/ajeno.xlsx',
+      1, 0, 0, 0, 0, 0, '[]'::jsonb, '[]'::jsonb
+    )$$,
+  '42501', 'No autorizado para administrar la nómina de esta empresa.',
+  'el RPC rechaza un company_id de otra empresa aunque el llamador administre la suya'
+);
+
+select is(
+  (select count(*)::integer from storage.objects
+   where bucket_id = 'supplier-master-files'
+     and name like '96000000-0000-0000-0000-000000000002/%'),
+  0,
+  'no se alcanza el archivo del maestro de proveedores de otra empresa'
+);
+select is(
+  (select count(*)::integer from storage.objects
+   where bucket_id = 'supplier-master-files'
+     and name like '0a4c0000-0000-0000-0000-000000000001/%'),
+  1,
+  'y sí el de la suya: la policy de Storage filtra, no bloquea'
+);
+reset role;
 
 select * from finish();
 rollback;
