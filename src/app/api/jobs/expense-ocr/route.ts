@@ -1,15 +1,10 @@
 import "server-only";
-import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { runExpenseOcrWorkerWithServiceRole } from "@/lib/expense-ocr/service";
+import { isValidCronSecretHeader } from "@/lib/auth/cron-secret";
 
 export function isAuthorizedExpenseOcrCron(request: NextRequest): boolean {
-  const configured = process.env.CRON_SECRET;
-  const header = request.headers.get("authorization");
-  if (!configured || !header?.startsWith("Bearer ")) return false;
-  const provided = Buffer.from(header.slice("Bearer ".length));
-  const expected = Buffer.from(configured);
-  return provided.length === expected.length && timingSafeEqual(provided, expected);
+  return isValidCronSecretHeader(request.headers.get("authorization"));
 }
 
 export async function GET(request: NextRequest) {

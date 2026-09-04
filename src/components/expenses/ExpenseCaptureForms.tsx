@@ -29,7 +29,7 @@ function PendingButton({ children, tone = "primary" }: { children: React.ReactNo
     <button
       type="submit"
       disabled={pending}
-      className={`inline-flex items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold disabled:cursor-wait disabled:opacity-60 ${tone === "danger" ? "border border-red-200 bg-white text-red-700 hover:bg-red-50" : "bg-arcotex-blue text-white shadow-sm hover:bg-arcotex-blue-dark"}`}
+      className={`inline-flex min-h-11 items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold disabled:cursor-wait disabled:opacity-60 ${tone === "danger" ? "border border-red-200 bg-white text-red-700 hover:bg-red-50" : "bg-arcotex-blue text-white shadow-sm hover:bg-arcotex-blue-dark"}`}
     >
       {pending ? "Procesando…" : children}
     </button>
@@ -40,11 +40,14 @@ function CaptureUploadForm({ companySlug, camera }: { companySlug: string; camer
   const [state, action] = useActionState(captureExpenseReceiptAction, INITIAL_STATE);
   const inputId = camera ? "camera-receipt" : "file-receipt";
   return (
-    <form action={action} className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <form action={action} className={`space-y-4 rounded-xl border p-5 shadow-sm ${camera ? "border-blue-200 bg-blue-50/60" : "border-slate-200 bg-white"}`}>
       <input type="hidden" name="companySlug" value={companySlug} />
       <input type="hidden" name="source" value={camera ? "WEB_CAMERA" : "WEB_UPLOAD"} />
       <div>
-        <h2 className="font-semibold text-slate-900">{camera ? "Tomar una foto" : "Subir un archivo"}</h2>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="font-semibold text-slate-900">{camera ? "Tomar foto ahora" : "Elegir un archivo"}</h3>
+          {camera && <span className="rounded-full bg-blue-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-800">Más rápido</span>}
+        </div>
         <p className="mt-1 text-xs text-slate-500">
           {camera ? "Abre la cámara trasera del celular para fotografiar la boleta." : "Selecciona una imagen o un PDF que ya tengas guardado."}
         </p>
@@ -58,7 +61,7 @@ function CaptureUploadForm({ companySlug, camera }: { companySlug: string; camer
           required
           accept={camera ? "image/jpeg,image/png" : "application/pdf,image/jpeg,image/png"}
           capture={camera ? "environment" : undefined}
-          className="mt-2 block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-arcotex-blue-dark"
+          className="mt-2 block min-h-11 w-full text-xs text-slate-600 file:mr-3 file:min-h-11 file:rounded-md file:border-0 file:bg-white file:px-4 file:py-3 file:text-xs file:font-semibold file:text-arcotex-blue-dark"
         />
       </label>
       <p className="text-[11px] text-slate-500">PDF, JPG o PNG · máximo 10 MB</p>
@@ -70,10 +73,20 @@ function CaptureUploadForm({ companySlug, camera }: { companySlug: string; camer
 
 export function ExpenseCaptureUploadForms({ companySlug }: { companySlug: string }) {
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <CaptureUploadForm companySlug={companySlug} camera />
-      <CaptureUploadForm companySlug={companySlug} camera={false} />
-    </div>
+    <section className="space-y-4" aria-labelledby="capture-guide-title">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 id="capture-guide-title" className="text-sm font-semibold text-slate-900">Guarda la boleta en menos de un minuto</h2>
+        <ol className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
+          <li className="rounded-lg bg-slate-50 px-3 py-2"><strong className="text-slate-900">1. Captura</strong><br />Toma la foto o elige el PDF.</li>
+          <li className="rounded-lg bg-slate-50 px-3 py-2"><strong className="text-slate-900">2. Asocia</strong><br />Vincúlala a un gasto en borrador.</li>
+          <li className="rounded-lg bg-slate-50 px-3 py-2"><strong className="text-slate-900">3. Envía</strong><br />RR.HH. la verá con tu rendición.</li>
+        </ol>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <CaptureUploadForm companySlug={companySlug} camera />
+        <CaptureUploadForm companySlug={companySlug} camera={false} />
+      </div>
+    </section>
   );
 }
 

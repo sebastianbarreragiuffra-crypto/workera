@@ -18,7 +18,10 @@ import { timingSafeEqual } from "node:crypto";
  */
 export function isValidCronSecretHeader(header: string | null | undefined): boolean {
   const configured = process.env.CRON_SECRET;
-  if (!configured) return false;
+  // Este secreto habilita jobs con service_role. Un valor humano/corto no es
+  // una configuración válida: exigir al menos 32 bytes mantiene el endpoint
+  // cerrado ante placeholders y reduce ataques de fuerza bruta.
+  if (!configured || Buffer.byteLength(configured, "utf8") < 32) return false;
   if (!header?.startsWith("Bearer ")) return false;
 
   const provided = Buffer.from(header.slice("Bearer ".length));

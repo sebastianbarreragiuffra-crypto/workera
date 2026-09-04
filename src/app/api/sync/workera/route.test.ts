@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 import { isValidCronSecret, worstHttpStatus, datesReadyForRuleEngine } from "./route";
 
+const LONG_CRON_SECRET = "test-secret-fake-000000000000000000000000";
+
 function requestWithAuth(header?: string): NextRequest {
   const headers = new Headers();
   if (header !== undefined) headers.set("authorization", header);
@@ -22,7 +24,7 @@ test("isValidCronSecret: sin CRON_SECRET configurado en el servidor -> siempre f
 
 test("isValidCronSecret: header ausente -> false", () => {
   const original = process.env.CRON_SECRET;
-  process.env.CRON_SECRET = "test-secret-fake-000000000000";
+  process.env.CRON_SECRET = LONG_CRON_SECRET;
   try {
     assert.equal(isValidCronSecret(requestWithAuth(undefined)), false);
   } finally {
@@ -33,9 +35,9 @@ test("isValidCronSecret: header ausente -> false", () => {
 
 test("isValidCronSecret: header sin prefijo Bearer -> false", () => {
   const original = process.env.CRON_SECRET;
-  process.env.CRON_SECRET = "test-secret-fake-000000000000";
+  process.env.CRON_SECRET = LONG_CRON_SECRET;
   try {
-    assert.equal(isValidCronSecret(requestWithAuth("test-secret-fake-000000000000")), false);
+    assert.equal(isValidCronSecret(requestWithAuth(LONG_CRON_SECRET)), false);
   } finally {
     if (original === undefined) delete process.env.CRON_SECRET;
     else process.env.CRON_SECRET = original;
@@ -44,7 +46,7 @@ test("isValidCronSecret: header sin prefijo Bearer -> false", () => {
 
 test("isValidCronSecret: secreto incorrecto -> false", () => {
   const original = process.env.CRON_SECRET;
-  process.env.CRON_SECRET = "test-secret-fake-000000000000";
+  process.env.CRON_SECRET = LONG_CRON_SECRET;
   try {
     assert.equal(isValidCronSecret(requestWithAuth("Bearer secreto-equivocado-00000")), false);
   } finally {
@@ -55,7 +57,7 @@ test("isValidCronSecret: secreto incorrecto -> false", () => {
 
 test("isValidCronSecret: secreto de longitud distinta -> false (nunca revienta timingSafeEqual)", () => {
   const original = process.env.CRON_SECRET;
-  process.env.CRON_SECRET = "test-secret-fake-000000000000";
+  process.env.CRON_SECRET = LONG_CRON_SECRET;
   try {
     assert.equal(isValidCronSecret(requestWithAuth("Bearer corto")), false);
   } finally {
@@ -66,9 +68,20 @@ test("isValidCronSecret: secreto de longitud distinta -> false (nunca revienta t
 
 test("isValidCronSecret: secreto correcto -> true", () => {
   const original = process.env.CRON_SECRET;
-  process.env.CRON_SECRET = "test-secret-fake-000000000000";
+  process.env.CRON_SECRET = LONG_CRON_SECRET;
   try {
-    assert.equal(isValidCronSecret(requestWithAuth("Bearer test-secret-fake-000000000000")), true);
+    assert.equal(isValidCronSecret(requestWithAuth(`Bearer ${LONG_CRON_SECRET}`)), true);
+  } finally {
+    if (original === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = original;
+  }
+});
+
+test("isValidCronSecret: secreto configurado menor a 32 bytes -> false", () => {
+  const original = process.env.CRON_SECRET;
+  process.env.CRON_SECRET = "demasiado-corto";
+  try {
+    assert.equal(isValidCronSecret(requestWithAuth("Bearer demasiado-corto")), false);
   } finally {
     if (original === undefined) delete process.env.CRON_SECRET;
     else process.env.CRON_SECRET = original;
