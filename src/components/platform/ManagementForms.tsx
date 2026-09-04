@@ -8,6 +8,7 @@ import {
   createOrganizationUnitAction,
   inviteCompanyMemberAction,
   resendCompanyInvitationAction,
+  resetMemberMfaAction,
   setCompanyModuleStatusAction,
   setOnboardingStepStatusAction,
   type PlatformActionState,
@@ -289,6 +290,28 @@ export function OrganizationUnitForm({ companyId, parents, canManage }: { compan
         </label>
       </div>
       <div className="mt-4 flex justify-end"><SubmitButton>Agregar unidad</SubmitButton></div>
+      <ActionFeedback state={state} />
+    </form>
+  );
+}
+
+/**
+ * Reinicio del segundo factor de una persona (sección 6.3 del diseño).
+ *
+ * Se muestra a todo el mundo y la autorización real la resuelve
+ * `can_reset_mfa_for()` en la base: los niveles de reseteo no coinciden con
+ * `canManage`, porque un admin de empresa puede resetear a un miembro de su
+ * empresa sin administrar la plataforma. Ocultar el botón nunca fue la
+ * barrera; el mensaje de error cuando no corresponde sí es explícito.
+ */
+export function ResetMfaForm({ userId, displayName }: { userId: string; displayName: string }) {
+  const [state, action] = useActionState(resetMemberMfaAction, INITIAL_STATE);
+
+  return (
+    <form action={action}>
+      <input type="hidden" name="userId" value={userId} />
+      <SubmitButton compact>Reiniciar MFA</SubmitButton>
+      <span className="sr-only">Reiniciar el segundo factor de {displayName}</span>
       <ActionFeedback state={state} />
     </form>
   );

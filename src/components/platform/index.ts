@@ -15,6 +15,7 @@ export {
   ModuleStatusForm,
   OnboardingStepForm,
   OrganizationUnitForm,
+  ResetMfaForm,
 } from "./ManagementForms";
 export type { ManagementRoleOption, OrganizationParentOption } from "./ManagementForms";
 

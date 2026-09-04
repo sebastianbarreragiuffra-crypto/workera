@@ -47,6 +47,7 @@ test("los límites que usan privilegios administrativos declaran server-only", (
     path.join(import.meta.dirname, "..", "supabase", "admin-client.ts"),
     path.join(import.meta.dirname, "user-management.ts"),
     path.join(import.meta.dirname, "company-invitations.ts"),
+    path.join(import.meta.dirname, "mfa-reset.ts"),
   ];
 
   for (const filePath of guardedFiles) {

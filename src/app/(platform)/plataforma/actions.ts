@@ -6,6 +6,11 @@ import { z } from "zod";
 import { deliverCompanyInvitation, type InvitationDeliveryResult } from "@/lib/admin/company-invitations";
 import { PlatformAuthorizationError, requirePlatformManager } from "@/lib/platform/authorization";
 import { createClient } from "@/lib/supabase/server";
+import {
+  MfaResetAuthorizationError,
+  MfaResetFailedError,
+  resetUserMfa,
+} from "@/lib/admin/mfa-reset";
 
 export interface PlatformActionState {
   status: "idle" | "success" | "warning" | "error";
@@ -35,6 +40,7 @@ const invitationInput = z.object({
   roleId: uuid,
 });
 const resendInvitationInput = z.object({ companyId: uuid, invitationId: uuid });
+const mfaResetInput = z.object({ userId: uuid });
 const organizationInput = z.object({
   companyId: uuid,
   parentId: uuid,
@@ -332,5 +338,59 @@ export async function createOrganizationUnitAction(
     return { status: "success", message: "Unidad agregada al organigrama." };
   } catch (error) {
     return failure("create organization unit", error);
+  }
+}
+
+/**
+ * Reinicia el segundo factor de otra persona (sección 6.3 del diseño).
+ *
+ * A diferencia de las demás acciones de este archivo, NO pasa por
+ * `requirePlatformManager()`: los niveles de reseteo no coinciden con los
+ * roles de plataforma. Un admin de empresa puede resetear a un miembro de su
+ * empresa sin administrar la plataforma, y un ADMIN de plataforma no alcanza
+ * al OWNER. Toda esa regla vive en `can_reset_mfa_for()`, que es lo que
+ * `resetUserMfa` consulta, con la sesión real del llamador.
+ */
+export async function resetMemberMfaAction(
+  _previousState: PlatformActionState,
+  formData: FormData
+): Promise<PlatformActionState> {
+  const parsed = mfaResetInput.safeParse(fields(formData));
+  if (!parsed.success) return failedValidation();
+
+  try {
+    const result = await resetUserMfa(parsed.data.userId);
+    revalidatePlatformCompanyPages();
+
+    if (result.removedFactors === 0) {
+      return {
+        status: "success",
+        message: "Esa persona no tenía ningún segundo factor inscrito. No había nada que reiniciar.",
+      };
+    }
+
+    // No se afirma que se haya avisado: este proyecto no tiene envío de correo
+    // transaccional y registrar algo no simula haberlo enviado. El aviso a la
+    // persona afectada es responsabilidad de quien ejecuta el reseteo, y sin
+    // él un reseteo malicioso pasaría inadvertido.
+    const notice =
+      "Avisa tú a la persona: la aplicación todavía no envía ese correo, y un reinicio que nadie comunica es indistinguible de uno malicioso.";
+
+    if (!result.eventRecorded) {
+      return {
+        status: "warning",
+        message: `Se quitaron ${result.removedFactors} factores, pero el evento NO quedó en la bitácora. ${notice}`,
+      };
+    }
+
+    return {
+      status: "success",
+      message: `Se quitaron ${result.removedFactors} factores y quedó registrado. ${notice}`,
+    };
+  } catch (error) {
+    if (error instanceof MfaResetAuthorizationError || error instanceof MfaResetFailedError) {
+      return { status: "error", message: error.message };
+    }
+    return failure("mfa reset", error);
   }
 }

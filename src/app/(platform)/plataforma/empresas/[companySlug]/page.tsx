@@ -7,6 +7,7 @@ import {
   InviteMemberForm,
   ResendInvitationForm,
   MemberRoleForm,
+  ResetMfaForm,
   ModuleStatusForm,
   OnboardingStepForm,
   OrganizationTree,
@@ -134,9 +135,9 @@ function UsersTab({ detail, canManage }: { detail: PlatformCompanyDetail; canMan
           <p className="text-sm text-slate-500">La empresa aún no tiene membresías.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[780px] text-left text-sm">
+            <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="border-b border-border text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <tr><th className="pb-3 pr-4">Persona</th><th className="px-4 pb-3">Estado</th><th className="px-4 pb-3">Roles actuales</th><th className="pl-4 pb-3">Asignación</th></tr>
+                <tr><th className="pb-3 pr-4">Persona</th><th className="px-4 pb-3">Estado</th><th className="px-4 pb-3">Roles actuales</th><th className="px-4 pb-3">Asignación</th><th className="pl-4 pb-3">Segundo factor</th></tr>
               </thead>
               <tbody>
                 {detail.memberships.map((member) => (
@@ -147,8 +148,11 @@ function UsersTab({ detail, canManage }: { detail: PlatformCompanyDetail; canMan
                     </td>
                     <td className="px-4 py-3"><Badge label={member.active ? "Activo" : "Inactivo"} tone={member.active ? "positive" : "neutral"} /></td>
                     <td className="px-4 py-3 text-xs text-slate-600">{member.roles.map((role) => role.name).join(", ") || "Sin rol RBAC"}</td>
-                    <td className="pl-4 py-3">
+                    <td className="px-4 py-3">
                       <MemberRoleForm companyId={detail.header.id} membershipId={member.membershipId} selectedRoleId={member.roleId} roles={assignableRoles} canManage={canManage} membershipActive={member.active} />
+                    </td>
+                    <td className="pl-4 py-3">
+                      <ResetMfaForm userId={member.userId} displayName={member.displayName} />
                     </td>
                   </tr>
                 ))}
