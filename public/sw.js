@@ -68,7 +68,7 @@ self.addEventListener("fetch", (event) => {
   // por defecto al fetch normal y nunca se guardan.
   if (!isCacheableStaticUrl(url)) return;
   event.respondWith(
-    caches.match(request).then((cached) => {
+    caches.match(request).catch(() => undefined).then((cached) => {
       if (cached) return cached;
       return fetch(request).then((response) => {
         if (!response.ok || response.type !== "basic") return response;
