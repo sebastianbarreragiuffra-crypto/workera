@@ -218,10 +218,16 @@ auth_token = "env(SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN)"
 [auth.mfa]
 max_enrolled_factors = 10
 
+# TOTP habilitado: es el segundo factor de las cuentas privilegiadas
+# (docs/MFA_DESIGN.md). Sin esto, `supabase.auth.mfa.enroll()` falla y la
+# pantalla de inscripción no puede funcionar. El equivalente hosted se
+# habilita en el panel del proyecto; config.toml solo gobierna la pila local.
 [auth.mfa.totp]
-enroll_enabled = false
-verify_enabled = false
+enroll_enabled = true
+verify_enabled = true
 
+# El factor por SMS queda deshabilitado a propósito y no debe habilitarse:
+# el diseño descarta `phone` explícitamente (sección 2).
 [auth.mfa.phone]
 enroll_enabled = false
 verify_enabled = false

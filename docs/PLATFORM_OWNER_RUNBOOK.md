@@ -103,7 +103,25 @@ puede reiniciar el factor de otro miembro **de su misma empresa**, y el OWNER
 puede hacerlo con cualquiera menos consigo mismo. Eso cubre el caso corriente:
 alguien perdió el teléfono y necesita volver a inscribir.
 
-## 6. Secuencia de activación del bloqueo
+## 6. Habilitar el proveedor TOTP
+
+Antes de que nadie pueda inscribir nada, Supabase Auth tiene que permitir TOTP.
+Viene **deshabilitado** por defecto y no es algo que el código pueda encender.
+
+- **Local:** ya está en `supabase/config.toml`, en `[auth.mfa.totp]`, con
+  `enroll_enabled` y `verify_enabled` en `true`. Toma efecto al reiniciar la
+  pila (`npx supabase stop && npx supabase start`).
+- **Staging y producción:** hay que habilitarlo en el panel del proyecto, en
+  Authentication → Multi-Factor Authentication, o empujando la configuración con
+  el CLI. `config.toml` solo gobierna la pila local.
+
+El factor por SMS queda deshabilitado a propósito y no debe habilitarse: el
+diseño descarta `phone` explícitamente.
+
+Si `enroll()` devuelve un error de proveedor no habilitado, es esto y no un
+problema de la aplicación.
+
+## 7. Secuencia de activación del bloqueo
 
 El orden importa y no es intercambiable.
 
@@ -125,7 +143,7 @@ El orden importa y no es intercambiable.
 > 1 dejaría al gerente sin poder aprobar licencias antes de haber tenido la
 > oportunidad de inscribirse.
 
-## 7. Si el bloqueo causa un incidente
+## 8. Si el bloqueo causa un incidente
 
 Poner `MFA_ENFORCEMENT_ENABLED=false` y redesplegar. El MFA ya inscrito no se
 pierde; solo se deja de exigir mientras se diagnostica.
