@@ -1,10 +1,12 @@
-# Handoff — Rendiciones (rama `claude/hola-e040lp`)
+# Handoff — Rendiciones (rama `codex/phases2-6-autonomous`)
 
 Estado de trabajo, no documento de arquitectura. Borrar cuando se mergee a `master`.
 
 ## Dónde estamos
 
-Rama: **`claude/hola-e040lp`** — 14 commits publicados antes del bloque actual.
+Rama vigente: **`codex/phases2-6-autonomous`**. El historial de Rendiciones fue
+rebasado sobre `master` con MFA; el estado anterior al rebase quedó respaldado
+en `origin/wip/codex-phases2-6-before-mfa`.
 
 Se venía construyendo **Rendiciones** (la alternativa mejorada a RindeGastos)
 por fases chicas, y después se hizo una **auditoría técnica en dos vueltas**.
@@ -48,12 +50,12 @@ trigger lo deriva en el servidor desde `employees.company_id`.
 
 Migraciones a validar: `20260902090000` (anticipos), `100000` (centro de
 costo), `110000` (kilometraje), `120000` (viáticos).
-Tests pgTAP nuevos: `051`, `052`, `053`, `054`.
+Tests pgTAP vigentes: `055`, `056`, `057`, `058`.
 
 La validación también corrigió las policies tenant-aware de Workera y del
 motor de reglas. Su bitácora técnica usa el permiso separado
 `attendance.sync.read`, otorgado solo a `COMPANY_OWNER` y `HR_ADMIN`; la
-prueba `055` confirma que supervisores y auditores conservan la lectura de
+prueba `059` confirma que supervisores y auditores conservan la lectura de
 marcaciones, pero no ven reintentos ni `error_summary`.
 
 ## Fase 1, bloque 3 — completado en PC 2
@@ -68,7 +70,7 @@ bloqueo seguro por defecto.
 La configuración inicial de Rendiciones pasó a un trigger de su propio
 dominio, por lo que el RPC CORE tampoco conoce
 `provision_expense_defaults()`. La migración `20260902140000` implementa el
-cambio y la prueba `056` cubre catálogo, bloqueo legacy, comportamiento
+cambio y la prueba `060` cubre catálogo, bloqueo legacy, comportamiento
 genérico, provisión idempotente, autorización y auditoría.
 
 Validación del bloque: reconstrucción desde cero, 56 suites pgTAP / 1.005
@@ -114,7 +116,7 @@ forma explícita y evita descargar miles de filas al servidor web para calcular
 los totales, eliminando además el riesgo de agregados truncados por el límite de
 PostgREST.
 
-La migración `20260902150000` y el test pgTAP `057` cubren permisos, aislamiento
+La migración `20260902150000` y el test pgTAP `061` cubren permisos, aislamiento
 entre empresas, ventana temporal, métricas y alertas. Validación local: reset
 completo con las 81 migraciones, 57 suites pgTAP / 1.029 aserciones, 716 tests de
 aplicación aprobados (2 opt-in omitidos), TypeScript, ESLint, lint de base y
@@ -149,7 +151,7 @@ borrado se bloquea para no perder evidencia ni dejar archivos huérfanos. El
 descarte exige además el `company_id` correcto, por lo que un identificador de
 otra empresa no puede cambiar su estado.
 
-La migración `20260902160000` y el test pgTAP `058` cubren privacidad, permisos,
+La migración `20260902160000` y el test pgTAP `062` cubren privacidad, permisos,
 aislamiento entre empresas, IDOR, asociación única, eliminación, límite de la
 bandeja y descarte cruzado. Validación local final: reconstrucción completa,
 58 suites pgTAP / 1.068 aserciones, 717 tests de aplicación aprobados (2 opt-in
@@ -190,7 +192,7 @@ coincidentes. El cuerpo y las imágenes inline se ignoran. Una clave SHA-256 por
 correo/adjunto hace los reintentos idempotentes, comparte el cupo estricto de 50
 pendientes con la captura web y limpia el objeto no canónico ante carreras.
 
-La migración `20260902170000` y el test pgTAP `059` cubren RLS, permisos,
+La migración `20260902170000` y el test pgTAP `063` cubren RLS, permisos,
 aislamiento, rotación, revocación por membresía, Storage, ruta tenant-aware,
 idempotencia, reservas y recuperación de reintentos. Validación local posterior
 a correcciones de revisión: reset completo, 59 suites pgTAP / 1.145 aserciones,
@@ -227,7 +229,7 @@ pendientes de la bandeja. Storage sigue siendo privado y las rutas incluyen
 empresa y usuario. El despliegue controlado y las variables están documentados
 en `docs/EXPENSE_WHATSAPP_CAPTURE.md`.
 
-La migración `20260904170000` y el test pgTAP `060` cubren privilegios, RLS,
+La migración `20260904170000` y el test pgTAP `064` cubren privilegios, RLS,
 aislamiento, IDOR, código de un solo uso, revocación, reintentos, cuotas, Storage
 e idempotencia. Validación local aislada: reset completo, 60 suites pgTAP / 1.207
 aserciones, 750 tests de aplicación (748 aprobados y 2 opt-in omitidos),
@@ -291,16 +293,39 @@ aplicó nada en staging. La cadencia diaria de `vercel.json` cabe en Hobby, pero
 un SLO de 30 minutos requiere Pro/Enterprise o scheduler externo y monitoreo
 independiente. Procedimiento: `docs/EXPENSE_ACCOUNTING_OUTBOX.md`.
 
-Validación aislada de base para este cierre: reset completo y 68 suites pgTAP /
-1.483 aserciones en verde. Los tipos Supabase fueron contrastados contra ese
+Validación aislada de base para este cierre: reset completo y 71 suites pgTAP /
+1.540 aserciones en verde. Los tipos Supabase fueron contrastados contra ese
 esquema y se conservaron las nulabilidades reales que el generador no infiere en
 argumentos/retornos de funciones ni columnas completadas por triggers.
 
-Validación final de la rama después de las correcciones: 901 tests de aplicación
-(899 aprobados, 2 opt-in omitidos), 68 suites pgTAP / 1.483 aserciones, lint de
+Validación final de la rama después de las correcciones: 984 tests de aplicación
+(982 aprobados, 2 opt-in omitidos), 71 suites pgTAP / 1.540 aserciones, lint de
 base sin hallazgos, TypeScript, ESLint y build de producción en verde. La
 arquitectura y los bloqueos reales de lanzamiento están en
 `docs/TARGET_ARCHITECTURE_PHASES_2_6.md`.
+
+## Integración MFA/AAL2 — 4 de septiembre de 2026
+
+La rama fue rebasada sobre `master` (`6a92387`) para incorporar TOTP, AAL2,
+bitácora y hardening de autorizaciones sin perder las fases 2–6. La integración
+detectó que la migración MFA `20260904120000` había reproducido una versión
+anterior de `platform_set_company_module_status()` y reintroducido el caso
+especial `expenses`. La migración `20260904224000_mfa_module_catalog_integration.sql`
+restaura la decisión genérica por `module_catalog.tenant_isolated`, conserva la
+guarda AAL2 y mantiene la provisión de Rendiciones en su trigger de dominio.
+
+Los fixtures pgTAP de Rendiciones fijan `aal2` para sus transacciones de prueba,
+que incluyen operaciones privilegiadas. Esto no relaja la cobertura MFA: la
+prueba `060` cambia explícitamente entre `aal1` y `aal2`, y los tests `049`–`051`
+siguen comprobando rechazo en `aal1`, autorización exacta y guards fail-closed.
+Los archivos quedaron numerados de forma única: MFA `049`–`051` y la continuación
+tenant/Rendiciones `052`–`071`.
+
+No se aplicó nada a staging. Su historial remoto ya contiene las migraciones
+`20260902060000`–`20260902170000`, pero no contiene MFA ni la continuación desde
+`20260903100000`. Por eso está prohibido ejecutar un `supabase db push` completo
+desde esta rama antes de inscribir las cuentas privilegiadas: aplicaría también
+la migración AAL2 no inerte. Seguir `docs/PLATFORM_OWNER_RUNBOOK.md`, sección 7.
 
 ## Otros hallazgos ya cerrados (no rehacer)
 

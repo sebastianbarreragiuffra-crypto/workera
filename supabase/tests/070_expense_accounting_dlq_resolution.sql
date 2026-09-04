@@ -2,6 +2,7 @@
 create extension if not exists pgtap;
 
 begin;
+set local request.jwt.claim.aal = 'aal2';
 select plan(43);
 
 select has_column('public', 'expense_accounting_exports', 'manual_replay_count', 'outbox limita replay manual');

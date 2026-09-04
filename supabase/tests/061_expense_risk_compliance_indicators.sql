@@ -3,6 +3,7 @@
 create extension if not exists pgtap;
 
 begin;
+set local request.jwt.claim.aal = 'aal2';
 select plan(22);
 
 select has_function(

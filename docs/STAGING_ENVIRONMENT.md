@@ -26,15 +26,15 @@ Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base d
 - **Pendiente de master**: cinco migraciones, `20260903100000` y las cuatro de
   MFA, de `20260903140000` a `20260904160000`.
 - **Pendiente de `codex/phases2-6-autonomous`**: diez migraciones,
-  `20260903100000` y de `20260904170000` en adelante.
+  de `20260904170000` a `20260904224000`.
 
-> **Orden entre ramas: master va primero.** Las cinco migraciones de master son
-> todas anteriores a las diez de la rama de contabilidad de Rendiciones. Si esas
-> diez se empujan primero, las de master quedan con fecha del pasado y ya no
-> aplican en orden. Es el mismo error que describe la regla 3 de `AGENTS.md`,
-> pero entre dos ramas en vez de dentro de una, y no se manifiesta en local
-> porque ahí las migraciones se ordenan por nombre y se aplican todas. Lo más
-> limpio es rebasar esa rama sobre master y hacer un solo push desde ahí.
+> **No hacer un push único antes de inscribir MFA.** La rama ya está rebasada
+> sobre master, pero `20260904120000` es no inerte. El despliegue preferido usa
+> los dos cortes de `PLATFORM_OWNER_RUNBOOK.md`, sección 7: primero fundación y
+> hardening sin la guarda AAL2; después de inscribir las cuentas, el corte
+> completo con `--include-all` y las diez migraciones de Rendiciones. El fallback
+> explícito del OWNER es: preparar el rollback, aplicar las cinco de master,
+> completar la inscripción y solo entonces aplicar las diez de esta rama.
 - **Datos maestros**: 97 registros de empleados presentes en staging al cierre
   de la Fase 1. La depuración de posibles duplicados es una tarea de datos y no
   forma parte del despliegue estructural.

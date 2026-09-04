@@ -2,6 +2,7 @@
 create extension if not exists pgtap;
 
 begin;
+set local request.jwt.claim.aal = 'aal2';
 select plan(62);
 
 select has_table('public', 'expense_receipt_whatsapp_links', 'existe el vínculo opaco por persona y empresa');

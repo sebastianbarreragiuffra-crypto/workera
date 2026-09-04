@@ -2,7 +2,8 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(19);
+set local request.jwt.claim.aal = 'aal2';
+select plan(21);
 
 select has_column(
   'public', 'module_catalog', 'tenant_isolated',
@@ -45,6 +46,18 @@ select ok(
   ) = 0,
   'el RPC del control plane no conoce módulos concretos'
 );
+select is(
+  (select count(*)::integer
+   from pg_catalog.regexp_matches(
+     pg_get_functiondef(
+       'public.platform_set_company_module_status(uuid,text,public.company_module_status)'::regprocedure
+     ),
+     'can_manage_platform\(\)',
+     'g'
+   )),
+  2,
+  'el RPC revalida autorización después de adquirir el lock'
+);
 select has_trigger(
   'public', 'company_modules', 'company_modules_provision_expense_defaults',
   'Rendiciones conserva su inicialización en un trigger de dominio'
@@ -83,6 +96,15 @@ where key = 'payroll';
 
 set local role authenticated;
 set local request.jwt.claim.sub = 'aa000000-0000-0000-0000-000000000101';
+set local request.jwt.claim.aal = 'aal1';
+select throws_ok(
+  $$select public.platform_set_company_module_status(
+    '0a4c0000-0000-0000-0000-000000000001', 'expenses', 'DISABLED')$$,
+  'P0001',
+  'Esta operación requiere verificación de segundo factor (MFA).',
+  'un ADMIN autorizado en aal1 no puede cambiar módulos'
+);
+set local request.jwt.claim.aal = 'aal2';
 select lives_ok(
   $$select public.platform_set_company_module_status(
     '0a4c0000-0000-0000-0000-000000000001', 'payroll', 'DISABLED')$$,

@@ -37,8 +37,9 @@ no sustituyen un modelo de amenazas vigente, un pentest ni evidencia operacional
 
 El sistema **no está aprobado para staging con PII ni para producción**. El
 staging existente contiene 97 registros de empleados cuya anonimización no está
-demostrada. Faltan MFA/AAL2 integral, controles de abuso, prueba real de backup y
-restauración DB+Storage, antimalware, reducción del blast radius de `service_role`,
+demostrada. El código MFA/AAL2 ya está integrado y probado localmente, pero aún
+faltan inscripción y activación hospedadas, controles de abuso, prueba real de
+backup y restauración DB+Storage, antimalware, reducción del blast radius de `service_role`,
 aislamiento laboral para una segunda empresa, observabilidad, incident response,
 revisión legal y canarios. Estos son bloqueos, no mejoras opcionales.
 
@@ -283,8 +284,9 @@ Instrumentación mínima:
 ### Identidad y acceso
 
 - TOTP nativo de Supabase y AAL2 para cuentas privilegiadas. La implementación
-  existe en una rama separada y debe integrarse mediante el runbook de dos pasos;
-  no se considera entregada en esta rama.
+  está integrada en esta rama y validada contra una pila Supabase local aislada;
+  no está activada ni desplegada. El rollout sigue obligatoriamente el runbook
+  de dos pasos para no bloquear cuentas antes de que inscriban sus factores.
 - AAL2 debe imponerse en RLS restrictiva, RPC, Route Handlers, Server Actions y
   SSR, no solo por redirección UI. El test debe cubrir JWT/sesión obsoleta,
   unenrollment, reseteo, revocación y degradación de `aal2` a `aal1`.
@@ -428,8 +430,9 @@ Para desarrollo asistido:
 - Poner el staging actual en hold, clasificar sus 97 registros y reemplazar por
   datos sintéticos/minimizados o aplicar controles equivalentes a producción.
 - Aprobar `docs/THREAT_MODEL_CURRENT.md` con owners y aceptación residual.
-- Integrar y probar MFA/AAL2 end-to-end en app, base e infraestructura; ensayar
-  recuperación owner con segundo TOTP y revocación.
+- Activar MFA/AAL2 en un ambiente hospedado siguiendo el rollout de dos pasos;
+  ensayar recuperación owner con segundo TOTP, revocación y rollback de la capa
+  RPC antes de habilitar el enforcement.
 - Verificar rate limits/Auth/CAPTCHA y controles de abuso en Supabase hospedado.
 - Demostrar aislamiento del dominio laboral con una segunda empresa real/sintética
   completa y un inventario continuo de tablas, views, RPC, Storage, exports, jobs
@@ -488,7 +491,8 @@ Bloqueos principales:
 
 - Dominio laboral todavía no demostrado como seguro para una segunda empresa.
 - Backup/PITR y restore drill no implementados ni probados.
-- MFA está separado de esta rama.
+- MFA está integrado y probado localmente, pero no existe evidencia hospedada de
+  inscripción, activación, recuperación y rollback.
 - El threat model vigente no tiene aceptación formal ni owners asignados.
 - Abuso/Auth, antimalware, blast radius de `service_role` e incident response no
   tienen evidencia operacional.

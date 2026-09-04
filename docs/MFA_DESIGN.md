@@ -303,22 +303,30 @@ pgTAP (`049`):
    `select user_id, status from auth.mfa_factors where status = 'verified';`
 3. Gerente y 2 RRHH se inscriben y verifican.
 4. Confirmar que las 4 aparecen con un factor `verified`.
-5. **Poner `MFA_ENFORCEMENT_ENABLED=true` y redesplegar.**
+5. En una ventana de mantenimiento, aplicar el segundo corte que contiene la
+   migración AAL2 no inerte, poner `MFA_ENFORCEMENT_ENABLED=true` y redesplegar.
+   Mantener el tráfico bloqueado hasta verificar ambas capas según
+   `docs/PLATFORM_OWNER_RUNBOOK.md`, sección 7.
 6. Desde ese momento: toda sesión privilegiada en `aal1` → rebota a
-   `/seguridad/mfa`. Nunca existió una ventana donde una cuenta privilegiada
-   funcionara sin MFA.
+   `/seguridad/mfa` y los RPC privilegiados también rechazan `aal1`.
 
-**Incidente:** si el enforcement causa un bloqueo inesperado, poner el flag en
-`false` y redesplegar. El MFA inscrito no se pierde; solo se deja de exigir
-mientras se diagnostica.
+**Incidente:** bajar el flag solo desactiva las capas de aplicación; las guardas
+SQL de los RPC permanecen activas. El rollback de emergencia es hacia adelante:
+seguir el procedimiento break-glass de `docs/PLATFORM_OWNER_RUNBOOK.md`, sección
+8, que redefine temporalmente `enforce_mfa_for_privileged()` como no-op y luego
+restaura su cuerpo seguro. No revertir migraciones ni asumir que el flag basta.
 
 ---
 
 ## 9. Etapas de implementación (cada una es un commit válido y seguro)
 
-El flag `MFA_ENFORCEMENT_ENABLED` es lo **último**. Todo lo anterior es inerte
-en producción hasta que se active. Si una sesión se corta, lo que quedó en el
-repo no rompe nada.
+El flag `MFA_ENFORCEMENT_ENABLED` es lo **último** para las capas de aplicación.
+La etapa F es deliberadamente **no inerte**: al aplicar su migración, los RPC
+privilegiados exigen `aal2` aunque el flag esté apagado. Por eso A–E, G y H se
+despliegan primero, se inscriben las cuentas y F se aplica solo en el segundo
+corte controlado del runbook. La única excepción es el fallback aprobado por el
+OWNER que aplica las cinco migraciones de master juntas; antes de usarlo debe
+estar preparado y revisado el rollback forward-only de la sección 8 del runbook.
 
 - **A. Base:** migración con `mfa_events`, los 5 helpers SQL, RLS append-only.
   pgTAP `049`. RPC `session_requires_mfa`.

@@ -131,6 +131,26 @@ problema de la aplicación.
 
 El orden importa y no es intercambiable.
 
+> **Bloqueo operativo del repositorio actual.** `master` y
+> `codex/phases2-6-autonomous` ya contienen tanto la fundación MFA como la
+> migración AAL2 no inerte y migraciones posteriores. Por lo tanto, **no se debe
+> ejecutar un `supabase db push` completo desde esas ramas durante el paso 1**:
+> bloquearía los RPC antes de que las cuentas se inscriban. Preparar una rama de
+> despliegue temporal que contenga únicamente estas migraciones pendientes:
+> `20260903100000_medical_license_range_bound.sql`,
+> `20260903140000_mfa_totp_foundation.sql`,
+> `20260904150000_null_authorization_guard_fixes.sql` y
+> `20260904160000_mfa_security_hardening.sql`. Las dos últimas son inertes para
+> el enforcement, pero son obligatorias antes de inscribir: cierran guards que
+> devolvían `NULL` y permiten que `service_role` escriba la bitácora MFA. Excluir
+> expresamente `20260904120000` y todo lo posterior a `20260904160000` de ese
+> primer corte. Inscribir las cuatro cuentas y recién en el paso 5 aplicar el
+> resto con `supabase db push --include-all` (primero `--dry-run`), porque la
+> migración `20260904120000` tendrá un timestamp anterior a dos versiones ya
+> registradas. La segunda tanda debe incluir
+> `20260904224000_mfa_module_catalog_integration.sql`, que conserva AAL2 sin
+> reintroducir el caso especial de Rendiciones en el control plane.
+
 1. Desplegar con `MFA_ENFORCEMENT_ENABLED=false`. Este paso es **invisible**:
    `/seguridad/mfa` queda accesible para quien entre a propósito, pero nadie es
    redirigido ahí ni bloqueado. Avisar a las cuatro cuentas por fuera de la
@@ -146,7 +166,13 @@ El orden importa y no es intercambiable.
    licencias.
 4. Confirmar que las cuatro cuentas tienen factor verificado con la consulta de
    la sección 2.
-5. Recién entonces: poner `MFA_ENFORCEMENT_ENABLED=true` y redesplegar.
+5. Recién entonces, dentro de una ventana de mantenimiento: poner
+   `MFA_ENFORCEMENT_ENABLED=true`, aplicar el segundo corte completo y
+   redesplegar. Mantener el tráfico bloqueado hasta comprobar que
+   `20260904224000_mfa_module_catalog_integration.sql` figura aplicada y que la
+   definición final de `platform_set_company_module_status()` contiene
+   `tenant_isolated` y `enforce_mfa_for_privileged()`, pero no una comparación
+   hardcodeada con `expenses`.
 
 > **Por qué la guarda de base de datos no puede ir en el paso 1.**
 > `20260904120000_mfa_aal2_for_privileged_rpcs.sql` agrega la guarda `aal2`
@@ -170,22 +196,22 @@ así:
 | `20260904150000` | Corrige las guardas de autorización que devolvían NULL. |
 | `20260904160000` | Endurecimiento de la bitácora y del reseteo. |
 
-La que no es inerte quedó **en medio**, así que no se puede aplicar las dos
-últimas sin aplicar antes la del medio. La versión anterior de este runbook
-pedía justamente eso y ya no es ejecutable. Hay dos caminos y la elección es del
-OWNER:
+La que no es inerte quedó **en medio**, así que un checkout normal de `master`
+no puede aplicar las dos últimas sin aplicar antes la del medio. El procedimiento
+preferido es la rama de despliegue temporal descrita al inicio de esta sección:
+incluye fundación y hardening, omite solo la guarda AAL2 durante la inscripción y
+cierra de inmediato el agujero de las guardas NULL. Después de inscribir, el
+segundo corte usa `--include-all` para registrar la migración intermedia y todo
+lo posterior en una ventana controlada.
 
-- **Aplicar las cinco de una vez desde master** y que las cuatro personas
-  inscriban su factor ese mismo día. Es la recomendada. `20260904150000` cierra
-  un agujero de autorización real, explotable por cualquier cuenta recién
-  registrada, y postergarlo cambia un hueco vivo por una comodidad de
-  calendario. El bloqueo que causa `20260904120000` está acotado, afecta a
-  cuatro personas identificadas y lo levantan ellas mismas inscribiéndose.
-- **Empujar primero solo la fundación**, desde un checkout del commit `42325ec`
-  (`MFA etapa E`), que contiene `20260903140000` y todavía no las tres
-  posteriores. Inscribir a las cuatro, y recién entonces empujar el resto desde
-  master. No hay ventana de bloqueo, pero la corrección de las guardas NULL
-  espera hasta el paso 5.
+Si no se puede preparar y revisar esa rama temporal, el OWNER puede optar por
+aplicar las cinco migraciones pendientes desde `origin/master` de una vez y hacer
+que las cuatro personas inscriban su factor ese mismo día. Este camino evita
+postergar `20260904150000`, pero crea un bloqueo operacional controlado hasta que
+termine la inscripción y **solo se permite si el artefacto de rollback de la
+sección 8 ya fue preparado, revisado y está disponible antes del push**. El
+antiguo camino de desplegar solo la fundación desde `42325ec` no es recomendable:
+deja abierto el bypass de autorización durante la espera.
 
 En cualquiera de los dos casos, las migraciones de master van a staging **antes**
 que las de `codex/phases2-6-autonomous`, por la razón explicada en
@@ -197,7 +223,31 @@ Poner `MFA_ENFORCEMENT_ENABLED=false` y redesplegar. El MFA ya inscrito no se
 pierde; solo se deja de exigir mientras se diagnostica.
 
 Eso revierte las dos capas que corren en la aplicación (el gate del middleware y
-la guarda de nómina). **No** revierte la guarda dentro de los RPC: para eso hay
-que revertir la migración del paso 5. Si el incidente afecta a la aprobación de
-licencias o a la administración de la plataforma, es esa migración la que hay que
-revertir, no el flag.
+la guarda de nómina), pero no la guarda de los ocho RPC. Antes de cualquier corte
+que incluya `20260904120000` debe existir una migración de emergencia revisada,
+conservada **fuera** de
+`supabase/migrations` para que nunca se aplique automáticamente. El rollback es
+hacia adelante: redefine temporalmente el helper compartido, sin reescribir los
+ocho RPC ni perder la lógica `tenant_isolated`:
+
+```sql
+create or replace function public.enforce_mfa_for_privileged()
+returns void
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  return;
+end;
+$$;
+```
+
+Aplicar ese artefacto solo bajo el procedimiento break-glass, registrar el
+incidente y verificar que las guardas de rol propias de cada RPC siguen
+rechazando usuarios no autorizados. Para reactivar la segunda capa, aplicar otra
+migración hacia adelante que restaure exactamente el cuerpo seguro de
+`enforce_mfa_for_privileged()` definido en
+`20260903140000_mfa_totp_foundation.sql`; nunca depender de revertir únicamente
+`20260904120000`, porque `20260904224000` también conserva la llamada AAL2.

@@ -2,6 +2,7 @@
 create extension if not exists pgtap;
 
 begin;
+set local request.jwt.claim.aal = 'aal2';
 select plan(38);
 
 select has_table('public', 'expense_receipt_captures', 'existe la bandeja de capturas');

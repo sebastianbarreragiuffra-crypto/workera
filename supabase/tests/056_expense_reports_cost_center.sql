@@ -2,6 +2,7 @@
 -- centro de costo, sin ampliar permisos de escritura.
 create extension if not exists pgtap;
 begin;
+set local request.jwt.claim.aal = 'aal2';
 select plan(10);
 
 insert into public.companies (id, name, legal_name, slug, active, status, workspace_enabled)

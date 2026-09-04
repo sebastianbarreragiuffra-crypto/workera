@@ -2,6 +2,7 @@
 create extension if not exists pgtap;
 
 begin;
+set local request.jwt.claim.aal = 'aal2';
 select plan(56);
 
 select has_table('public', 'expense_bank_imports', 'existe el encabezado de importación bancaria');
