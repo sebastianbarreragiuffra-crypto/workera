@@ -24,6 +24,9 @@ import type { Database } from "./database.types";
 const PUBLIC_PATHS = new Set<string>([
   "/login",
   "/auth/callback",
+  "/offline",
+  "/sw.js",
+  "/manifest.webmanifest",
 ]);
 
 const EXTERNAL_WEBHOOK_METHODS = new Map<string, ReadonlySet<string>>([
