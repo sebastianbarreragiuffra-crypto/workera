@@ -8,7 +8,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(40);
+select plan(39);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures: dos empresas, un OWNER de plataforma que además es miembro de la
@@ -259,7 +259,11 @@ select throws_ok(
 );
 
 -- ---------------------------------------------------------------------------
--- 8. Etapa F: los RPC sensibles exigen aal2.
+-- 8. Primer corte de staging: la guarda AAL2 todavía NO está activa.
+--
+-- Esta rama temporal excluye deliberadamente 20260904120000. Verificamos que
+-- la fundación y el hardening pueden desplegarse e inscribirse antes de que el
+-- segundo corte bloquee los RPC privilegiados.
 
 select is(
   (
@@ -275,22 +279,15 @@ select is(
         'platform_create_company_invitation', 'platform_create_organization_unit'
       )
   ),
-  8,
-  'los ocho RPC sensibles llaman a la guarda de segundo factor'
+  0,
+  'el primer corte todavía no activa la guarda de segundo factor en los RPC'
 );
 
 set local role authenticated;
 set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000106';
-select throws_ok(
-  $$select public.platform_create_company('MFA Gate', 'mfa-gate-alpha')$$,
-  'P0001', 'Esta operación requiere verificación de segundo factor (MFA).',
-  'un ADMIN de plataforma en aal1 no puede crear una empresa'
-);
-
-set local request.jwt.claim.aal = 'aal2';
 select lives_ok(
   $$select public.platform_create_company('MFA Gate', 'mfa-gate-alpha')$$,
-  'el mismo ADMIN de plataforma sí puede cuando llega en aal2'
+  'un ADMIN de plataforma autorizado todavía opera en aal1 durante la inscripción'
 );
 
 -- El orden importa: la guarda de MFA va DESPUÉS de la de rol. Quien no está
