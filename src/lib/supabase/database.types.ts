@@ -2086,6 +2086,57 @@ export type Database = {
           },
         ]
       }
+      expense_assistant_queries: {
+        Row: {
+          actor_id: string
+          citation_count: number
+          company_id: string
+          created_at: string
+          id: string
+          intent: Database["public"]["Enums"]["expense_assistant_intent"]
+          result: Json
+          result_sha256: string
+          window_days: number
+        }
+        Insert: {
+          actor_id: string
+          citation_count: number
+          company_id: string
+          created_at?: string
+          id?: string
+          intent: Database["public"]["Enums"]["expense_assistant_intent"]
+          result: Json
+          result_sha256: string
+          window_days: number
+        }
+        Update: {
+          actor_id?: string
+          citation_count?: number
+          company_id?: string
+          created_at?: string
+          id?: string
+          intent?: Database["public"]["Enums"]["expense_assistant_intent"]
+          result?: Json
+          result_sha256?: string
+          window_days?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_assistant_queries_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_assistant_queries_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expense_audit_events: {
         Row: {
           actor_id: string | null
@@ -5889,6 +5940,7 @@ export type Database = {
         Args: { p_actor_id: string; p_company_id: string }
         Returns: undefined
       }
+      purge_expired_expense_assistant_queries: { Args: never; Returns: number }
       queue_expense_accounting_export: {
         Args: { p_company_id: string; p_report_id: string }
         Returns: string
@@ -6047,6 +6099,14 @@ export type Database = {
         Args: { p_company_id: string }
         Returns: string
       }
+      run_expense_readonly_assistant: {
+        Args: {
+          p_company_id: string
+          p_intent: Database["public"]["Enums"]["expense_assistant_intent"]
+          p_window_days?: number
+        }
+        Returns: string
+      }
       set_time_control_exemption: {
         Args: {
           p_actor_id: string
@@ -6109,6 +6169,10 @@ export type Database = {
         | "CANCELLED"
       expense_advance_status: "PENDING" | "SETTLED" | "CANCELLED"
       expense_approval_decision: "APPROVED" | "REJECTED" | "RETURNED"
+      expense_assistant_intent:
+        | "ACTION_REQUIRED"
+        | "SPEND_SUMMARY"
+        | "PAYMENT_STATUS"
       expense_bank_transaction_status: "UNMATCHED" | "MATCHED" | "IGNORED"
       expense_ocr_job_status:
         | "QUEUED"
@@ -6341,6 +6405,11 @@ export const Constants = {
       ],
       expense_advance_status: ["PENDING", "SETTLED", "CANCELLED"],
       expense_approval_decision: ["APPROVED", "REJECTED", "RETURNED"],
+      expense_assistant_intent: [
+        "ACTION_REQUIRED",
+        "SPEND_SUMMARY",
+        "PAYMENT_STATUS",
+      ],
       expense_bank_transaction_status: ["UNMATCHED", "MATCHED", "IGNORED"],
       expense_ocr_job_status: [
         "QUEUED",

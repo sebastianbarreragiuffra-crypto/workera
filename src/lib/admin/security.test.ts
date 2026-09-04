@@ -83,6 +83,7 @@ test("createAdminClient nunca se importa fuera de los límites server-only audit
       !f.includes(`${path.sep}lib${path.sep}expense-capture${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}expense-bank${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}expense-accounting${path.sep}`) &&
+      !f.includes(`${path.sep}lib${path.sep}expense-assistant${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}expense-email${path.sep}`) &&
       !f.includes(`${path.sep}lib${path.sep}expense-whatsapp${path.sep}`)
   );
@@ -148,6 +149,15 @@ test("el worker contable mantiene service_role detrás de un límite server-only
   for (const filePath of privileged) {
     assert.match(readFileSync(filePath, "utf8"), /import\s+["']server-only["']/, `${filePath} debe ser server-only`);
   }
+  const appFiles = listFilesRecursively(path.join(SRC_ROOT, "app"));
+  assert.deepEqual(appFiles.filter((filePath) => /createAdminClient/.test(readFileSync(filePath, "utf8"))), []);
+});
+
+test("la retención del asistente mantiene service_role detrás de un límite server-only", () => {
+  const assistantRoot = path.join(SRC_ROOT, "lib", "expense-assistant");
+  const privileged = listFilesRecursively(assistantRoot).filter((filePath) => /createAdminClient/.test(readFileSync(filePath, "utf8")));
+  assert.equal(privileged.length, 1, "debe existir un único punto de entrada privilegiado para la purga");
+  assert.match(readFileSync(privileged[0], "utf8"), /import\s+["']server-only["']/);
   const appFiles = listFilesRecursively(path.join(SRC_ROOT, "app"));
   assert.deepEqual(appFiles.filter((filePath) => /createAdminClient/.test(readFileSync(filePath, "utf8"))), []);
 });
