@@ -242,6 +242,24 @@ function minutesToExcelDuration(minutes: number): number {
 
 const BLOCK_ROWS = ["Asistencia", "Faltas", "Vacaciones", "Licencia", "Atrasos", "HH 50%", "HH 100%", "VIATICOS"] as const;
 const DURATION_ROWS = new Set<string>(["Atrasos", "HH 50%", "HH 100%"]);
+/** Filas que cuentan días. En la planilla de RRHH se ven como `1.00`, no como `1`. */
+const COUNT_ROWS = new Set<string>(["Asistencia", "Faltas", "Vacaciones", "Licencia"]);
+
+/**
+ * Formatos copiados del libro que usa RRHH.
+ *
+ * El archivo original no es consistente consigo mismo: algunas celdas de
+ * Atrasos quedaron con `[$-F400]h:mm:ss AM/PM`, que muestra dos minutos de
+ * atraso como "12:02:00 AM". Eso es un error de la planilla, no un formato a
+ * imitar, así que se toma la variante correcta, que es la mayoritaria.
+ *
+ * `h:mm:ss;@` en vez de `[h]:mm:ss`: son equivalentes bajo 24 horas, que es
+ * todo lo que puede acumular un atraso o una hora extra diaria, y es el que
+ * trae el libro real.
+ */
+const COUNT_FORMAT = "#,##0.00;[Red]#,##0.00";
+const DURATION_FORMAT = "h:mm:ss;@";
+const MONEY_FORMAT = '"$"#,##0';
 
 /** Columna donde arrancan los días: A=nombre, B=etiqueta, C=total. */
 const FIRST_DAY_COL = 3;
@@ -322,12 +340,18 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
       // Asistencia: días trabajados = hábiles del período menos vacaciones y
       // licencia, misma definición que la fórmula de la planilla original.
       if (label === "Asistencia") {
+        // Mismo cálculo que la fórmula que se escribe más abajo: hábiles menos
+        // FALTAS menos LICENCIA, que es lo que hace `=14-C16-C18` en el libro
+        // de RRHH. Antes acá se restaban vacaciones y licencia, así que el
+        // valor guardado y la fórmula daban números distintos en cuanto
+        // alguien tenía una falta: Excel recalcula al abrir y muestra uno,
+        // cualquier lector que no recalcule muestra el otro.
         const businessDays = days.filter((d) => !isWeekend(d) && !holidays.has(d));
-        const absent = businessDays.filter((d) => {
+        const discounted = businessDays.filter((d) => {
           const code = worker.days.get(d)?.statusCode ?? MISSING_STATUS_CODE;
-          return VACACIONES_CODES.has(code) || LICENCIA_CODES.has(code);
+          return FALTA_CODES.has(code) || LICENCIA_CODES.has(code);
         }).length;
-        line[2] = businessDays.length - absent;
+        line[2] = businessDays.length - discounted;
       } else if (label === "VIATICOS") {
         line[2] = 0;
       } else {
@@ -392,14 +416,25 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
     }
   }
 
-  // Formato de duración en las filas de tiempo (incluida su celda de total).
+  // Formato numérico de cada fila, incluida su celda de total. Las filas de
+  // conteo van con dos decimales y las de tiempo como duración, igual que el
+  // libro de RRHH: un total que sale "20" donde la planilla dice "20.00" es la
+  // diferencia que hace que las dos no se puedan comparar de un vistazo.
   for (let r = HEADER_ROWS; r < rows.length; r += 1) {
     const label = rows[r][1];
-    if (typeof label !== "string" || !DURATION_ROWS.has(label)) continue;
+    if (typeof label !== "string") continue;
+    const format = DURATION_ROWS.has(label)
+      ? DURATION_FORMAT
+      : COUNT_ROWS.has(label)
+        ? COUNT_FORMAT
+        : null;
+    if (!format) continue;
     for (let c = 2; c < FIRST_DAY_COL + days.length; c += 1) {
       const ref = XLSX.utils.encode_cell({ r, c });
       const target = sheet[ref];
-      if (target && typeof target.v === "number") target.z = "[h]:mm:ss";
+      // Las celdas diarias de Asistencia llevan el código de estado, que es
+      // texto: aplicarles un formato numérico no cambia nada y sería ruido.
+      if (target && typeof target.v === "number") target.z = format;
     }
   }
 
@@ -408,14 +443,28 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
   for (let workerIndex = 0; workerIndex < workers.length; workerIndex += 1) {
     const row = HEADER_ROWS + workerIndex * BLOCK_ROWS.length + BLOCK_ROWS.length - 1;
     const total = sheet[XLSX.utils.encode_cell({ r: row, c: 2 })];
-    if (total) total.z = '"$"#,##0';
+    if (total) total.z = MONEY_FORMAT;
   }
 
   sheet["!merges"] = merges;
-  sheet["!cols"] = [{ wch: 34 }, { wch: 12 }, { wch: 10 }, ...days.map(() => ({ wch: 5 }))];
+  // Anchos del libro de RRHH. La columna A queda en 17 y no en 34: con 34 los
+  // nombres entran completos, pero la planilla deja de verse igual y ese era
+  // el punto. Un nombre largo se recorta en pantalla, igual que hoy en el
+  // archivo que usan; el valor completo sigue en la celda.
+  sheet["!cols"] = [
+    { wch: 17.17 },
+    { wch: 11.5 },
+    { wch: 10.33 },
+    ...days.map(() => ({ wch: 7.33 })),
+  ];
   sheet["!freeze"] = { xSplit: 3, ySplit: HEADER_ROWS };
 
+  // El libro de RRHH nombra cada hoja por su mes, "NOV25". Se deriva del cierre
+  // del período, que es el mes al que se imputa la planilla.
+  const [endYear, endMonth] = period.endDate.split("-");
+  const sheetName = `${MONTH_SHORT[Number(endMonth) - 1]}${endYear.slice(2)}`;
+
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, sheet, "Asistencia");
+  XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
   return XLSX.write(workbook, { type: "array", bookType: "xlsx" }) as Uint8Array;
 }

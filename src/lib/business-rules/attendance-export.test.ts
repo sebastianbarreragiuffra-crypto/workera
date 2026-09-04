@@ -273,16 +273,44 @@ test("libro: Faltas / Vacaciones / Licencia marcan 1 en su día y totalizan en l
   assert.equal(rows[17][2], 2, "Licencia total cuenta L y L-M");
 });
 
-test("libro: Asistencia descuenta vacaciones y licencia de los días hábiles", async () => {
+test("libro: Asistencia descuenta faltas y licencia de los días hábiles", async () => {
   const rows = await buildSheet({
     employees: ONE_WORKER,
     statuses: [
-      { employee_id: "emp-1", work_date: "2026-08-18", code: "V" },
+      { employee_id: "emp-1", work_date: "2026-08-18", code: "F" },
       { employee_id: "emp-1", work_date: "2026-08-19", code: "L" },
     ],
   });
-  // 5 días hábiles - 1 vacaciones - 1 licencia = 3
+  // 5 días hábiles - 1 falta - 1 licencia = 3, igual que `=14-C16-C18` en el
+  // libro de RRHH: ahí la vacación no descuenta de Asistencia.
   assert.equal(rows[14][2], 3);
+});
+
+test("libro: el valor de Asistencia coincide con su propia fórmula", async () => {
+  // Antes no coincidían: el valor restaba vacaciones y la fórmula restaba
+  // faltas, así que bastaba una falta para que Excel mostrara un número y
+  // cualquier lector que no recalcule mostrara otro. Este caso los separa a
+  // propósito: una falta y una vacación, que es donde las dos definiciones
+  // divergen.
+  const bytes = buildAttendanceExportWorkbook(
+    await buildAttendanceExportData(
+      mockSupabase({
+        employees: ONE_WORKER,
+        statuses: [
+          { employee_id: "emp-1", work_date: "2026-08-17", code: "F" },
+          { employee_id: "emp-1", work_date: "2026-08-18", code: "V" },
+        ],
+      }),
+      "SUPER_ADMIN",
+      PERIOD
+    )
+  );
+  const wb = XLSX.read(bytes, { type: "array", cellNF: true });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const asistencia = sheet[XLSX.utils.encode_cell({ r: 14, c: 2 })];
+
+  assert.equal(asistencia.f, "5-C16-C18", "hábiles menos Faltas menos Licencia");
+  assert.equal(asistencia.v, 4, "5 hábiles - 1 falta - 0 licencia");
 });
 
 test("libro: las duraciones se guardan como fracción de día con formato h:mm:ss", async () => {
@@ -303,7 +331,38 @@ test("libro: las duraciones se guardan como fracción de día con formato h:mm:s
   // Fila 20 (0-indexada) = HH 50%; columna D = lunes 17.
   const cell = sheet[XLSX.utils.encode_cell({ r: 19, c: 3 })];
   assert.equal(cell.v, 120 / 1440, "2 horas = 1/12 de día");
-  assert.equal(cell.z, "[h]:mm:ss");
+  assert.equal(cell.z, "h:mm:ss;@", "el formato del libro de RRHH, no [h]:mm:ss");
+});
+
+test("libro: las filas de conteo llevan dos decimales, como la planilla de RRHH", async () => {
+  const bytes = buildAttendanceExportWorkbook(
+    await buildAttendanceExportData(
+      mockSupabase({
+        employees: ONE_WORKER,
+        statuses: [{ employee_id: "emp-1", work_date: "2026-08-17", code: "F" }],
+      }),
+      "SUPER_ADMIN",
+      PERIOD
+    )
+  );
+  const wb = XLSX.read(bytes, { type: "array", cellNF: true });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+
+  // Un total que sale "1" donde la planilla dice "1.00" es justo lo que impide
+  // comparar las dos de un vistazo.
+  for (const [row, label] of [[14, "Asistencia"], [15, "Faltas"], [16, "Vacaciones"], [17, "Licencia"]] as const) {
+    const total = sheet[XLSX.utils.encode_cell({ r: row, c: 2 })];
+    assert.equal(total.z, "#,##0.00;[Red]#,##0.00", `total de ${label}`);
+  }
+});
+
+test("libro: la hoja se llama por el mes de cierre del período, como NOV25", async () => {
+  const bytes = buildAttendanceExportWorkbook(
+    await buildAttendanceExportData(mockSupabase({ employees: ONE_WORKER }), "SUPER_ADMIN", PERIOD)
+  );
+  const wb = XLSX.read(bytes, { type: "array" });
+  // PERIOD cierra el 2026-08-23.
+  assert.deepEqual(wb.SheetNames, ["AGO26"]);
 });
 
 test("libro: sin trabajadores sigue generando un archivo válido con la cabecera", async () => {
