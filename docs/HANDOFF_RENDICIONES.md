@@ -200,6 +200,40 @@ y variables requeridas están documentadas en `docs/EXPENSE_EMAIL_CAPTURE.md`.
 La migración quedó aplicada y verificada en `arcotex-workera-staging`; el
 proveedor continúa deshabilitado hasta configurar dominio y secretos de Resend.
 
+## Fase 2, bloque 4 — recepción segura por WhatsApp
+
+Se conectó la bandeja al canal de WhatsApp Cloud API. El proveedor permanece
+**deshabilitado por defecto**: la verificación GET del callback funciona cuando
+los secretos están completos, pero ningún POST se procesa hasta activar el
+interruptor operativo.
+
+Cada persona genera desde la bandeja un código aleatorio de 96 bits, de un solo
+uso y con vencimiento de 10 minutos, y envía `VINCULAR <código>` al número
+empresarial. El número/`wa_id` real nunca se persiste; se guarda únicamente un
+HMAC-SHA256 con un secreto independiente. Un número solo puede apuntar a una
+persona/empresa a la vez y el vínculo se puede revocar. Membresía, módulo y
+permisos se vuelven a validar en cada mensaje.
+
+El webhook verifica `X-Hub-Signature-256` sobre el cuerpo crudo, limita el body a
+512 KiB y acepta únicamente eventos del `phone_number_id` configurado. Las URLs
+temporales de media deben usar HTTPS y uno de los hostnames exactos permitidos,
+sin redirecciones. Antes de almacenar se aplican timeout, límite de 10 MiB y
+validación conjunta de MIME y firma binaria.
+
+Un ledger con leases y tokens de fencing hace la ingesta idempotente y
+recuperable ante reintentos. Las cuotas durables limitan a 60 eventos y 100 MiB
+por persona/empresa/hora, compartiendo además el máximo de 50 comprobantes
+pendientes de la bandeja. Storage sigue siendo privado y las rutas incluyen
+empresa y usuario. El despliegue controlado y las variables están documentados
+en `docs/EXPENSE_WHATSAPP_CAPTURE.md`.
+
+La migración `20260904170000` y el test pgTAP `060` cubren privilegios, RLS,
+aislamiento, IDOR, código de un solo uso, revocación, reintentos, cuotas, Storage
+e idempotencia. Validación local aislada: reset completo, 60 suites pgTAP / 1.207
+aserciones, 750 tests de aplicación (748 aprobados y 2 opt-in omitidos),
+TypeScript, ESLint, lint de base, auditoría de dependencias y build de producción
+en verde. El canal todavía no fue aplicado ni activado en staging.
+
 ## Otros hallazgos ya cerrados (no rehacer)
 
 - ✅ Link faltante `(platform)` → Rendiciones — hecho (`a638eb5`).

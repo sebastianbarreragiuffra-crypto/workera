@@ -5,10 +5,12 @@ import {
   ExpenseCaptureDiscardForm,
   ExpenseCaptureUploadForms,
   ExpenseEmailConnectorCard,
+  ExpenseWhatsappConnectorCard,
 } from "@/components/expenses/ExpenseCaptureForms";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
 import { getExpenseReceiptInbox } from "@/lib/expenses/captures";
 import { getExpenseEmailConnector } from "@/lib/expenses/email-capture";
+import { getExpenseWhatsappConnector } from "@/lib/expenses/whatsapp-capture";
 import { createClient } from "@/lib/supabase/server";
 
 function captureDate(value: string): string {
@@ -35,9 +37,10 @@ export default async function ExpenseReceiptInboxPage({
   const context = await getExpenseCompanyContextFromClient(supabase, companySlug);
   if (!context?.canSubmit) notFound();
 
-  const [{ captures, draftItems }, emailConnector] = await Promise.all([
+  const [{ captures, draftItems }, emailConnector, whatsappConnector] = await Promise.all([
     getExpenseReceiptInbox(supabase, context),
     getExpenseEmailConnector(supabase, context),
+    getExpenseWhatsappConnector(supabase, context),
   ]);
   const base = `/empresas/${context.slug}/rendiciones`;
 
@@ -101,7 +104,7 @@ export default async function ExpenseReceiptInboxPage({
                     )}
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    {capture.source === "WEB_CAMERA" ? "Foto" : capture.source === "EMAIL" ? "Correo" : "Archivo"} · {fileSize(capture.fileSize)} · {captureDate(capture.createdAt)}
+                    {capture.source === "WEB_CAMERA" ? "Foto" : capture.source === "EMAIL" ? "Correo" : capture.source === "WHATSAPP" ? "WhatsApp" : "Archivo"} · {fileSize(capture.fileSize)} · {captureDate(capture.createdAt)}
                   </p>
                 </div>
                 <ExpenseCaptureDiscardForm companySlug={context.slug} captureId={capture.id} />
@@ -113,10 +116,7 @@ export default async function ExpenseReceiptInboxPage({
       </section>
 
       <ExpenseEmailConnectorCard companySlug={context.slug} {...emailConnector} />
-
-      <aside className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-700">
-        WhatsApp será el siguiente canal. Todavía no recibe mensajes ni archivos.
-      </aside>
+      <ExpenseWhatsappConnectorCard companySlug={context.slug} {...whatsappConnector} />
     </div>
   );
 }

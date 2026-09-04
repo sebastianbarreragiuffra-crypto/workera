@@ -2564,6 +2564,180 @@ export type Database = {
           },
         ]
       }
+      expense_receipt_whatsapp_events: {
+        Row: {
+          attempt_count: number
+          claim_token: string | null
+          company_id: string
+          completed_at: string | null
+          created_at: string
+          lease_expires_at: string | null
+          provider_message_hash: string
+          reserved_bytes: number
+          status: string
+          updated_at: string
+          usage_window_started_at: string
+          user_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          claim_token?: string | null
+          company_id: string
+          completed_at?: string | null
+          created_at?: string
+          lease_expires_at?: string | null
+          provider_message_hash: string
+          reserved_bytes?: number
+          status: string
+          updated_at?: string
+          usage_window_started_at: string
+          user_id: string
+        }
+        Update: {
+          attempt_count?: number
+          claim_token?: string | null
+          company_id?: string
+          completed_at?: string | null
+          created_at?: string
+          lease_expires_at?: string | null
+          provider_message_hash?: string
+          reserved_bytes?: number
+          status?: string
+          updated_at?: string
+          usage_window_started_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_receipt_whatsapp_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_whatsapp_events_company_id_user_id_fkey"
+            columns: ["company_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "company_memberships"
+            referencedColumns: ["company_id", "user_id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_whatsapp_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_receipt_whatsapp_links: {
+        Row: {
+          active: boolean
+          company_id: string
+          created_at: string
+          paired_at: string | null
+          pairing_expires_at: string | null
+          pairing_token_hash: string | null
+          updated_at: string
+          user_id: string
+          wa_id_hash: string | null
+        }
+        Insert: {
+          active?: boolean
+          company_id: string
+          created_at?: string
+          paired_at?: string | null
+          pairing_expires_at?: string | null
+          pairing_token_hash?: string | null
+          updated_at?: string
+          user_id: string
+          wa_id_hash?: string | null
+        }
+        Update: {
+          active?: boolean
+          company_id?: string
+          created_at?: string
+          paired_at?: string | null
+          pairing_expires_at?: string | null
+          pairing_token_hash?: string | null
+          updated_at?: string
+          user_id?: string
+          wa_id_hash?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_receipt_whatsapp_links_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_whatsapp_links_company_id_user_id_fkey"
+            columns: ["company_id", "user_id"]
+            isOneToOne: true
+            referencedRelation: "company_memberships"
+            referencedColumns: ["company_id", "user_id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_whatsapp_links_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_receipt_whatsapp_usage_windows: {
+        Row: {
+          company_id: string
+          event_count: number
+          reserved_bytes: number
+          updated_at: string
+          user_id: string
+          window_started_at: string
+        }
+        Insert: {
+          company_id: string
+          event_count?: number
+          reserved_bytes?: number
+          updated_at?: string
+          user_id: string
+          window_started_at: string
+        }
+        Update: {
+          company_id?: string
+          event_count?: number
+          reserved_bytes?: number
+          updated_at?: string
+          user_id?: string
+          window_started_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_receipt_whatsapp_usage_windows_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_whatsapp_usage_windows_company_id_user_id_fkey"
+            columns: ["company_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "company_memberships"
+            referencedColumns: ["company_id", "user_id"]
+          },
+          {
+            foreignKeyName: "expense_receipt_whatsapp_usage_windows_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expense_receipts: {
         Row: {
           checksum_sha256: string
@@ -4876,6 +5050,14 @@ export type Database = {
         Args: { p_capture_id: string; p_item_id: string }
         Returns: string
       }
+      begin_expense_receipt_whatsapp_pairing: {
+        Args: {
+          p_company_id: string
+          p_expires_at: string
+          p_token_hash: string
+        }
+        Returns: string
+      }
       can_manage_employee: { Args: { p_employee_id: string }; Returns: boolean }
       can_manage_platform: { Args: never; Returns: boolean }
       can_read_expense_capture_path: {
@@ -4929,6 +5111,24 @@ export type Database = {
           result: string
         }[]
       }
+      claim_expense_receipt_whatsapp_event: {
+        Args: {
+          p_actor_id: string
+          p_company_id: string
+          p_provider_message_hash: string
+        }
+        Returns: {
+          claim_token: string
+          result: string
+        }[]
+      }
+      claim_expense_receipt_whatsapp_pairing: {
+        Args: { p_token_hash: string; p_wa_id_hash: string }
+        Returns: {
+          company_id: string
+          user_id: string
+        }[]
+      }
       classify_overtime_type_id: {
         Args: { p_work_date: string }
         Returns: string
@@ -4960,6 +5160,15 @@ export type Database = {
           p_provider_email_id: string
         }
         Returns: undefined
+      }
+      complete_expense_receipt_whatsapp_event: {
+        Args: {
+          p_actor_id: string
+          p_claim_token: string
+          p_company_id: string
+          p_provider_message_hash: string
+        }
+        Returns: boolean
       }
       create_expense_report: {
         Args: {
@@ -4999,6 +5208,10 @@ export type Database = {
       discard_expense_receipt_capture: {
         Args: { p_actor_id: string; p_capture_id: string; p_company_id: string }
         Returns: string
+      }
+      disconnect_expense_receipt_whatsapp: {
+        Args: { p_company_id: string }
+        Returns: boolean
       }
       employee_belongs_to_active_company: {
         Args: { p_employee_id: string }
@@ -5296,6 +5509,20 @@ export type Database = {
         }
         Returns: string
       }
+      register_expense_receipt_whatsapp_capture: {
+        Args: {
+          p_actor_id: string
+          p_checksum_sha256: string
+          p_claim_token: string
+          p_company_id: string
+          p_file_size: number
+          p_mime_type: string
+          p_original_filename: string
+          p_provider_message_hash: string
+          p_storage_path: string
+        }
+        Returns: string
+      }
       register_inbound_expense_receipt_capture: {
         Args: {
           p_actor_id: string
@@ -5324,6 +5551,15 @@ export type Database = {
         }
         Returns: undefined
       }
+      release_expense_receipt_whatsapp_event: {
+        Args: {
+          p_actor_id: string
+          p_claim_token: string
+          p_company_id: string
+          p_provider_message_hash: string
+        }
+        Returns: boolean
+      }
       reserve_expense_receipt_email_bytes: {
         Args: {
           p_actor_id: string
@@ -5334,8 +5570,25 @@ export type Database = {
         }
         Returns: boolean
       }
+      reserve_expense_receipt_whatsapp_bytes: {
+        Args: {
+          p_actor_id: string
+          p_claim_token: string
+          p_company_id: string
+          p_provider_message_hash: string
+          p_reserved_bytes: number
+        }
+        Returns: boolean
+      }
       resolve_expense_receipt_email_alias: {
         Args: { p_alias_token: string }
+        Returns: {
+          company_id: string
+          user_id: string
+        }[]
+      }
+      resolve_expense_receipt_whatsapp_sender: {
+        Args: { p_wa_id_hash: string }
         Returns: {
           company_id: string
           user_id: string
