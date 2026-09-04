@@ -74,6 +74,12 @@ export function isAuthorizedExpenseAccountingCronRequest(request: NextRequest): 
   return isValidCronSecretHeader(request.headers.get("authorization"));
 }
 
+/** Mismo bypass acotado para la purga de historial del asistente. */
+export function isAuthorizedExpenseAssistantRetentionCronRequest(request: NextRequest): boolean {
+  if (request.method !== "GET" || request.nextUrl.pathname !== "/api/jobs/expense-assistant-retention") return false;
+  return isValidCronSecretHeader(request.headers.get("authorization"));
+}
+
 interface AuthClaimsResult {
   data: { claims: Record<string, unknown> } | null;
   error: { message: string } | null;
@@ -198,6 +204,7 @@ export async function updateSession(
     isAuthorizedWorkeraCronRequest(request)
     || isAuthorizedExpenseOcrCronRequest(request)
     || isAuthorizedExpenseAccountingCronRequest(request)
+    || isAuthorizedExpenseAssistantRetentionCronRequest(request)
   ) {
     return responseRef.current;
   }

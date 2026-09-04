@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   isApiPath,
   isAuthorizedExpenseAccountingCronRequest,
+  isAuthorizedExpenseAssistantRetentionCronRequest,
   isAuthorizedExpenseOcrCronRequest,
   isAuthorizedWorkeraCronRequest,
   isExternalWebhookRequest,
@@ -790,6 +791,53 @@ test("cron contable: el bypass llega al handler sin consultar una sesión humana
         cronRequest({
           header: `Bearer ${CRON_SECRET_FAKE}`,
           path: "/api/jobs/expense-accounting",
+        }),
+        () => ({
+          auth: {
+            async getClaims() {
+              reject(new Error("el bypass no debe consultar getClaims"));
+              return { data: null, error: { message: "unexpected" } };
+            },
+          },
+        })
+      ).then((response) => {
+        assert.equal(response.status, 200);
+        resolve();
+      }, reject);
+    });
+  });
+});
+
+test("cron de retención: solo GET exacto con Bearer correcto evita el guard de sesión", () => {
+  withCronSecret(CRON_SECRET_FAKE, () => {
+    const header = `Bearer ${CRON_SECRET_FAKE}`;
+    assert.equal(isAuthorizedExpenseAssistantRetentionCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-assistant-retention",
+    })), true);
+    assert.equal(isAuthorizedExpenseAssistantRetentionCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-assistant-retention/extra",
+    })), false);
+    assert.equal(isAuthorizedExpenseAssistantRetentionCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-assistant-retention",
+      method: "POST",
+    })), false);
+    assert.equal(isAuthorizedExpenseAssistantRetentionCronRequest(cronRequest({
+      header: "Bearer incorrecto",
+      path: "/api/jobs/expense-assistant-retention",
+    })), false);
+  });
+});
+
+test("cron de retención: el bypass llega al handler sin consultar una sesión humana", async () => {
+  await new Promise<void>((resolve, reject) => {
+    withCronSecret(CRON_SECRET_FAKE, () => {
+      updateSession(
+        cronRequest({
+          header: `Bearer ${CRON_SECRET_FAKE}`,
+          path: "/api/jobs/expense-assistant-retention",
         }),
         () => ({
           auth: {
