@@ -23,6 +23,11 @@ Confirmadas por el usuario e implementadas a nivel de base de datos, verificadas
 
 ## Reglas de negocio — todavía pendientes
 
+- `[USUARIO/PRODUCTO]` **Colación en la planilla de asistencia de RRHH**: el
+  archivo real muestra `Colación: 40 minutos` bajo el horario, pero el esquema no
+  almacena la duración ni define si depende de empresa, horario o trabajador.
+  RRHH debe confirmar el origen y si afecta fórmulas de jornada antes de la marcha
+  blanca. No hardcodear 40 minutos ni inferirlo desde el texto del horario.
 - `[USUARIO/PRODUCTO]` **Ciclo exacto de cierre mensual** (`ReportingPeriod`): duración/fecha de corte no confirmada. Gate D solo agregó que la recomputación del bono respeta `status='CLOSED'` (falla en vez de mutar) — el ciclo en sí sigue sin definir.
 - `[TÉCNICA]` **Bloqueo de cierre con revisiones semanales pendientes**: hoy es solo documentado (`docs/DATA_MODEL_PHASE2B.md` sección 24), no un trigger de base de datos — decisión técnica pendiente: ¿implementarlo como constraint duro o dejarlo como validación de aplicación? (Ver `docs/THREAT_MODEL.md` T-21.) No resuelto por Gate D.
 

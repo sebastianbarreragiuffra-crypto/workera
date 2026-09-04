@@ -298,15 +298,15 @@ Validación aislada de base para este cierre: reset completo y 71 suites pgTAP /
 esquema y se conservaron las nulabilidades reales que el generador no infiere en
 argumentos/retornos de funciones ni columnas completadas por triggers.
 
-Validación final de la rama después de las correcciones: 984 tests de aplicación
-(982 aprobados, 2 opt-in omitidos), 71 suites pgTAP / 1.540 aserciones, lint de
+Validación final de la rama después de las correcciones: 985 tests de aplicación
+(983 aprobados, 2 opt-in omitidos), 71 suites pgTAP / 1.540 aserciones, lint de
 base sin hallazgos, TypeScript, ESLint y build de producción en verde. La
 arquitectura y los bloqueos reales de lanzamiento están en
 `docs/TARGET_ARCHITECTURE_PHASES_2_6.md`.
 
 ## Integración MFA/AAL2 — 4 de septiembre de 2026
 
-La rama fue rebasada sobre `master` (`6a92387`) para incorporar TOTP, AAL2,
+La rama fue rebasada sobre `master` (`6cd81aa`) para incorporar TOTP, AAL2,
 bitácora y hardening de autorizaciones sin perder las fases 2–6. La integración
 detectó que la migración MFA `20260904120000` había reproducido una versión
 anterior de `platform_set_company_module_status()` y reintroducido el caso
