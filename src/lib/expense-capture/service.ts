@@ -133,6 +133,57 @@ export async function storeInboundExpenseCapture(
   return { ok: true, duplicate };
 }
 
+export async function storeWhatsappExpenseCapture(
+  input: ExpenseFileInput & {
+    providerMessageHash: string;
+    claimToken: string;
+  }
+): Promise<InboundExpenseFileStoreResult> {
+  const admin = createAdminClient();
+  const { data: existing, error: existingError } = await admin
+    .from("expense_receipt_captures")
+    .select("id")
+    .eq("company_id", input.companyId)
+    .eq("source", "WHATSAPP")
+    .eq("external_message_id", input.providerMessageHash)
+    .maybeSingle();
+  if (existingError) return { ok: false, reason: "REGISTER" };
+  if (existing) return { ok: true, duplicate: true };
+
+  const objectId = randomUUID();
+  const storagePath = `${input.companyId}/${input.actorId}/inbox/${objectId}.${input.extension}`;
+  if (!await uploadPrivateObject(storagePath, input)) return { ok: false, reason: "STORAGE" };
+
+  const { data: captureId, error } = await admin.rpc("register_expense_receipt_whatsapp_capture", {
+    p_actor_id: input.actorId,
+    p_company_id: input.companyId,
+    p_storage_path: storagePath,
+    p_original_filename: input.originalFilename,
+    p_mime_type: input.mimeType,
+    p_file_size: input.bytes.byteLength,
+    p_checksum_sha256: checksum(input.bytes),
+    p_provider_message_hash: input.providerMessageHash,
+    p_claim_token: input.claimToken,
+  });
+  if (error || !captureId) {
+    await cleanupIfUnregistered(storagePath);
+    return { ok: false, reason: error?.code === "54000" ? "LIMIT" : "REGISTER" };
+  }
+
+  const { data: registered, error: registeredError } = await admin
+    .from("expense_receipt_captures")
+    .select("storage_path")
+    .eq("id", captureId)
+    .single();
+  if (registeredError || !registered) {
+    await cleanupIfUnregistered(storagePath);
+    return { ok: false, reason: "REGISTER" };
+  }
+  const duplicate = registered.storage_path !== storagePath;
+  if (duplicate) await cleanupIfUnregistered(storagePath);
+  return { ok: true, duplicate };
+}
+
 export async function storeExpenseReceipt(
   input: ExpenseFileInput & { reportId: string; itemId: string }
 ): Promise<ExpenseFileStoreResult> {

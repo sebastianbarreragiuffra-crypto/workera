@@ -54,6 +54,7 @@ const SERVICE_ROLE_DIRECTORIES = [
   "expense-ocr",
   "expense-capture",
   "expense-email",
+  "expense-whatsapp",
 ];
 
 test("los límites que usan privilegios administrativos declaran server-only", () => {
@@ -145,6 +146,13 @@ test("el límite privilegiado de comprobantes es server-only y ninguna acción o
 test("el conector privilegiado de correo es server-only", () => {
   const emailRoot = path.join(SRC_ROOT, "lib", "expense-email");
   for (const filePath of listFilesRecursively(emailRoot)) {
+    assert.match(readFileSync(filePath, "utf8"), /import\s+["']server-only["']/, `${filePath} debe ser server-only`);
+  }
+});
+
+test("el conector privilegiado de WhatsApp es server-only", () => {
+  const whatsappRoot = path.join(SRC_ROOT, "lib", "expense-whatsapp");
+  for (const filePath of listFilesRecursively(whatsappRoot)) {
     assert.match(readFileSync(filePath, "utf8"), /import\s+["']server-only["']/, `${filePath} debe ser server-only`);
   }
 });

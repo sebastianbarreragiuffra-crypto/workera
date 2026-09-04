@@ -6,6 +6,7 @@ import {
   attachExpenseReceiptCaptureAction,
   captureExpenseReceiptAction,
   configureExpenseReceiptEmailAction,
+  configureExpenseReceiptWhatsappAction,
   discardExpenseReceiptCaptureAction,
   type ExpenseActionState,
 } from "@/app/(expenses)/empresas/[companySlug]/rendiciones/actions";
@@ -172,6 +173,58 @@ export function ExpenseEmailConnectorCard({
       </div>
       <div className="mt-3"><Feedback state={state} /></div>
       {address && <p className="mt-2 text-[11px] text-blue-700">No publiques esta dirección. Si se filtra, reemplázala para invalidar la anterior.</p>}
+    </section>
+  );
+}
+
+export function ExpenseWhatsappConnectorCard({
+  companySlug,
+  configured,
+  enabled,
+  paired,
+  businessNumber,
+}: {
+  companySlug: string;
+  configured: boolean;
+  enabled: boolean;
+  paired: boolean;
+  businessNumber: string | null;
+}) {
+  const [state, action] = useActionState(configureExpenseReceiptWhatsappAction, INITIAL_STATE);
+  return (
+    <section className="rounded-xl border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm text-emerald-950">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold">Recibir comprobantes por WhatsApp</p>
+          {!configured ? (
+            <p className="mt-1 text-emerald-800">El administrador todavía debe conectar un número de WhatsApp Business.</p>
+          ) : paired ? (
+            <p className="mt-1 text-emerald-800">Número personal vinculado. Las fotos y PDF enviados a {businessNumber} aparecerán en esta bandeja.</p>
+          ) : (
+            <p className="mt-1 text-emerald-800">Vincula tu WhatsApp con un código temporal; el número real no se guarda en GESTORA.</p>
+          )}
+          {configured && !enabled && (
+            <p className="mt-2 text-xs text-emerald-800">El canal está configurado, pero permanece pausado por seguridad.</p>
+          )}
+          {state.pairingCode && state.pairingUrl && (
+            <div className="mt-3 rounded-lg border border-emerald-200 bg-white p-3">
+              <p className="text-xs text-slate-600">Envía este mensaje dentro de 10 minutos:</p>
+              <code className="mt-1 block select-all font-mono text-sm font-semibold text-slate-950">VINCULAR {state.pairingCode}</code>
+              <a href={state.pairingUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700">
+                Abrir WhatsApp
+              </a>
+            </div>
+          )}
+        </div>
+        {configured && (enabled || paired) && (
+          <form action={action} className="shrink-0 space-y-2">
+            <input type="hidden" name="companySlug" value={companySlug} />
+            <input type="hidden" name="intent" value={paired ? "disconnect" : "pair"} />
+            <PendingButton tone={paired ? "danger" : "primary"}>{paired ? "Desvincular" : "Vincular WhatsApp"}</PendingButton>
+          </form>
+        )}
+      </div>
+      <div className="mt-3"><Feedback state={state} /></div>
     </section>
   );
 }
