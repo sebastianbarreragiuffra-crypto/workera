@@ -511,3 +511,151 @@ test("cron: middleware y route handler comparten la MISMA decisión", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Gate de MFA (etapa E de docs/MFA_DESIGN.md).
+
+interface MfaFactoryOptions {
+  aal?: string;
+  requiresMfa?: boolean | null;
+  rpcError?: { message: string } | null;
+  /** Simula un cliente que no sabe responder la consulta del gate. */
+  withoutRpc?: boolean;
+}
+
+function mfaFactory(options: MfaFactoryOptions, rpcCalls: { count: number }) {
+  const auth = {
+    async getClaims() {
+      return {
+        data: { claims: { sub: "user-1", ...(options.aal ? { aal: options.aal } : {}) } },
+        error: null,
+      };
+    },
+  };
+  const rpc = async () => {
+    rpcCalls.count += 1;
+    return { data: options.requiresMfa ?? null, error: options.rpcError ?? null };
+  };
+  return () => (options.withoutRpc ? { auth } : { auth, rpc });
+}
+
+/**
+ * `await run()` y no `return run()`: el gate lee la variable en medio de una
+ * cadena asíncrona, así que restaurarla al salir de una función síncrona la
+ * dejaba en su valor original antes de que el middleware llegara a mirarla.
+ */
+async function withEnforcement<T>(value: string | undefined, run: () => Promise<T>): Promise<T> {
+  const previous = process.env.MFA_ENFORCEMENT_ENABLED;
+  if (value === undefined) delete process.env.MFA_ENFORCEMENT_ENABLED;
+  else process.env.MFA_ENFORCEMENT_ENABLED = value;
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) delete process.env.MFA_ENFORCEMENT_ENABLED;
+    else process.env.MFA_ENFORCEMENT_ENABLED = previous;
+  }
+}
+
+test("el flag apagado deja todo exactamente como antes y ni siquiera consulta el gate", async () => {
+  const rpcCalls = { count: 0 };
+  const response = await withEnforcement("false", () =>
+    updateSession(makeRequest("/dashboard"), mfaFactory({ aal: "aal1", requiresMfa: true }, rpcCalls))
+  );
+  assert.equal(response.status, 200);
+  assert.equal(rpcCalls.count, 0, "con el flag apagado no se consulta la base");
+});
+
+test("una variable ausente equivale a apagado: el bloqueo nunca se activa solo", async () => {
+  const rpcCalls = { count: 0 };
+  const response = await withEnforcement(undefined, () =>
+    updateSession(makeRequest("/dashboard"), mfaFactory({ aal: "aal1", requiresMfa: true }, rpcCalls))
+  );
+  assert.equal(response.status, 200);
+  assert.equal(rpcCalls.count, 0);
+});
+
+test("con el flag activo, una cuenta privilegiada en aal1 rebota a /seguridad/mfa", async () => {
+  const rpcCalls = { count: 0 };
+  const response = await withEnforcement("true", () =>
+    updateSession(makeRequest("/dashboard"), mfaFactory({ aal: "aal1", requiresMfa: true }, rpcCalls))
+  );
+  assert.equal(response.status, 307);
+  assert.equal(new URL(response.headers.get("location")!).pathname, "/seguridad/mfa");
+  assert.equal(rpcCalls.count, 1);
+});
+
+test("una cuenta que no exige MFA sigue navegando normalmente", async () => {
+  const rpcCalls = { count: 0 };
+  const response = await withEnforcement("true", () =>
+    updateSession(makeRequest("/dashboard"), mfaFactory({ aal: "aal1", requiresMfa: false }, rpcCalls))
+  );
+  assert.equal(response.status, 200);
+});
+
+test("una sesión ya en aal2 pasa sin consultar la base", async () => {
+  const rpcCalls = { count: 0 };
+  const response = await withEnforcement("true", () =>
+    updateSession(makeRequest("/dashboard"), mfaFactory({ aal: "aal2", requiresMfa: true }, rpcCalls))
+  );
+  assert.equal(response.status, 200);
+  assert.equal(rpcCalls.count, 0, "tras el rollout la mayoría de los requests no debe pagar una consulta");
+});
+
+test("las rutas permitidas en aal1 son alcanzables y no gatillan la consulta", async () => {
+  for (const path of ["/seguridad/mfa", "/login", "/login/mfa", "/auth/callback"]) {
+    const rpcCalls = { count: 0 };
+    const response = await withEnforcement("true", () =>
+      updateSession(makeRequest(path), mfaFactory({ aal: "aal1", requiresMfa: true }, rpcCalls))
+    );
+    assert.equal(response.status, 200, `${path} debe ser alcanzable en aal1`);
+    assert.equal(rpcCalls.count, 0, `${path} no debe consultar el gate`);
+  }
+});
+
+test("una llamada de API recibe 403 mfa_required, no un redirect HTML", async () => {
+  const rpcCalls = { count: 0 };
+  const response = await withEnforcement("true", () =>
+    updateSession(makeRequest("/api/algo"), mfaFactory({ aal: "aal1", requiresMfa: true }, rpcCalls))
+  );
+  assert.equal(response.status, 403);
+  assert.deepEqual(await response.json(), { error: "mfa_required" });
+});
+
+test("si la consulta del gate falla, se cierra: no se deja pasar por las dudas", async () => {
+  const rpcCalls = { count: 0 };
+  const response = await withEnforcement("true", () =>
+    updateSession(
+      makeRequest("/dashboard"),
+      mfaFactory({ aal: "aal1", rpcError: { message: "connection refused" } }, rpcCalls)
+    )
+  );
+  assert.equal(response.status, 307);
+  assert.equal(new URL(response.headers.get("location")!).pathname, "/seguridad/mfa");
+});
+
+test("un cliente que no sabe responder el gate también cierra", async () => {
+  const rpcCalls = { count: 0 };
+  const response = await withEnforcement("true", () =>
+    updateSession(makeRequest("/dashboard"), mfaFactory({ aal: "aal1", withoutRpc: true }, rpcCalls))
+  );
+  assert.equal(response.status, 307);
+  assert.equal(new URL(response.headers.get("location")!).pathname, "/seguridad/mfa");
+});
+
+test("una sesión sin claim de nivel se trata como aal1", async () => {
+  const rpcCalls = { count: 0 };
+  const response = await withEnforcement("true", () =>
+    updateSession(makeRequest("/dashboard"), mfaFactory({ requiresMfa: true }, rpcCalls))
+  );
+  assert.equal(response.status, 307);
+  assert.equal(rpcCalls.count, 1);
+});
+
+test("el gate no cambia el destino de quien no tiene sesión: sigue yendo al login", async () => {
+  const callCount = { count: 0 };
+  const response = await withEnforcement("true", () =>
+    updateSession(makeRequest("/dashboard"), unauthenticatedFactory(callCount))
+  );
+  assert.equal(response.status, 307);
+  assert.equal(new URL(response.headers.get("location")!).pathname, "/login");
+});
