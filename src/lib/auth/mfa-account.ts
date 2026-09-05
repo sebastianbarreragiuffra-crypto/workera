@@ -9,15 +9,14 @@ import type { Database } from "../supabase/database.types";
 import { isMfaEnforcementEnabled } from "../supabase/middleware";
 import {
   postLoginDestination,
-  profileRequiresMfa,
-  type AppRole,
-  type PlatformRole,
   type PostLoginDestination,
 } from "./mfa";
 
+type PlatformRole = Database["public"]["Enums"]["platform_role"];
+
 export interface MfaAccountState {
   userId: string;
-  /** Espejo de `account_requires_mfa`; la autoridad sigue siendo la base. */
+  /** Resultado de `session_requires_mfa`; la base es la única autoridad. */
   requiresMfa: boolean;
   /** Permite recomendar un autenticador de respaldo al OWNER de plataforma. */
   isPlatformOwner: boolean;
@@ -96,9 +95,10 @@ export async function getVerifiedMfaSessionState(
 }
 
 /**
- * Estado de segundo factor de la sesión actual, leído con el cliente ligado a
- * cookies y por lo tanto sujeto a RLS: una cuenta solo ve su propio profile y
- * su propia membresía de plataforma.
+ * Estado de segundo factor de la sesión actual. La obligación se consulta en
+ * la autoridad SQL para no duplicar una lista de roles en TypeScript. El
+ * alcance vigente cubre privilegios de plataforma y roles laborales legacy;
+ * los roles RBAC tenant se incorporarán solo junto a sus guardas backend.
  */
 export async function getMfaAccountState(
   supabase: SupabaseClient<Database>
@@ -110,33 +110,38 @@ export async function getMfaAccountState(
     return null;
   }
 
-  const [profileResult, membershipResult] = await Promise.all([
-    supabase.from("profiles").select("role, active").eq("id", userId).maybeSingle(),
+  const [profileResult, membershipResult, requirementResult] = await Promise.all([
+    supabase.from("profiles").select("active").eq("id", userId).maybeSingle(),
     supabase
       .from("platform_memberships")
       .select("role, active")
       .eq("user_id", userId)
       .eq("active", true)
       .maybeSingle(),
+    supabase.rpc("session_requires_mfa"),
   ]);
 
-  if (profileResult.error || membershipResult.error || !profileResult.data) {
+  if (
+    profileResult.error
+    || membershipResult.error
+    || requirementResult.error
+    || !profileResult.data
+    || !profileResult.data.active
+    || typeof requirementResult.data !== "boolean"
+  ) {
     throw new MfaStateUnavailableError();
   }
 
-  const profile = {
-    role: profileResult.data.role as AppRole | null,
-    active: profileResult.data.active,
-  };
   const platformMembership = membershipResult.data
     ? { role: membershipResult.data.role as PlatformRole, active: membershipResult.data.active }
     : null;
 
   return {
     userId,
-    requiresMfa: profileRequiresMfa({ profile, platformMembership }),
+    requiresMfa: requirementResult.data,
     isPlatformOwner:
-      profile.active && platformMembership?.role === "OWNER" && platformMembership.active,
+      platformMembership?.role === "OWNER"
+      && platformMembership.active,
   };
 }
 

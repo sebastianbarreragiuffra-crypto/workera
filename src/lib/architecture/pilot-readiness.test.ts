@@ -40,6 +40,7 @@ test("ningún alcance con datos reales omite MFA, backup, observabilidad o acept
     const required = new Set(evaluateReadiness(stageId).requiredGates.map((gate) => gate.id));
     for (const gate of [
       "HOSTED_MFA_ROLLOUT",
+      "OWNER_RECOVERY_DRILL",
       "BACKUP_RESTORE_DRILL",
       "HOSTED_OBSERVABILITY",
       "DAST_AND_PENTEST",

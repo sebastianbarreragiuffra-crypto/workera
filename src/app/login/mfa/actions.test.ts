@@ -49,7 +49,8 @@ test("el login ya no entra directo: resuelve el destino según el estado de MFA"
   const body = source.slice(loginStart, loginEnd === -1 ? undefined : loginEnd);
 
   assert.match(body, /resolvePostLoginDestination\(supabase\)/);
-  assert.match(body, /redirect\(destination\)/);
+  assert.match(body, /requestedDestination/);
+  assert.match(body, /encodeURIComponent\(requestedDestination\)/);
   assert.doesNotMatch(body, /redirect\("\/"\)/, "el login no debe volver a redirigir siempre a la raíz");
 });
 

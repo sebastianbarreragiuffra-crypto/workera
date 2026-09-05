@@ -5,6 +5,7 @@ import { MfaLoadError } from "@/components/auth/MfaLoadError";
 import { MfaSignOut } from "@/components/auth/MfaSignOut";
 import { getMfaAccountState, getVerifiedMfaSessionState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
+import { AUTH_FLOW_PATHS, safeInternalDestination } from "@/lib/auth/public-origin";
 
 export const metadata = {
   title: "Verificación en dos pasos — GESTORA",
@@ -17,7 +18,9 @@ export const metadata = {
  * alcanzable directamente, así que tiene que decidir por sí misma y no confiar
  * en que se llegó desde el formulario de login.
  */
-export default async function LoginMfaPage() {
+export default async function LoginMfaPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  const requestedNext = safeInternalDestination((await searchParams).next ?? null, "/", AUTH_FLOW_PATHS);
+  const retryHref: `/login/mfa?next=${string}` = `/login/mfa?next=${encodeURIComponent(requestedNext)}`;
   const supabase = await createClient();
   let account;
   try {
@@ -29,7 +32,7 @@ export default async function LoginMfaPage() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center bg-login-background px-6 py-12">
         <div className="w-full max-w-sm">
-          <MfaLoadError retryHref="/login/mfa" />
+          <MfaLoadError retryHref={retryHref} />
         </div>
       </main>
     );
@@ -44,12 +47,12 @@ export default async function LoginMfaPage() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center bg-login-background px-6 py-12">
         <div className="w-full max-w-sm">
-          <MfaLoadError retryHref="/login/mfa" />
+          <MfaLoadError retryHref={retryHref} />
         </div>
       </main>
     );
   }
-  if (mfaSession.currentLevel === "aal2") redirect("/");
+  if (mfaSession.currentLevel === "aal2") redirect(requestedNext);
 
   const verifiedFactors: MfaChallengeFactor[] = (mfaSession.factors.totp ?? []).map((factor) => ({
     id: factor.id,
@@ -58,7 +61,7 @@ export default async function LoginMfaPage() {
 
   // Sin ningún factor verificado no hay nada que desafiar: lo que corresponde
   // es inscribir uno.
-  if (verifiedFactors.length === 0) redirect("/seguridad/mfa");
+  if (verifiedFactors.length === 0) redirect(`/seguridad/mfa?next=${encodeURIComponent(requestedNext)}`);
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-login-background px-6 py-12">
@@ -74,7 +77,7 @@ export default async function LoginMfaPage() {
           </p>
 
           <div className="mt-6">
-            <MfaChallenge factors={verifiedFactors} />
+            <MfaChallenge factors={verifiedFactors} next={requestedNext} />
           </div>
 
           <div className="mt-6 flex justify-center border-t border-login-border-soft pt-4">

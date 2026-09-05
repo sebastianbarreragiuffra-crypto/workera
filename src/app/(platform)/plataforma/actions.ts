@@ -32,6 +32,11 @@ const managementRoleInput = z.object({
   membershipId: uuid,
   roleId: uuid,
 });
+const membershipStatusInput = z.object({
+  companyId: uuid,
+  membershipId: uuid,
+  active: z.enum(["true", "false"]).transform((value) => value === "true"),
+});
 const moduleStatusInput = z.object({
   companyId: uuid,
   moduleKey: z.string().regex(/^[a-z][a-z0-9_]*$/).max(64),
@@ -48,6 +53,7 @@ const invitationInput = z.object({
   roleId: uuid,
 });
 const resendInvitationInput = z.object({ companyId: uuid, invitationId: uuid });
+const revokeInvitationInput = z.object({ companyId: uuid, invitationId: uuid });
 const mfaResetInput = z.object({ userId: uuid });
 const organizationInput = z.object({
   companyId: uuid,
@@ -134,7 +140,15 @@ async function deliverAndRecord(
     p_delivery_status: result.status,
     ...(result.status === "FAILED" ? { p_error_code: result.errorCode } : {}),
   });
-  if (error) console.error("[platform] invitation delivery status failed", error.code ?? "unknown");
+  if (error) {
+    console.error("[platform] invitation delivery status failed", error.code ?? "unknown");
+    return {
+      status: "warning",
+      message: result.status === "FAILED"
+        ? "El correo no pudo enviarse y tampoco pudimos registrar el intento. Reintenta cuando el servicio esté disponible."
+        : "El correo fue procesado, pero no pudimos registrar su entrega. Comprueba con la persona antes de reenviarlo para evitar duplicados.",
+    };
+  }
   return deliveryState(result);
 }
 
@@ -146,8 +160,16 @@ function failure(operation: string, error: unknown): PlatformActionState {
     return { status: "error", message: "Tu rol no permite realizar esta acción." };
   }
   const mutationError = error as SupabaseMutationError;
+  if (mutationError?.code === "P0004") {
+    return { status: "error", message: "Esta persona ya es miembro activo de la empresa. Cambia su rol desde la lista de miembros." };
+  }
   if (mutationError?.code === "23505") {
-    return { status: "error", message: "Ya existe un registro con esos datos." };
+    return {
+      status: "error",
+      message: operation === "create invitation"
+        ? "Ya existe una invitación pendiente con esos datos. Usa Reenviar; el rol vigente no fue modificado."
+        : "Ya existe un registro con esos datos.",
+    };
   }
   console.error(`[platform] ${operation} failed`, error instanceof Error ? error.message : mutationError?.code ?? "unknown");
   return { status: "error", message: "No pudimos guardar el cambio. Intenta nuevamente." };
@@ -213,21 +235,8 @@ export async function inviteCompanyMemberAction(
       p_email: parsed.data.email,
       p_role_id: parsed.data.roleId,
     });
-    let invitationId = data;
-    if (error?.code === "23505") {
-      const existing = await supabase
-        .from("company_invitations")
-        .select("id")
-        .eq("company_id", parsed.data.companyId)
-        .eq("email", parsed.data.email)
-        .eq("status", "PENDING")
-        .gt("expires_at", new Date().toISOString())
-        .maybeSingle();
-      if (existing.error) throw existing.error;
-      invitationId = existing.data?.id ?? null;
-    } else if (error) {
-      throw error;
-    }
+    if (error) throw error;
+    const invitationId = data;
     if (!invitationId) throw new Error("No se obtuvo el identificador de la invitación.");
     const result = await deliverAndRecord(supabase, invitationId, parsed.data.email);
     revalidatePlatformCompanyPages();
@@ -267,6 +276,31 @@ export async function resendCompanyInvitationAction(
   }
 }
 
+export async function revokeCompanyInvitationAction(
+  _previousState: PlatformActionState,
+  formData: FormData
+): Promise<PlatformActionState> {
+  const parsed = revokeInvitationInput.safeParse(fields(formData));
+  if (!parsed.success) return failedValidation();
+  try {
+    const supabase = await guardedPlatformClient({
+      // La cuota de operaciones sobre una invitación existente agrupa reenvío
+      // y revocación; el RPC de negocio conserva la auditoría específica.
+      scope: "platform.invitation.resend",
+      companyId: parsed.data.companyId,
+      resourceId: parsed.data.invitationId,
+    });
+    const { error } = await supabase.rpc("platform_revoke_company_invitation", {
+      p_invitation_id: parsed.data.invitationId,
+    });
+    if (error) throw error;
+    revalidatePlatformCompanyPages();
+    return { status: "success", message: "Invitación revocada. Ya puedes crear otra con el correo o rol correcto." };
+  } catch (error) {
+    return failure("revoke invitation", error);
+  }
+}
+
 export async function assignCompanyRoleAction(
   _previousState: PlatformActionState,
   formData: FormData
@@ -288,6 +322,37 @@ export async function assignCompanyRoleAction(
     return { status: "success", message: "Rol actualizado." };
   } catch (error) {
     return failure("assign company role", error);
+  }
+}
+
+export async function setCompanyMembershipActiveAction(
+  _previousState: PlatformActionState,
+  formData: FormData
+): Promise<PlatformActionState> {
+  const parsed = membershipStatusInput.safeParse(fields(formData));
+  if (!parsed.success) return failedValidation();
+  try {
+    const supabase = await guardedPlatformClient({
+      // Misma cuota por miembro que la asignación de rol; el evento de negocio
+      // diferencia claramente la baja o reactivación.
+      scope: "platform.role.assign",
+      companyId: parsed.data.companyId,
+      resourceId: parsed.data.membershipId,
+    });
+    const { error } = await supabase.rpc("platform_set_company_membership_active", {
+      p_membership_id: parsed.data.membershipId,
+      p_active: parsed.data.active,
+    });
+    if (error) throw error;
+    revalidatePlatformCompanyPages();
+    return {
+      status: "success",
+      message: parsed.data.active
+        ? "Acceso empresarial reactivado."
+        : "Acceso empresarial retirado; sus roles quedaron preservados para una eventual reactivación.",
+    };
+  } catch (error) {
+    return failure("change company membership status", error);
   }
 }
 

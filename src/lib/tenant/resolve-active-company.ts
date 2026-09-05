@@ -3,29 +3,24 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 
 /**
- * GESTORA — resolver de tenant activo (MT-1/MT-2, fundación mínima).
+ * GESTORA — resolver único de empresas accesibles para la sesión.
  *
  * auth.uid() -> membresías activas (en empresas activas) -> 0/1/N.
  *
- * IMPORTANTE -- este módulo NO está conectado a ningún gate de autorización
- * real todavía: `(app)/layout.tsx`, `authorize.ts` y todos los view-models
- * existentes siguen usando exclusivamente `profiles.role` (el modelo
- * ACTIVO). Este archivo prueba que el modelo OBJETIVO (companies +
- * company_memberships) es resolvible de forma segura, para que una fase
- * futura (MT-3+) pueda migrar la autorización real sin rediseñar esto de
- * nuevo. Ningún llamador existente importa este archivo.
- *
- * Esta versión enumera únicamente las membresías autorizadas. El selector de
- * workspace de MT-3D podrá recibir una empresa elegida en URL/cookie, pero
- * tendrá que contrastarla nuevamente contra esta lista y RLS; la selección
- * nunca será autorización por sí sola.
+ * Enumera la identidad tenant aunque el workspace laboral legacy esté
+ * bloqueado. `workspaceEnabled` solo gobierna asistencia/RRHH; no determina
+ * si la empresa existe ni si puede usar módulos independientes como gastos.
+ * La selección nunca es autorización por sí sola: cada módulo vuelve a
+ * validar membresía, permisos y estado mediante RLS/RPC.
  */
 
 export interface CompanyMembershipSummary {
   companyId: string;
   companyName: string;
   companySlug: string;
-  role: Database["public"]["Enums"]["app_role"];
+  legacyRole: Database["public"]["Enums"]["app_role"] | null;
+  status: Database["public"]["Enums"]["company_lifecycle_status"];
+  workspaceEnabled: boolean;
 }
 
 export type ActiveCompanyResolution =
@@ -41,9 +36,16 @@ export type ActiveCompanyResolution =
  * la policy `companies_select_member`, no por esta consulta -- doble capa.
  */
 export async function resolveActiveCompany(supabase: SupabaseClient<Database>): Promise<ActiveCompanyResolution> {
+  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims?.sub;
+  if (claimsError || typeof userId !== "string" || userId.length === 0) {
+    return { kind: "NONE" };
+  }
+
   const { data, error } = await supabase
     .from("company_memberships")
-    .select("company_id, role, companies!company_memberships_company_id_fkey(name, slug, active, workspace_enabled)")
+    .select("company_id, role, companies!company_memberships_company_id_fkey(name, slug, active, status, workspace_enabled)")
+    .eq("user_id", userId)
     .eq("active", true);
 
   if (error) throw new Error(`resolveActiveCompany: fallo leyendo company_memberships: ${error.message}`);
@@ -51,12 +53,19 @@ export async function resolveActiveCompany(supabase: SupabaseClient<Database>): 
   const memberships: CompanyMembershipSummary[] = (data ?? [])
     .map((row) => {
       const company = row.companies as
-        | { name: string; slug: string; active: boolean; workspace_enabled: boolean }
-        | { name: string; slug: string; active: boolean; workspace_enabled: boolean }[]
+        | { name: string; slug: string; active: boolean; status: Database["public"]["Enums"]["company_lifecycle_status"]; workspace_enabled: boolean }
+        | { name: string; slug: string; active: boolean; status: Database["public"]["Enums"]["company_lifecycle_status"]; workspace_enabled: boolean }[]
         | null;
       const resolved = Array.isArray(company) ? company[0] : company;
-      if (!resolved?.active || !resolved.workspace_enabled) return null;
-      return { companyId: row.company_id, companyName: resolved.name, companySlug: resolved.slug, role: row.role };
+      if (!resolved?.active || !["ACTIVE", "ONBOARDING"].includes(resolved.status)) return null;
+      return {
+        companyId: row.company_id,
+        companyName: resolved.name,
+        companySlug: resolved.slug,
+        legacyRole: row.role,
+        status: resolved.status,
+        workspaceEnabled: resolved.workspace_enabled,
+      };
     })
     .filter((m): m is CompanyMembershipSummary => m !== null);
 

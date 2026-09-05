@@ -33,7 +33,8 @@ test("la confirmación sanea next y vuelve a decidir MFA después de verificar e
   const route = source(ROUTE_PATH);
   assert.match(route, /safeInternalDestination/);
   assert.match(route, /resolvePostLoginDestination\(supabase\)/);
-  assert.match(route, /mfaDestination === "\/" \? next : mfaDestination/);
+  assert.match(route, /mfaDestination === "\/"/);
+  assert.match(route, /encodeURIComponent\(next\)/);
 });
 
 test("la confirmación usa el origen canónico y limpia una sesión parcial ante fallos", () => {

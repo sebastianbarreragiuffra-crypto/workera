@@ -8,6 +8,10 @@ Todas las decisiones de este documento fueron confirmadas por el usuario en
 conversación de septiembre 2026. Ver también la entrada de MFA en
 `docs/DECISIONS_PENDING.md`.
 
+El rollout del único OWNER real está cerrado en el ambiente hospedado; ver
+[docs/MFA_HOSTED_EVIDENCE.md](MFA_HOSTED_EVIDENCE.md). El ensayo break-glass
+permanece como gate operacional separado.
+
 Este documento es la fuente única de verdad de la implementación. Si una
 sesión se interrumpe a mitad, la siguiente continúa desde acá sin volver a
 decidir nada.
@@ -43,8 +47,8 @@ OWNER (sección 6).
 |---|---|
 | Tipo de factor | TOTP únicamente. Nunca SMS/`phone`. |
 | App de autenticación | Cualquier app TOTP (Google Authenticator, Microsoft Authenticator, Authy, 1Password, etc.). TOTP es estándar RFC 6238; el QR de Supabase funciona con todas. Cada persona elige la suya. |
-| Quién lo necesita (hoy) | El **gerente** de ARCOTEX, las **2 cuentas `ADMIN_RRHH`** que aprueban licencias, y el **OWNER de plataforma** (S. Barrera). |
-| Quién NO (hoy) | `SUPERVISOR_*`, y los aprobadores/conciliadores de Rendiciones de otras empresas. El gate queda **listo para extenderse sin refactor** (un solo helper, `account_requires_mfa`). |
+| Quién lo necesita hoy | `OWNER`/`ADMIN` de plataforma y roles laborales legacy `SUPER_ADMIN`/`ADMIN_RRHH`. En el estado hospedado existe una sola identidad dentro de este conjunto: el OWNER. |
+| Quién NO entra todavía | `SUPPORT`/`VIEWER` de plataforma y roles RBAC puros de otros tenants, incluso si poseen permisos mutativos. Ampliar la regla antes de agregar AAL2 a todos sus RPC daría una protección solo aparente en la UI. |
 | Despliegue | **Bloqueo inmediato.** Sin plazo de gracia, ni para cuentas existentes ni para nuevas. Implica despliegue en dos pasos (sección 8). |
 | Frecuencia del desafío | **En cada inicio de sesión.** Sin "recordar este dispositivo". Dentro de una sesión activa no se vuelve a pedir. |
 | Chequeo en base de datos | **Sí, doble capa.** Los RPC sensibles exigen `aal2` además del gate del middleware. |
@@ -56,7 +60,6 @@ OWNER (sección 6).
 
 - Factor SMS/`phone`.
 - WebAuthn / passkeys.
-- MFA para `SUPERVISOR_*` (el gate lo soporta, el flag no los incluye).
 - "Recordar dispositivo".
 - Ajuste fino de rate limiting más allá de lo que trae Supabase (ítem
   separado en `DECISIONS_PENDING.md`).
@@ -67,8 +70,13 @@ OWNER (sección 6).
 ## 4. Modelo de datos
 
 ### `profiles.requires_mfa` — NO se agrega
-La necesidad de MFA se **deriva del rol**, no se guarda. Evita que se
-desincronice. Ver `profileRequiresMfa()` / `session_requires_mfa()`.
+La necesidad de MFA se **deriva de los roles privilegiados vigentes**, no se guarda.
+Evita que se desincronice. `session_requires_mfa()` es la autoridad consumida
+por middleware y aplicación; no existe un espejo con listas parciales en TS.
+
+La ampliación futura a permisos RBAC tenant requiere primero inventariar y
+proteger cada mutación sensible en backend; solo después se modifica
+`account_requires_mfa()`. Esta secuencia no debe invertirse.
 
 ### Nueva tabla: `public.mfa_events` (append-only)
 ```
@@ -288,11 +296,10 @@ Agregar `perform public.enforce_mfa_for_privileged();` como **primera línea**
 - La generación de lote de nómina (si es RPC; si es lógica de app, el gate va
   en `requirePayrollAccess`)
 
-**No** agregarlo a `reconcile_expense_report` ni a RPC cuyos llamadores están
-fuera del conjunto que exige MFA — `enforce_mfa_for_privileged()` es seguro
-igual (deja pasar a quien no exige MFA), pero agregarlo donde no aporta solo
-suma ruido. Regla: agregarlo donde **todos** los llamadores legítimos ya están
-en el conjunto MFA.
+Toda mutación sensible debe pasar por un RPC/Server Action que vuelva a exigir
+MFA cuando `account_requires_mfa()` corresponda. Las tablas del control plane
+no conceden DML directo a `authenticated`, porque eso eludiría MFA, jerarquía y
+auditoría aunque la interfaz ocultara la operación.
 
 pgTAP (`049`):
 - `enforce_mfa_for_privileged`: llamador MFA-requerido + `aal1` → excepción;
@@ -308,13 +315,16 @@ pgTAP (`049`):
 ## 8. Rollout (bloqueo inmediato, dos pasos)
 
 1. **Desplegar con `MFA_ENFORCEMENT_ENABLED=false`.** `/seguridad/mfa` es
-   accesible. Avisar a las 4 cuentas (OWNER + gerente + 2 RRHH).
+   accesible. Avisar a todas las identidades sensibles existentes.
 2. **El OWNER se inscribe primero:** un factor TOTP obligatorio. Se recomienda
    fuertemente un segundo secreto impreso y guardado físicamente para evitar
    depender del break-glass. Confirmar en la base:
    `select user_id, status from auth.mfa_factors where status = 'verified';`
-3. Gerente y 2 RRHH se inscriben y verifican.
-4. Confirmar que las 4 aparecen con un factor `verified`.
+3. Las demás identidades sensibles existentes se inscriben y verifican. En el
+   rollout real actual solo existía el OWNER; eso fue suficiente para cerrar
+   este alcance.
+4. Confirmar que cada identidad sensible existente aparece con factor
+   `verified`.
 5. En una ventana de mantenimiento, aplicar el segundo corte que contiene la
    migración AAL2 no inerte, poner `MFA_ENFORCEMENT_ENABLED=true` y redesplegar.
    Mantener el tráfico bloqueado hasta verificar ambas capas según
@@ -342,8 +352,8 @@ estar preparado y revisado el rollback forward-only de la sección 8 del runbook
 
 - **A. Base:** migración con `mfa_events`, los 5 helpers SQL, RLS append-only.
   pgTAP `049`. RPC `session_requires_mfa`.
-- **B. Helper de app:** `profileRequiresMfa(profile)` puro + su test. El
-  helper `MFA_ALLOWED_PATHS`.
+- **B. Helper de app:** consumo de `session_requires_mfa()` como autoridad
+  única y helper `MFA_ALLOWED_PATHS`.
 - **C. Página `/seguridad/mfa`:** inscripción + gestión + doble factor para
   OWNER.
 - **D. Desafío de login:** `/login/mfa` + cambios en `login/actions.ts`.
@@ -409,7 +419,7 @@ para que la próxima sesión no lo lea como una desviación accidental.
   login.
 - **El redirect del login a la pantalla de inscripción respeta
   `MFA_ENFORCEMENT_ENABLED`**, aunque la sección 6.2 no lo pide. Sin eso, el
-  paso 1 del rollout ya cambiaba lo que ven las cuatro cuentas privilegiadas al
+  paso 1 del rollout ya cambiaba lo que ven las cuentas privilegiadas al
   entrar, antes de que se les avisara. El flag gobierna la obligación de
   inscribirse, no el desafío: a quien YA tiene un factor verificado se le sigue
   pidiendo el código con el flag apagado, porque se inscribió a propósito y es
@@ -419,8 +429,8 @@ para que la próxima sesión no lo lea como una desviación accidental.
   Una función de base de datos no lee variables de entorno. Las dos capas que
   corren en la aplicación se encienden con el mismo interruptor; la de base de
   datos se enciende al aplicar su migración, que **por eso va en el paso 5 del
-  rollout de la sección 8, no en el paso 1**. Aplicarla antes deja al gerente
-  sin aprobar licencias antes de haber podido inscribirse.
+  rollout de la sección 8, no en el paso 1**. Aplicarla antes deja a cualquier
+  operador sensible sin poder trabajar antes de haber podido inscribirse.
 - **El módulo de reseteo vive en `src/lib/admin/`.** La allowlist que controla
   quién puede alcanzar `createAdminClient` es por directorio, y `src/lib/auth/`
   también contiene módulos puros que no deben poder alcanzarlo.

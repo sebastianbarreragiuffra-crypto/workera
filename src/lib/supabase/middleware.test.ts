@@ -217,12 +217,15 @@ test("/ sin sesión redirige a /login", async () => {
   assert.equal(new URL(location!).pathname, "/login");
 });
 
-// 3. ruta privada anidada sin sesión -> redirect /login
-test("ruta privada anidada sin sesión redirige a /login", async () => {
+// 3. ruta privada anidada sin sesión -> redirect /login conservando el destino
+test("ruta privada anidada sin sesión redirige a /login con ruta y query exactas en next", async () => {
   const calls = { count: 0 };
-  const res = await updateSession(makeRequest("/dashboard/settings"), unauthenticatedFactory(calls));
+  const destination = "/dashboard/settings?tab=security&page=2";
+  const res = await updateSession(makeRequest(destination), unauthenticatedFactory(calls));
   assert.equal(res.status, 307);
-  assert.equal(new URL(res.headers.get("location")!).pathname, "/login");
+  const location = new URL(res.headers.get("location")!);
+  assert.equal(location.pathname, "/login");
+  assert.equal(location.searchParams.get("next"), destination);
 });
 
 // 4. / con claims válidos -> permitido
@@ -654,13 +657,16 @@ test("una variable ausente equivale a apagado: el bloqueo nunca se activa solo",
   assert.equal(rpcCalls.count, 0);
 });
 
-test("con el flag activo, una cuenta privilegiada en aal1 rebota a /seguridad/mfa", async () => {
+test("con el flag activo, una cuenta privilegiada en aal1 conserva ruta y query exactas al ir a MFA", async () => {
   const rpcCalls = { count: 0 };
+  const destination = "/dashboard?fecha=2026-09-05&area=PRODUCTION";
   const response = await withEnforcement("true", () =>
-    updateSession(makeRequest("/dashboard"), mfaFactory({ aal: "aal1", requiresMfa: true }, rpcCalls))
+    updateSession(makeRequest(destination), mfaFactory({ aal: "aal1", requiresMfa: true }, rpcCalls))
   );
   assert.equal(response.status, 307);
-  assert.equal(new URL(response.headers.get("location")!).pathname, "/seguridad/mfa");
+  const location = new URL(response.headers.get("location")!);
+  assert.equal(location.pathname, "/seguridad/mfa");
+  assert.equal(location.searchParams.get("next"), destination);
   assert.equal(rpcCalls.count, 1);
 });
 

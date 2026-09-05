@@ -50,10 +50,10 @@ export default async function LicenciasPage({ searchParams }: { searchParams: Pr
   const today = todayInSantiago();
 
   const supabase = await createClient();
-  const isApprover = canApproveMedicalLicense(profile);
   const isRosterAdmin = isPrivilegedAdmin(profile.role);
 
-  const [licenses, uploadPickerRoster, directoryRoster] = await Promise.all([
+  const [isApprover, licenses, uploadPickerRoster, directoryRoster] = await Promise.all([
+    canApproveMedicalLicense(supabase),
     listMedicalLicenses(supabase),
     getEmployeeRoster(supabase, callerRole, { activeOnly: true }, today),
     getEmployeeRoster(supabase, callerRole, { areaCode: areaFilter, search }, today),

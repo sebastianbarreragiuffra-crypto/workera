@@ -77,7 +77,9 @@ select is(
 
 reset role;
 
--- 5) ADMIN_RRHH SÍ puede asignar un rol a un usuario recién registrado
+-- 5) ADMIN_RRHH ya no modifica la identidad global directamente. Las altas y
+-- cambios de rol pasan por invitaciones/RPC tenant-aware; UPDATE bajo RLS
+-- afecta cero filas.
 set local role authenticated;
 set local request.jwt.claim.sub = '30000000-0000-0000-0000-000000000002';
 
@@ -86,12 +88,11 @@ select lives_ok(
     $$ update public.profiles set role = 'SUPERVISOR_PRODUCTION' where id = %L $$,
     '30000000-0000-0000-0000-000000000001'
   ),
-  'ADMIN_RRHH puede asignar un rol a un usuario sin configuración administrativa'
+  'ADMIN_RRHH queda fuera por RLS sin una excepción engañosa'
 );
 
--- 6) ADMIN_RRHH puede ver todos los perfiles fixture; cualquier perfil real
--- ya presente en la base queda fuera del conteo para mantener la prueba
--- hermética en desarrollo local y CI.
+-- 6) El directorio mínimo solo expone perfiles del mismo tenant. El usuario
+-- sin rol no es miembro de ARCOTEX y queda fuera del resultado.
 select is(
   (
     select count(*)::int
@@ -103,8 +104,8 @@ select is(
       '30000000-0000-0000-0000-000000000004'
     )
   ),
-  4,
-  'ADMIN_RRHH ve los 4 perfiles fixture (SELECT amplio, independiente de cuentas locales)'
+  3,
+  'ADMIN_RRHH ve solo los 3 perfiles fixture que comparten ARCOTEX'
 );
 
 reset role;

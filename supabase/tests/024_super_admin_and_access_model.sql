@@ -32,6 +32,15 @@ insert into public.profiles (id, display_name, role) values
   ('90000000-0000-0000-0000-000000000005', 'Fixture Supervisor Install', 'SUPERVISOR_INSTALLATION'),
   ('90000000-0000-0000-0000-000000000006', 'Fixture Sin Rol', null);
 
+-- La escritura directa de identidad global ya no se deriva de profiles.role:
+-- el actor positivo es OWNER explícito del control plane y usa AAL2.
+insert into public.platform_memberships (user_id, role, active)
+values
+  ('90000000-0000-0000-0000-000000000001', 'OWNER', true),
+  -- Mantiene la invariante de OWNER fuera del caso que prueba exclusivamente
+  -- la protección histórica del último SUPER_ADMIN.
+  ('90000000-0000-0000-0000-000000000002', 'OWNER', true);
+
 -- La protección del "último SUPER_ADMIN" consulta toda la tabla. Una base
 -- local puede contener cuentas reales además de estos fixtures, mientras CI
 -- parte vacía. Para que ambos entornos prueben exactamente el mismo estado,
@@ -195,26 +204,15 @@ select is(
   'SUPERVISOR_PRODUCTION no logra cambiar el rol de otro usuario'
 );
 
--- ADMIN_RRHH -> intenta convertirse SUPER_ADMIN -> DENIED
---
--- Nota sobre la forma de esta aserción, distinta de los 2 casos de
--- supervisor de arriba: para un supervisor, la cláusula USING ya excluye la
--- fila por completo (is_privileged_admin() es falso para él) -> 0 filas
--- afectadas, sin excepción. Para ADMIN_RRHH, en cambio, USING SÍ deja pasar
--- su propia fila (is_admin_rrhh() es verdadero y su rol actual no es
--- SUPER_ADMIN) — es el WITH CHECK el que evalúa el valor NUEVO ('SUPER_ADMIN')
--- y lo rechaza, lo que en Postgres se manifiesta como una excepción real
--- (42501 "new row violates row-level security policy"), no como un UPDATE
--- silencioso de 0 filas. Ambos casos bloquean el escalamiento igual de
--- efectivamente; solo difiere el mecanismo (USING vs. WITH CHECK).
+-- ADMIN_RRHH -> intenta convertirse SUPER_ADMIN -> DENIED. La policy vigente
+-- excluye toda fila para quien no sea OWNER de plataforma en AAL2, por lo que
+-- el UPDATE termina correctamente pero afecta cero filas.
 set local role authenticated;
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000003';
-select throws_ok(
+select lives_ok(
   $$ update public.profiles set role = 'SUPER_ADMIN'
        where id = '90000000-0000-0000-0000-000000000003' $$,
-  '42501',
-  null,
-  'ADMIN_RRHH no logra escalar a SUPER_ADMIN (WITH CHECK rechaza el nuevo valor)'
+  'ADMIN_RRHH queda fuera de la policy OWNER+AAL2 sin modificar filas'
 );
 reset role;
 select is(
@@ -239,33 +237,40 @@ select is(
 );
 
 -- ---------------------------------------------------------------------------
--- 7) SUPER_ADMIN puede asignar roles permitidos (control positivo).
+-- 7) OWNER de plataforma en AAL2 puede modificar la identidad global
+-- (control positivo); profiles.role sigue siendo el dato legacy afectado.
 set local role authenticated;
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
+set local request.jwt.claim.aal = 'aal2';
+set local request.jwt.claims = '{"sub":"90000000-0000-0000-0000-000000000001","aal":"aal2"}';
 select lives_ok(
   format(
     $$ update public.profiles set role = 'ADMIN_RRHH' where id = %L $$,
     '90000000-0000-0000-0000-000000000006'
   ),
-  'SUPER_ADMIN puede crear/asignar ADMIN_RRHH a un usuario sin rol'
+  'OWNER en AAL2 puede asignar ADMIN_RRHH a un usuario sin rol'
 );
 reset role;
+set local request.jwt.claims = '';
 select is(
   (select role::text from public.profiles where id = '90000000-0000-0000-0000-000000000006'),
   'ADMIN_RRHH',
-  'SUPER_ADMIN: la asignación de rol ADMIN_RRHH se aplicó'
+  'OWNER en AAL2: la asignación de rol ADMIN_RRHH se aplicó'
 );
 
 set local role authenticated;
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
+set local request.jwt.claim.aal = 'aal2';
+set local request.jwt.claims = '{"sub":"90000000-0000-0000-0000-000000000001","aal":"aal2"}';
 select lives_ok(
   format(
     $$ update public.profiles set role = 'SUPERVISOR_PRODUCTION' where id = %L $$,
     '90000000-0000-0000-0000-000000000006'
   ),
-  'SUPER_ADMIN puede crear/asignar un supervisor'
+  'OWNER en AAL2 puede asignar un supervisor'
 );
 reset role;
+set local request.jwt.claims = '';
 
 -- ---------------------------------------------------------------------------
 -- 8) Protección del último SUPER_ADMIN (PASO 12 del encargo).
@@ -273,6 +278,8 @@ reset role;
 -- Con 2 SUPER_ADMIN activos, degradar UNO de ellos es permitido.
 set local role authenticated;
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
+set local request.jwt.claim.aal = 'aal2';
+set local request.jwt.claims = '{"sub":"90000000-0000-0000-0000-000000000001","aal":"aal2"}';
 select lives_ok(
   format(
     $$ update public.profiles set role = 'ADMIN_RRHH' where id = %L $$,
@@ -281,6 +288,7 @@ select lives_ok(
   'con 2 SUPER_ADMIN activos, degradar uno de ellos es permitido'
 );
 reset role;
+set local request.jwt.claims = '';
 select is(
   (select role::text from public.profiles where id = '90000000-0000-0000-0000-000000000002'),
   'ADMIN_RRHH',
@@ -292,6 +300,8 @@ select is(
 -- (incluso por sí mismo) debe ser rechazado explícitamente.
 set local role authenticated;
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
+set local request.jwt.claim.aal = 'aal2';
+set local request.jwt.claims = '{"sub":"90000000-0000-0000-0000-000000000001","aal":"aal2"}';
 select throws_ok(
   $$ update public.profiles set role = 'ADMIN_RRHH'
        where id = '90000000-0000-0000-0000-000000000001' $$,
@@ -307,6 +317,7 @@ select throws_ok(
   'desactivar al ÚLTIMO SUPER_ADMIN activo es rechazado explícitamente'
 );
 reset role;
+set local request.jwt.claims = '';
 select is(
   (select role::text from public.profiles where id = '90000000-0000-0000-0000-000000000001'),
   'SUPER_ADMIN',

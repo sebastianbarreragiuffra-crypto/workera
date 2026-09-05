@@ -65,8 +65,8 @@ select is(
     where n.nspname = 'public'
       and p.prosrc ~ 'v_actor_id is null or not public\.can_manage_platform\(\)'
   ),
-  7,
-  'siete funciones vigentes comparten hoy el patrón de guarda corregido -- si este número cambia, revisar antes de actualizarlo'
+  9,
+  'nueve funciones vigentes comparten hoy el patrón de guarda corregido -- incluye baja de membresía y revocación de invitación'
 );
 
 -- ---------------------------------------------------------------------------

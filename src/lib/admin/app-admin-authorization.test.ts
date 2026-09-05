@@ -25,15 +25,15 @@ function readSource(filePath: string): string {
   return readFileSync(filePath, "utf8");
 }
 
-test("listAppUsers/createAppUser/assignRole/setUserActive llaman a requireAppAdmin (APP_ADMIN exclusivo)", () => {
+test("la administración global exige OWNER + MFA sin depender de un rol Arcotex", () => {
   const content = readSource(USER_MANAGEMENT_PATH);
-  const functionNames = ["listAppUsers", "createAppUser", "assignRole", "setUserActive"];
-
-  for (const fnName of functionNames) {
+  assert.match(content, /async function requireGlobalIdentityOwner/);
+  assert.doesNotMatch(content, /await requireAppAdmin\(\)/);
+  assert.match(content, /platform\?\.role !== "OWNER" \|\| aal !== "aal2"/);
+  for (const fnName of ["listAppUsers", "createAppUser", "assignRole", "setUserActive"]) {
     const fnStart = content.indexOf(`export async function ${fnName}`);
     assert.ok(fnStart >= 0, `${fnName} debe existir en user-management.ts`);
-    const fnBody = content.slice(fnStart, fnStart + 400);
-    assert.match(fnBody, /requireAppAdmin\(\)/, `${fnName} debe llamar a requireAppAdmin()`);
+    assert.match(content.slice(fnStart, fnStart + 500), /requireGlobalIdentityOwner\(\)/);
   }
 });
 
@@ -66,15 +66,7 @@ test("/usuarios (administración de cuentas) exige SUPER_ADMIN exclusivamente, n
 
 test("ningún componente de src/app compara profile.email/user.email contra un literal de email aprobado (el email solo se usa en el límite de provisioning, nunca en runtime de la app)", () => {
   const APP_ROOT = path.resolve(import.meta.dirname, "..", "..", "app");
-  const APPROVED_EMAILS = [
-    "i.gonzalez@arcotex.cl",
-    "ingenieria@arcotex.cl",
-    "asistenteg@arcotex.cl",
-    "a.caceres@arcotex.cl",
-    "a.valencia@arcotex.cl",
-    "c.barrera@arcotex.cl",
-    "s.barrera@arcotex.cl",
-  ];
+  const CORPORATE_EMAIL_LITERAL = /[a-z0-9._%+-]+@arcotex\.cl/gi;
 
   function listFilesRecursively(dir: string): string[] {
     const files: string[] = [];
@@ -90,9 +82,8 @@ test("ningún componente de src/app compara profile.email/user.email contra un l
   const offenders: string[] = [];
   for (const file of listFilesRecursively(APP_ROOT)) {
     const content = readFileSync(file, "utf8");
-    for (const email of APPROVED_EMAILS) {
-      if (content.includes(email)) offenders.push(`${file} contiene ${email}`);
-    }
+    if (CORPORATE_EMAIL_LITERAL.test(content)) offenders.push(file);
+    CORPORATE_EMAIL_LITERAL.lastIndex = 0;
   }
 
   assert.deepEqual(offenders, [], `el mapeo email->rol debe vivir SOLO en la migración, nunca en src/app: ${offenders.join(", ")}`);

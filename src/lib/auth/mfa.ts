@@ -1,63 +1,3 @@
-import type { Database } from "../supabase/database.types";
-
-/**
- * Regla de segundo factor del lado de la aplicación.
- *
- * Es un ESPEJO de `public.account_requires_mfa()`, no la autoridad. La
- * autoridad es la base: el gate del middleware consulta `session_requires_mfa`
- * y los RPC sensibles llaman a `enforce_mfa_for_privileged()`. Este módulo
- * existe para que la interfaz pueda explicar y anticipar la misma regla sin
- * una consulta extra, y para poder probarla como función pura.
- *
- * Si la regla cambia, cambia primero en la migración y después acá. Las dos
- * copias tienen que decir lo mismo; la prueba de esta función y la prueba
- * pgTAP 049 describen el mismo conjunto a propósito.
- */
-
-export type AppRole = Database["public"]["Enums"]["app_role"];
-export type PlatformRole = Database["public"]["Enums"]["platform_role"];
-
-/** Roles del workspace ARCOTEX cuyo compromiso causa el mayor daño. */
-const WORKSPACE_MFA_ROLES: readonly AppRole[] = ["SUPER_ADMIN", "ADMIN_RRHH"];
-
-/** Roles del control plane que administran la cartera completa de clientes. */
-const PLATFORM_MFA_ROLES: readonly PlatformRole[] = ["OWNER", "ADMIN"];
-
-export interface MfaAccount {
-  /** `profiles.role` y `profiles.active` de la cuenta. */
-  profile: { role: AppRole | null; active: boolean } | null;
-  /** Membresía de plataforma de la cuenta, si tiene alguna. */
-  platformMembership: { role: PlatformRole; active: boolean } | null;
-}
-
-/**
- * ¿Esta cuenta exige segundo factor? Una cuenta desactivada nunca lo exige:
- * ya no puede entrar por otras razones, y tratarla como privilegiada solo
- * produciría redirecciones a una pantalla que no le sirve.
- *
- * Hoy los `SUPERVISOR_*` quedan fuera, igual que en la migración. Ampliar el
- * alcance es agregar el rol a una de las dos listas de arriba y a
- * `account_requires_mfa`, sin tocar ninguna pantalla.
- */
-export function profileRequiresMfa(account: MfaAccount): boolean {
-  const { profile, platformMembership } = account;
-
-  const byWorkspaceRole =
-    profile !== null &&
-    profile.active &&
-    profile.role !== null &&
-    WORKSPACE_MFA_ROLES.includes(profile.role);
-
-  const byPlatformRole =
-    profile !== null &&
-    profile.active &&
-    platformMembership !== null &&
-    platformMembership.active &&
-    PLATFORM_MFA_ROLES.includes(platformMembership.role);
-
-  return byWorkspaceRole || byPlatformRole;
-}
-
 /**
  * Lo único que una cuenta privilegiada en `aal1` puede alcanzar mientras el
  * enforcement esté activo. Todo lo demás la devuelve a `/seguridad/mfa`.
@@ -117,7 +57,7 @@ export type PostLoginDestination = "/login/mfa" | "/seguridad/mfa" | "/";
 export interface PostLoginInput {
   currentLevel: string | null;
   nextLevel: string | null;
-  /** Espejo de `account_requires_mfa` para esta cuenta. */
+  /** Resultado de la autoridad SQL `session_requires_mfa`. */
   requiresMfa: boolean;
   hasVerifiedFactor: boolean;
 }

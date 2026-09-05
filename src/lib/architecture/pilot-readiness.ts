@@ -33,6 +33,7 @@ export type ReadinessGateId =
   | "EXPORT_AUDIT"
   | "HOSTED_AUTH_CONTROLS"
   | "HOSTED_MFA_ROLLOUT"
+  | "OWNER_RECOVERY_DRILL"
   | "HOSTED_OBSERVABILITY"
   | "LABOR_MULTI_TENANCY"
   | "BACKUP_RESTORE_DRILL"
@@ -179,11 +180,19 @@ export const READINESS_GATES = [
   },
   {
     id: "HOSTED_MFA_ROLLOUT",
-    title: "MFA AAL2 y recuperación owner ensayados",
+    title: "MFA AAL2 obligatorio verificado en el ambiente hospedado",
+    status: "VERIFIED_HOSTED",
+    owner: "IAM / Platform",
+    evidence: ["docs/MFA_HOSTED_EVIDENCE.md", "docs/MFA_DESIGN.md"],
+    nextAction: "Mantener enforcement activo y repetir el recorrido al incorporar cada rol sensible.",
+  },
+  {
+    id: "OWNER_RECOVERY_DRILL",
+    title: "Recuperación break-glass del OWNER ensayada",
     status: "REQUIRES_HOSTED_EVIDENCE",
     owner: "IAM / Platform",
-    evidence: ["docs/PLATFORM_OWNER_RUNBOOK.md", "docs/MFA_DESIGN.md"],
-    nextAction: "Ejecutar el rollout en dos pasos con dos TOTP y rollback disponible.",
+    evidence: ["docs/PLATFORM_OWNER_RUNBOOK.md", "docs/MFA_HOSTED_EVIDENCE.md"],
+    nextAction: "Ensayar pérdida de factor y recuperación con una cuenta de prueba, sin tocar el único OWNER real.",
   },
   {
     id: "HOSTED_OBSERVABILITY",
@@ -285,6 +294,7 @@ const HOSTED_BASE_GATES = [
   "SYNTHETIC_STAGING_DATA",
   "HOSTED_AUTH_CONTROLS",
   "HOSTED_MFA_ROLLOUT",
+  "OWNER_RECOVERY_DRILL",
   "HOSTED_OBSERVABILITY",
   "BACKUP_RESTORE_DRILL",
 ] as const satisfies readonly ReadinessGateId[];

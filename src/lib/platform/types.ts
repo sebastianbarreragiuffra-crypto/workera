@@ -74,6 +74,8 @@ export interface CompanyModuleItem {
   name: string;
   description: string;
   category: string;
+  /** Solo estos módulos pueden activarse para más de una empresa. */
+  tenantIsolated: boolean;
   status: CompanyModuleStatus;
   accessLabels: string[];
   configurationSummary?: string | null;

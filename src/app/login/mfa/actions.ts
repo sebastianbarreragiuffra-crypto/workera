@@ -6,6 +6,7 @@ import { z } from "zod";
 import { recordMfaEvent } from "@/lib/admin/mfa-audit";
 import { getMfaAccountState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
+import { AUTH_FLOW_PATHS, safeInternalDestination } from "@/lib/auth/public-origin";
 
 /**
  * Desafío de segundo factor (sección 6.2 del diseño).
@@ -68,5 +69,10 @@ export async function verifyMfaChallengeAction(
   });
 
   revalidatePath("/", "layout");
-  redirect("/");
+  const rawNext = formData.get("next");
+  redirect(safeInternalDestination(
+    typeof rawNext === "string" ? rawNext : null,
+    "/",
+    AUTH_FLOW_PATHS,
+  ));
 }

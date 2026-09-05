@@ -19,6 +19,8 @@ interface MockOptions {
   membership?: { role: string; active: boolean } | null;
   profileError?: boolean;
   membershipError?: boolean;
+  requiresMfa?: boolean;
+  mfaRequirementError?: boolean;
   currentLevel?: string | null;
   nextLevel?: string | null;
   aalError?: boolean;
@@ -26,6 +28,14 @@ interface MockOptions {
 }
 
 function mockClient(options: MockOptions) {
+  const defaultRequiresMfa = Boolean(
+    options.profile?.active
+    && (
+      options.profile.role === "SUPER_ADMIN"
+      || options.profile.role === "ADMIN_RRHH"
+      || (options.membership?.active && ["OWNER", "ADMIN"].includes(options.membership.role))
+    )
+  );
   const client = {
     auth: {
       getClaims: async () => ({
@@ -67,6 +77,13 @@ function mockClient(options: MockOptions) {
         }),
       };
       return chain;
+    },
+    rpc: async (name: string) => {
+      if (name !== "session_requires_mfa") throw new Error(`unexpected rpc ${name}`);
+      return {
+        data: options.mfaRequirementError ? null : (options.requiresMfa ?? defaultRequiresMfa),
+        error: options.mfaRequirementError ? { message: "requirement unavailable" } : null,
+      };
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
@@ -136,15 +153,25 @@ test("un ADMIN de plataforma exige segundo factor pero no recibe el flujo de dob
   assert.equal(state?.isPlatformOwner, false);
 });
 
-test("una membresía de plataforma no reactiva un profile desactivado", async () => {
+test("un rol RBAC tenant puro queda fuera hasta que todos sus RPC exijan AAL2", async () => {
+  const { client } = mockClient({
+    userId: "30303030-3030-4030-8030-303030303030",
+    profile: { role: null, active: true },
+    membership: null,
+    requiresMfa: false,
+  });
+  const state = await getMfaAccountState(client);
+  assert.equal(state?.requiresMfa, false);
+  assert.equal(state?.isPlatformOwner, false);
+});
+
+test("un profile desactivado bloquea el post-login aunque conserve una membresía", async () => {
   const { client } = mockClient({
     userId: "34343434-3434-3434-3434-343434343434",
     profile: { role: null, active: false },
     membership: { role: "ADMIN", active: true },
   });
-  const state = await getMfaAccountState(client);
-  assert.equal(state?.requiresMfa, false);
-  assert.equal(state?.isPlatformOwner, false);
+  await assert.rejects(() => getMfaAccountState(client), MfaStateUnavailableError);
 });
 
 test("una cuenta sin privilegios no exige segundo factor", async () => {
@@ -170,6 +197,15 @@ test("un fallo leyendo la membresía de plataforma también bloquea", async () =
     userId: "67676767-6767-6767-6767-676767676767",
     profile: { role: "SUPER_ADMIN", active: true },
     membershipError: true,
+  });
+  await assert.rejects(() => getMfaAccountState(client), MfaStateUnavailableError);
+});
+
+test("un fallo de la autoridad SQL de MFA bloquea en lugar de asumir aal1 permitido", async () => {
+  const { client } = mockClient({
+    userId: "68686868-6868-4868-8868-686868686868",
+    profile: { role: null, active: true },
+    mfaRequirementError: true,
   });
   await assert.rejects(() => getMfaAccountState(client), MfaStateUnavailableError);
 });

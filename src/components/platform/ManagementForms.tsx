@@ -8,6 +8,8 @@ import {
   createOrganizationUnitAction,
   inviteCompanyMemberAction,
   resendCompanyInvitationAction,
+  revokeCompanyInvitationAction,
+  setCompanyMembershipActiveAction,
   resetMemberMfaAction,
   setCompanyModuleStatusAction,
   setOnboardingStepStatusAction,
@@ -155,6 +157,18 @@ export function ResendInvitationForm({ companyId, invitationId }: { companyId: s
   );
 }
 
+export function RevokeInvitationForm({ companyId, invitationId }: { companyId: string; invitationId: string }) {
+  const [state, action] = useActionState(revokeCompanyInvitationAction, INITIAL_STATE);
+  return (
+    <form action={action} className="mt-2">
+      <input type="hidden" name="companyId" value={companyId} />
+      <input type="hidden" name="invitationId" value={invitationId} />
+      <SubmitButton compact>Revocar invitación</SubmitButton>
+      <ActionFeedback state={state} />
+    </form>
+  );
+}
+
 export function MemberRoleForm({
   companyId,
   membershipId,
@@ -185,6 +199,33 @@ export function MemberRoleForm({
         </select>
         <SubmitButton compact>Asignar</SubmitButton>
       </div>
+      <ActionFeedback state={state} />
+      <p className="mt-1 text-[11px] leading-4 text-slate-500">Asignar reemplaza el rol principal anterior; no acumula permisos.</p>
+    </form>
+  );
+}
+
+export function MembershipStatusForm({
+  companyId,
+  membershipId,
+  active,
+  identityActive,
+}: {
+  companyId: string;
+  membershipId: string;
+  active: boolean;
+  identityActive: boolean;
+}) {
+  const [state, action] = useActionState(setCompanyMembershipActiveAction, INITIAL_STATE);
+  if (!identityActive && !active) {
+    return <span className="text-xs text-slate-400">La identidad global está inactiva</span>;
+  }
+  return (
+    <form action={action}>
+      <input type="hidden" name="companyId" value={companyId} />
+      <input type="hidden" name="membershipId" value={membershipId} />
+      <input type="hidden" name="active" value={active ? "false" : "true"} />
+      <SubmitButton compact>{active ? "Retirar acceso" : "Reactivar acceso"}</SubmitButton>
       <ActionFeedback state={state} />
     </form>
   );

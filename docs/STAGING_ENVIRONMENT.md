@@ -73,7 +73,7 @@ clasificadas están vacías y los flags seguros, no que staging completo sea GO.
 
 1. Clona el repo, corre `supabase start` para su propio Docker local — sigue siendo su ambiente principal de desarrollo, igual que PC1.
 2. Para staging: mismo procedimiento que PC1 — copiar `.env.staging.example`, pedir credenciales reales por un canal privado (no por Git, no por chat público), completar `.env.staging`.
-3. Iniciar sesión en staging con su propia cuenta de `authorized_email_roles` (Google OAuth o email/password) — el primer login crea su `profile` automáticamente, con el rol que le corresponde según esa tabla.
+3. Iniciar sesión mediante una invitación empresarial (Google OAuth o email/password). `authorized_email_roles` queda reservado únicamente al bootstrap del OWNER inicial; no incorporar operadores nuevos por allowlist.
 4. **No correr `supabase db reset` contra staging** — ese comando es solo para el Docker local de cada quien. Contra staging, los cambios de esquema se hacen con `supabase db push` desde una rama/PR revisada, nunca con un reset destructivo.
 
 ## Reglas del ambiente compartido
@@ -90,7 +90,7 @@ clasificadas están vacías y los flags seguros, no que staging completo sea GO.
 - [x] 83 tablas en `public`; 82 usan RLS y la tabla de catálogo global conserva su tratamiento explícito
 - [x] 157 policies RLS y 71 triggers verificados en staging
 - [x] 4 buckets de Storage presentes
-- [x] `authorized_email_roles` con las 7 filas correctas (1 SUPER_ADMIN, 4 ADMIN_RRHH, 1 SUPERVISOR_PRODUCTION, 1 SUPERVISOR_INSTALLATION)
+- [x] `authorized_email_roles` reducido al único OWNER bootstrap; las seis preautorizaciones operacionales históricas fueron retiradas y las altas nuevas usan invitaciones tenant-aware
 - [x] Trigger `on_auth_user_created` presente y habilitado sobre `auth.users`, función `handle_new_auth_user()` referencia `authorized_email_roles` y crea el `profile` correcto
 - [x] Login real de una persona autorizada realizado
 - [x] Roster importado vía la aplicación (97 registros presentes al cierre; revisar duplicados por separado)

@@ -6,7 +6,7 @@ import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { acceptCurrentUserInvitations } from "@/lib/platform/invitations";
 import { resolvePostLoginDestination } from "@/lib/auth/mfa-account";
-import { publicAppUrl } from "@/lib/auth/public-origin";
+import { AUTH_FLOW_PATHS, publicAppUrl, safeInternalDestination } from "@/lib/auth/public-origin";
 
 export type LoginState = { error: string | null };
 
@@ -18,6 +18,12 @@ export type LoginState = { error: string | null };
 export async function login(_prevState: LoginState, formData: FormData): Promise<LoginState> {
   const email = formData.get("email");
   const password = formData.get("password");
+  const rawNext = formData.get("next");
+  const requestedDestination = safeInternalDestination(
+    typeof rawNext === "string" ? rawNext : null,
+    "/",
+    AUTH_FLOW_PATHS,
+  );
 
   if (typeof email !== "string" || typeof password !== "string" || !email || !password) {
     return { error: "Ingresa tu email corporativo y tu contraseña." };
@@ -30,14 +36,13 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
     return { error: "No pudimos iniciar sesión con esas credenciales." };
   }
 
-  await acceptCurrentUserInvitations(supabase);
-
   // Una contraseña correcta crea sesión, no acceso. Si la cuenta ya tiene un
   // segundo factor, todavía está en aal1 y le falta el desafío; si debe tener
   // uno y no lo inscribió, va a inscribirlo. Ver sección 6.2 de
   // docs/MFA_DESIGN.md.
   let destination;
   try {
+    await acceptCurrentUserInvitations(supabase);
     destination = await resolvePostLoginDestination(supabase);
   } catch {
     console.error("[auth] no se pudo resolver el destino post-login", {
@@ -48,7 +53,9 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
   }
 
   revalidatePath("/", "layout");
-  redirect(destination);
+  redirect(destination === "/"
+    ? requestedDestination
+    : `${destination}?next=${encodeURIComponent(requestedDestination)}`);
 }
 
 /**
@@ -61,24 +68,28 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
  *
  * IMPORTANTE (mismo principio que email+password): un login de Google
  * exitoso SOLO crea una sesión de Supabase Auth -- nunca acceso a la
- * aplicación por sí solo. El trigger `handle_new_auth_user` (Fase 3) crea el
- * `profile` con `role = NULL` para CUALQUIER usuario nuevo sin importar el
- * método de login, y el layout de `(app)` (`src/app/(app)/layout.tsx`)
- * exige `profile.role` y `profile.active` para dejar pasar a cualquier
- * pantalla -- ninguna de esas dos barreras es específica de
- * email/password, así que ya cubren OAuth sin cambios adicionales. Ver
+ * aplicación por sí solo. El trigger crea la identidad global y la aceptación
+ * de invitaciones materializa su membresía tenant; el destino raíz exige una
+ * asignación activa y envía cuentas todavía no asignadas a una pantalla de
+ * acceso pendiente. Ninguna de esas barreras depende de email/password. Ver
  * también identity linking automático de Supabase: si el email de Google
  * coincide con un `auth.users` existente y verificado, Supabase vincula la
  * identidad al MISMO usuario en vez de crear uno nuevo -- comportamiento
  * nativo, no código de esta app.
  */
-export async function loginWithGoogle() {
+export async function loginWithGoogle(formData: FormData) {
   const supabase = await createClient();
   const requestHeaders = await headers();
+  const rawNext = formData.get("next");
+  const requestedDestination = safeInternalDestination(
+    typeof rawNext === "string" ? rawNext : null,
+    "/",
+    AUTH_FLOW_PATHS,
+  );
   let callbackUrl: string;
   try {
     callbackUrl = publicAppUrl(
-      "/auth/callback",
+      `/auth/callback?next=${encodeURIComponent(requestedDestination)}`,
       requestHeaders.get("origin")
     ).toString();
   } catch {

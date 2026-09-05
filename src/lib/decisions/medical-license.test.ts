@@ -221,12 +221,16 @@ test("rejectMedicalLicense: llama exactamente a la función atómica reject_medi
   assert.deepEqual(inserted.reject_medical_license[0], { p_approval_id: "approval-1", p_reason: "Certificado ilegible" });
 });
 
-test("canApproveMedicalLicense: true SOLO cuando el flag del profile es exactamente true", () => {
-  assert.equal(canApproveMedicalLicense({ active: true, medical_license_approver: true }), true);
-  assert.equal(canApproveMedicalLicense({ active: true, medical_license_approver: false }), false);
-  assert.equal(canApproveMedicalLicense({ active: false, medical_license_approver: true }), false);
-  assert.equal(canApproveMedicalLicense(null), false);
-  assert.equal(canApproveMedicalLicense(undefined), false);
+test("canApproveMedicalLicense: usa la autoridad tenant-aware y falla cerrado", async () => {
+  const client = (data: boolean | null, error: object | null = null) => ({
+    rpc: async (name: string) => {
+      assert.equal(name, "is_medical_license_approver");
+      return { data, error };
+    },
+  });
+  assert.equal(await canApproveMedicalLicense(client(true) as never), true);
+  assert.equal(await canApproveMedicalLicense(client(false) as never), false);
+  assert.equal(await canApproveMedicalLicense(client(null, {}) as never), false);
 });
 
 // ---------------------------------------------------------------------------

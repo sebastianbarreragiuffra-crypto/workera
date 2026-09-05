@@ -930,7 +930,7 @@ export type Database = {
           company_id: string
           created_at: string
           id: string
-          role: Database["public"]["Enums"]["app_role"]
+          role: Database["public"]["Enums"]["app_role"] | null
           updated_at: string
           user_id: string
         }
@@ -939,7 +939,7 @@ export type Database = {
           company_id: string
           created_at?: string
           id?: string
-          role: Database["public"]["Enums"]["app_role"]
+          role?: Database["public"]["Enums"]["app_role"] | null
           updated_at?: string
           user_id: string
         }
@@ -948,7 +948,7 @@ export type Database = {
           company_id?: string
           created_at?: string
           id?: string
-          role?: Database["public"]["Enums"]["app_role"]
+          role?: Database["public"]["Enums"]["app_role"] | null
           updated_at?: string
           user_id?: string
         }
@@ -5569,7 +5569,7 @@ export type Database = {
           company_id: string
           created_at: string
           id: string
-          role: Database["public"]["Enums"]["app_role"]
+          role: Database["public"]["Enums"]["app_role"] | null
           updated_at: string
           user_id: string
         }[]
@@ -6156,6 +6156,13 @@ export type Database = {
           total_amount: number
         }[]
       }
+      list_expense_advance_recipients: {
+        Args: { p_company_id: string }
+        Returns: {
+          display_name: string
+          user_id: string
+        }[]
+      }
       list_expense_reconciliation_candidates: {
         Args: { p_company_id: string; p_transaction_id: string }
         Returns: {
@@ -6293,6 +6300,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      platform_revoke_company_invitation: {
+        Args: { p_invitation_id: string }
+        Returns: undefined
+      }
       platform_portfolio_summary: {
         Args: never
         Returns: {
@@ -6313,6 +6324,10 @@ export type Database = {
           p_module_key: string
           p_status: Database["public"]["Enums"]["company_module_status"]
         }
+        Returns: undefined
+      }
+      platform_set_company_membership_active: {
+        Args: { p_active: boolean; p_membership_id: string }
         Returns: undefined
       }
       platform_set_expense_accounting_pilot: {

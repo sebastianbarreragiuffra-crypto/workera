@@ -61,7 +61,7 @@ select lives_ok(
 select throws_ok(
   $$select public.platform_set_company_module_status('0a4c0000-0000-0000-0000-000000000001', 'payroll', 'DISABLED')$$,
   '23514',
-  'Los módulos de un workspace operativo no se pueden cambiar hasta completar los gates backend y RLS de MT-3D.',
+  'Este módulo sigue ligado al workspace laboral y no puede cambiarse hasta completar su aislamiento multiempresa.',
   'los demás módulos laborales continúan protegidos'
 );
 reset role;

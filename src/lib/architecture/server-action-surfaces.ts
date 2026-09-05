@@ -77,7 +77,9 @@ export const SERVER_ACTION_SURFACES = [
     source: "src/app/(platform)/plataforma/actions.ts",
     actions: [
       "createCompanyAction", "inviteCompanyMemberAction", "resendCompanyInvitationAction",
+      "revokeCompanyInvitationAction",
       "assignCompanyRoleAction", "setCompanyModuleStatusAction", "setOnboardingStepStatusAction",
+      "setCompanyMembershipActiveAction",
       "createOrganizationUnitAction", "resetMemberMfaAction",
     ],
     domain: "platform", tenantScope: "CONTROL_PLANE", authentication: "SESSION_PRIVILEGED",

@@ -5,7 +5,9 @@ const RUNTIME_ERROR_TEXT = /Runtime Error|unexpected response was received from 
 test("una ruta MFA privada sin sesión vuelve al login sin loop ni error de runtime", async ({ page }) => {
   await page.goto("/seguridad/mfa");
 
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL((url) =>
+    url.pathname === "/login" && url.searchParams.get("next") === "/seguridad/mfa"
+  );
   await expect(page.getByRole("heading", { name: "Bienvenido de nuevo" })).toBeVisible();
   await expect(page.locator("body")).not.toContainText(RUNTIME_ERROR_TEXT);
 });
@@ -13,7 +15,9 @@ test("una ruta MFA privada sin sesión vuelve al login sin loop ni error de runt
 test("el desafío MFA sin sesión también vuelve al login", async ({ page }) => {
   await page.goto("/login/mfa");
 
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL((url) =>
+    url.pathname === "/login" && url.searchParams.get("next") === "/login/mfa"
+  );
   await expect(page.getByLabel("Email")).toBeVisible();
   await expect(page.locator("body")).not.toContainText(RUNTIME_ERROR_TEXT);
 });

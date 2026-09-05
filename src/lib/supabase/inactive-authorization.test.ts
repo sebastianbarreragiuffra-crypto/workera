@@ -8,10 +8,15 @@ const sessionSource = readFileSync(fileURLToPath(new URL("../auth/session.ts", i
 const documentsActionsSource = readFileSync(fileURLToPath(new URL("../../app/(app)/documentos/actions.ts", import.meta.url)), "utf8");
 const dailyReviewActionsSource = readFileSync(fileURLToPath(new URL("../../app/(app)/revision-diaria/actions.ts", import.meta.url)), "utf8");
 
-test("los gates de rol y licencia consultan y exigen profiles.active", () => {
+test("los gates de rol exigen profile activo y licencias delega al gate tenant-aware", () => {
   assert.match(authorizeSource, /select\("role, active"\)/);
   assert.match(authorizeSource, /!profile\?\.active/);
-  assert.match(authorizeSource, /select\("role, active, medical_license_approver"\)/);
+  assert.match(authorizeSource, /session\.rpc\("is_medical_license_approver"\)/);
+  const medicalGate = authorizeSource.slice(
+    authorizeSource.indexOf("export async function requireMedicalLicenseApprover"),
+    authorizeSource.indexOf("export async function canApproveMedicalLicense"),
+  );
+  assert.doesNotMatch(medicalGate, /profile\.role|!profile\?\.role/);
 });
 
 test("getCurrentProfile solo devuelve perfiles activos para páginas, actions y route handlers", () => {

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  AUTH_FLOW_PATHS,
   isSafeInternalDestination,
   PublicOriginConfigurationError,
   publicAppUrl,
@@ -117,9 +118,9 @@ test("destinos absolutos, protocol-relative, backslashes y controles nunca salen
   }
 });
 
-test("safeInternalDestination evita loops hacia callbacks de autenticación", () => {
-  const blocked = new Set(["/auth/callback", "/auth/confirm"]);
-  assert.equal(safeInternalDestination("/auth/callback?code=fake", "/", blocked), "/");
-  assert.equal(safeInternalDestination("/auth/confirm", "/", blocked), "/");
-  assert.equal(safeInternalDestination("/plataforma", "/", blocked), "/plataforma");
+test("safeInternalDestination evita loops en todo el flujo de autenticación", () => {
+  for (const blocked of AUTH_FLOW_PATHS) {
+    assert.equal(safeInternalDestination(`${blocked}?next=%2Flogin`, "/", AUTH_FLOW_PATHS), "/");
+  }
+  assert.equal(safeInternalDestination("/plataforma", "/", AUTH_FLOW_PATHS), "/plataforma");
 });

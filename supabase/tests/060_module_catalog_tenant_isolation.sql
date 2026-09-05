@@ -85,8 +85,8 @@ select throws_ok(
   $$select public.platform_set_company_module_status(
     '0a4c0000-0000-0000-0000-000000000001', 'payroll', 'DISABLED')$$,
   '23514',
-  'Los módulos de un workspace operativo no se pueden cambiar hasta completar los gates backend y RLS de MT-3D.',
-  'un módulo legacy sigue protegido en un workspace operativo'
+  'Este módulo sigue ligado al workspace laboral y no puede cambiarse hasta completar su aislamiento multiempresa.',
+  'un módulo legacy sigue protegido hasta completar su aislamiento multiempresa'
 );
 reset role;
 
@@ -183,8 +183,8 @@ select is(
    from public.platform_audit_log
    where actor_id = 'aa000000-0000-0000-0000-000000000101'
      and action = 'company.module.status_changed'),
-  5,
-  'todos los cambios autorizados continúan auditados'
+  4,
+  'todos los cambios efectivos continúan auditados y el no-op no inventa eventos'
 );
 
 set local role authenticated;

@@ -115,6 +115,10 @@ solo datos sintéticos/minimizados permitidos y el gate
 
 ### Paso E — verificar Auth y MFA con el owner presente
 
+El rollout hospedado del único OWNER actual está verificado y documentado en
+`docs/MFA_HOSTED_EVIDENCE.md`; `HOSTED_MFA_ROLLOUT` está cerrado. Esto no cierra
+el gate separado `OWNER_RECOVERY_DRILL` ni los demás controles de Auth.
+
 - Confirmar límites reales de Auth, recuperación y no enumeración de cuentas.
 - Inscribir dos TOTP del OWNER en dispositivos distintos y comprobar AAL2.
 - Probar login, expiración, revocación, factor perdido y procedimiento
@@ -182,6 +186,10 @@ EXPENSE_ACCOUNTING_PROVIDER=disabled
 EXPENSE_ACCOUNTING_EXPORT_ENABLED=false
 MFA_ENFORCEMENT_ENABLED=false
 ```
+
+Este bloque es la plantilla previa al primer rollout. En el staging hospedado
+actual, MFA ya fue verificado y `MFA_ENFORCEMENT_ENABLED` debe permanecer en
+`true`. Volverlo a `false` es únicamente rollback de incidente.
 
 `MFA_ENFORCEMENT_ENABLED=false` no relaja las guardas AAL2 ya incorporadas a
 operaciones sensibles. Solo evita forzar el rollout global antes de que el owner

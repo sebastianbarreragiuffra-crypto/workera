@@ -6,7 +6,9 @@ import {
   CompanyTabs,
   InviteMemberForm,
   ResendInvitationForm,
+  RevokeInvitationForm,
   MemberRoleForm,
+  MembershipStatusForm,
   ResetMfaForm,
   ModuleStatusForm,
   OnboardingStepForm,
@@ -87,8 +89,8 @@ function OverviewTab({ detail, canManage }: { detail: PlatformCompanyDetail; can
                   stepKey={step.stepKey}
                   status={step.status}
                   canManage={canManage}
-                  blockedReason={step.stepKey === "go_live" && !detail.workspaceEnabled
-                    ? "Se habilita después del aislamiento MT-3D."
+                  blockedReason={step.stepKey === "go_live" && !detail.goLiveEligible
+                    ? "Activa primero un módulo multiempresa disponible."
                     : undefined}
                 />
               </li>
@@ -110,7 +112,8 @@ function OverviewTab({ detail, canManage }: { detail: PlatformCompanyDetail; can
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
             <h2 className="text-sm font-semibold text-amber-950">Protección de datos activa</h2>
             <p className="mt-1 text-xs leading-5 text-amber-900/80">
-              Esta empresa puede configurarse, pero no operar. El workspace solo se habilitará después de completar el aislamiento multi-tenant de todas las tablas y archivos.
+              El workspace laboral está bloqueado. La empresa puede operar únicamente en los módulos multiempresa
+              habilitados; asistencia y las demás funciones laborales seguirán cerradas hasta completar su aislamiento.
             </p>
           </div>
         )}
@@ -123,10 +126,12 @@ function UsersTab({
   detail,
   canManage,
   canResetMfa,
+  currentUserId,
 }: {
   detail: PlatformCompanyDetail;
   canManage: boolean;
   canResetMfa: boolean;
+  currentUserId: string;
 }) {
   const assignableRoles = detail.roles
     .filter((role) => role.active && (!detail.workspaceEnabled || role.baseRole !== null))
@@ -147,7 +152,7 @@ function UsersTab({
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="border-b border-border text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <tr><th className="pb-3 pr-4">Persona</th><th className="px-4 pb-3">Estado</th><th className="px-4 pb-3">Roles actuales</th><th className="px-4 pb-3">Asignación</th><th className="pl-4 pb-3">Segundo factor</th></tr>
+                <tr><th className="pb-3 pr-4">Persona</th><th className="px-4 pb-3">Estado</th><th className="px-4 pb-3">Roles actuales</th><th className="px-4 pb-3">Asignación</th><th className="px-4 pb-3">Acceso</th><th className="pl-4 pb-3">Segundo factor</th></tr>
               </thead>
               <tbody>
                 {detail.memberships.map((member) => (
@@ -156,14 +161,17 @@ function UsersTab({
                       <div className="font-medium text-slate-900">{member.displayName}</div>
                       <div className="text-xs text-slate-400">{member.email ?? "Correo protegido por Auth"}</div>
                     </td>
-                    <td className="px-4 py-3"><Badge label={member.active ? "Activo" : "Inactivo"} tone={member.active ? "positive" : "neutral"} /></td>
+                    <td className="px-4 py-3"><Badge label={member.active ? "Activo" : member.identityActive ? "Acceso retirado" : "Identidad inactiva"} tone={member.active ? "positive" : "neutral"} /></td>
                     <td className="px-4 py-3 text-xs text-slate-600">{member.roles.map((role) => role.name).join(", ") || "Sin rol RBAC"}</td>
                     <td className="px-4 py-3">
-                      <MemberRoleForm companyId={detail.header.id} membershipId={member.membershipId} selectedRoleId={member.roleId} roles={assignableRoles} canManage={canManage} membershipActive={member.active} />
+                      <MemberRoleForm companyId={detail.header.id} membershipId={member.membershipId} selectedRoleId={member.roleId} roles={assignableRoles} canManage={canManage} membershipActive={member.membershipActive && member.identityActive} />
                     </td>
+                    <td className="px-4 py-3">{canManage ? <MembershipStatusForm companyId={detail.header.id} membershipId={member.membershipId} active={member.membershipActive} identityActive={member.identityActive} /> : <span className="text-xs text-slate-400">Solo lectura</span>}</td>
                     <td className="pl-4 py-3">
-                      {canResetMfa ? (
+                      {canResetMfa && member.userId !== currentUserId ? (
                         <ResetMfaForm userId={member.userId} displayName={member.displayName} />
+                      ) : canResetMfa ? (
+                        <Link href="/seguridad/mfa" className="text-xs font-medium text-arcotex-blue hover:underline">Administrar mi MFA</Link>
                       ) : (
                         <span className="text-xs text-slate-400">Solo OWNER</span>
                       )}
@@ -201,8 +209,11 @@ function UsersTab({
                         {{ PENDING: "Correo aún no procesado", SENT: "Correo enviado", ACCOUNT_EXISTS: "Cuenta existente: debe iniciar sesión", FAILED: "No se pudo enviar el correo" }[invitation.deliveryStatus]}
                       </div>
                     )}
-                    {invitation.status === "PENDING" && invitation.deliveryStatus === "FAILED" && canManage && (
-                      <ResendInvitationForm companyId={detail.header.id} invitationId={invitation.id} />
+                    {invitation.status === "PENDING" && canManage && (
+                      <div className="flex flex-wrap gap-2">
+                        <ResendInvitationForm companyId={detail.header.id} invitationId={invitation.id} />
+                        <RevokeInvitationForm companyId={detail.header.id} invitationId={invitation.id} />
+                      </div>
                     )}
                   </div>
                   <Badge label={{ PENDING: "Pendiente", ACCEPTED: "Aceptada", REVOKED: "Revocada", EXPIRED: "Vencida" }[invitation.status]} tone={invitation.status === "PENDING" ? "warning" : invitation.status === "ACCEPTED" ? "positive" : "neutral"} />
@@ -239,7 +250,7 @@ function UsersTab({
 }
 
 function ModulesTab({ detail, canManage, canOpenExpenses }: { detail: PlatformCompanyDetail; canManage: boolean; canOpenExpenses: boolean }) {
-  const manageableModules = detail.modules.filter((module) => !detail.workspaceEnabled || module.key === "expenses");
+  const manageableModules = detail.modules.filter((module) => module.tenantIsolated);
   const actionsByModule = canManage
     ? Object.fromEntries(manageableModules.map((module) => [module.key, <ModuleStatusForm key={module.key} companyId={detail.header.id} moduleKey={module.key} status={module.status} canManage />]))
     : undefined;
@@ -283,9 +294,14 @@ function OrganizationTab({ detail, canManage }: { detail: PlatformCompanyDetail;
 const AUDIT_ACTION_LABEL: Record<string, string> = {
   "company.created": "Empresa creada",
   "company.membership_role.assigned": "Rol de usuario actualizado",
+  "company.membership.status_changed": "Acceso empresarial actualizado",
   "company.module.status_changed": "Estado de módulo actualizado",
   "company.onboarding_step.status_changed": "Paso de onboarding actualizado",
   "company.invitation.created": "Invitación registrada",
+  "company.invitation.accepted": "Invitación aceptada",
+  "company.invitation.revoked_existing_member": "Invitación anulada: ya era miembro",
+  "company.invitation.revoked": "Invitación revocada",
+  "company.invitation.delivery_attempted": "Entrega de invitación registrada",
   "company.organization_unit.created": "Unidad organizacional creada",
 };
 
@@ -364,6 +380,7 @@ export default async function CompanyDetailPage({
           detail={detail}
           canManage={session.canManage}
           canResetMfa={session.role === "OWNER"}
+          currentUserId={session.userId}
         />
       )}
       {selected === "modules" && <ModulesTab detail={detail} canManage={session.canManage} canOpenExpenses={canOpenExpenses} />}

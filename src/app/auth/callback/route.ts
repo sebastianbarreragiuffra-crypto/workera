@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "../../../lib/supabase/server";
 import { acceptCurrentUserInvitations } from "../../../lib/platform/invitations";
 import { resolvePostLoginDestination } from "../../../lib/auth/mfa-account";
-import { publicAppUrl, resolvePublicOrigin } from "../../../lib/auth/public-origin";
+import { AUTH_FLOW_PATHS, publicAppUrl, resolvePublicOrigin, safeInternalDestination } from "../../../lib/auth/public-origin";
 
 /**
  * Destino de vuelta de OAuth (Google, u otro proveedor que se habilite a
@@ -18,13 +18,14 @@ import { publicAppUrl, resolvePublicOrigin } from "../../../lib/auth/public-orig
  * que hay que comprobar que el flujo funciona antes de encender el bloqueo.
  *
  * Este route handler sigue sin decidir autorización por sí mismo, solo sesión:
- * el gate de acceso real es el layout de `(app)`, que exige `profile.role` y
- * `profile.active`, así que un usuario de Google sin rol asignado rebota a
- * `/login` desde ahí y nunca entra a ninguna pantalla.
+ * el gate de acceso real lo decide el destino raíz con membresía de plataforma
+ * o tenant activa. Una identidad sin asignación termina en acceso pendiente,
+ * nunca en un loop de login.
  */
 export async function GET(request: NextRequest) {
   const { searchParams, origin: requestOrigin } = new URL(request.url);
   const code = searchParams.get("code");
+  const next = safeInternalDestination(searchParams.get("next"), "/", AUTH_FLOW_PATHS);
 
   try {
     resolvePublicOrigin(requestOrigin);
@@ -43,7 +44,10 @@ export async function GET(request: NextRequest) {
     if (!error) {
       try {
         await acceptCurrentUserInvitations(supabase);
-        const destination = await resolvePostLoginDestination(supabase);
+        const mfaDestination = await resolvePostLoginDestination(supabase);
+        const destination = mfaDestination === "/"
+          ? next
+          : `${mfaDestination}?next=${encodeURIComponent(next)}`;
         return NextResponse.redirect(publicAppUrl(destination, requestOrigin));
       } catch {
         console.error("[auth] no se pudo resolver el destino post-login de OAuth", {

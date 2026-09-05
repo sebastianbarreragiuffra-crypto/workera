@@ -43,8 +43,8 @@ select is(
     where n.nspname = 'public'
       and p.prosrc ~ 'v_actor_id is null or not public\.can_manage_platform\(\)'
   ),
-  7,
-  'all current control-plane RPCs share the corrected boolean guard'
+  9,
+  'all current control-plane RPCs, including membership and invitation lifecycle, share the corrected boolean guard'
 );
 
 insert into public.profiles (id, display_name, role, active) values

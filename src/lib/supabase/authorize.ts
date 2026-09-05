@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient as createSessionClient } from "./server";
 import type { Database } from "./database.types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * Verificación de autorización basada en la SESIÓN REAL del llamador
@@ -65,7 +66,7 @@ export async function requireAppAdmin(): Promise<{ actorId: string; actorRole: A
  * mismo en la base de datos -- este gate es una segunda capa con mensaje
  * claro, no la única barrera (ver docs/SECURITY_PHASE3.md).
  */
-export async function requireMedicalLicenseApprover(): Promise<{ actorId: string; actorRole: AppRole }> {
+export async function requireMedicalLicenseApprover(): Promise<{ actorId: string }> {
   const session = await createSessionClient();
   const { data: authData, error: authError } = await session.auth.getClaims();
   const actorId = authData?.claims?.sub as string | undefined;
@@ -74,22 +75,21 @@ export async function requireMedicalLicenseApprover(): Promise<{ actorId: string
     throw new AuthorizationError("No hay sesión autenticada.");
   }
 
-  const { data: profile, error: profileError } = await session
-    .from("profiles")
-    .select("role, active, medical_license_approver")
-    .eq("id", actorId)
-    .single();
+  const { data: allowed, error: permissionError } = await session.rpc("is_medical_license_approver");
 
-  if (profileError || !profile?.active || !profile.role || !profile.medical_license_approver) {
+  if (permissionError || allowed !== true) {
     throw new AuthorizationError("Esta operación requiere ser la cuenta autorizada para aprobar licencias médicas.");
   }
 
-  return { actorId, actorRole: profile.role };
+  return { actorId };
 }
 
-/** Versión pura/síncrona del mismo criterio, para gatear UI (mostrar/ocultar botones) a partir de un profile ya cargado -- nunca la única barrera, ver `requireMedicalLicenseApprover`. */
-export function canApproveMedicalLicense(profile: { active: boolean; medical_license_approver: boolean } | null | undefined): boolean {
-  return profile?.active === true && profile.medical_license_approver === true;
+/** La UI consulta la misma autoridad tenant-aware que usan RLS y los RPC. */
+export async function canApproveMedicalLicense(
+  supabase: SupabaseClient<Database>,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc("is_medical_license_approver");
+  return !error && data === true;
 }
 
 /**

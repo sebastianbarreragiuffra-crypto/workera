@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { MfaSignOut } from "./MfaSignOut";
 
-export function MfaLoadError({ retryHref }: { retryHref: "/login/mfa" | "/seguridad/mfa" }) {
+type MfaRetryHref =
+  | "/login/mfa"
+  | "/seguridad/mfa"
+  | `/login/mfa?next=${string}`
+  | `/seguridad/mfa?next=${string}`;
+
+export function MfaLoadError({ retryHref }: { retryHref: MfaRetryHref }) {
   return (
     <section
       role="alert"

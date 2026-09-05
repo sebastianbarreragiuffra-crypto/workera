@@ -40,8 +40,9 @@ los flujos existentes:
 - RLS y helpers de autorización para el nuevo control plane.
 
 La superficie web ya expone `/plataforma`: dashboard ejecutivo, cartera,
-alta de clientes, detalle por empresa, asignación de roles, invitaciones
-registradas, entitlements de módulos, onboarding, organigrama y auditoría
+alta de clientes, detalle por empresa, asignación de rol principal,
+invitación/reenvío/revocación, baja y reactivación de membresías, entitlements
+de módulos, onboarding, organigrama y auditoría
 sanitizada. Sus mutaciones pasan por RPCs transaccionales de
 `20260901121000_platform_management_rpcs.sql`; no usan `service_role` y no
 duplican la auditoría desde la aplicación.
@@ -60,6 +61,13 @@ una empresa distinta de ARCOTEX.
 Cada empresa se provisiona con roles, módulos, pasos de onboarding y una unidad
 organizacional raíz. ARCOTEX conserva el workspace habilitado; toda empresa nueva
 queda en `ONBOARDING` con `workspace_enabled = false`.
+
+El hardening posterior cierra las transiciones que el bootstrap original no
+cubría: aceptación de invitaciones sin acumulación de privilegios, DML del
+control plane exclusivamente por RPC con MFA y auditoría, módulos limitados a
+capacidades `tenant_isolated`, onboarding idempotente, baja efectiva del acceso
+legacy ARCOTEX, directorio financiero mínimo para anticipos e integridad temporal
+y acíclica de líneas de reporte.
 
 ## 3. Roles, módulos y organigrama
 
@@ -135,23 +143,19 @@ empresa en onboarding como si ya estuviera operativa.
 
 ## 7. Próximos pasos
 
-1. EX-3 (comprobantes privados y decisiones de aprobación), EX-4 (extracción
-   OCR asíncrona vía Azure Document Intelligence, sin desplegar a staging y
-   con Azure deshabilitado hasta configurar credenciales reales), EX-5
-   (retiro de rendiciones enviadas, monto máximo por categoría, y cadenas de
-   aprobación multi-paso con separación real de funciones y snapshot al
-   enviar) y EX-6 (conciliación: marcar una rendición aprobada como pagada,
-   con referencia de pago o asiento contable obligatoria) ya están completos
-   localmente, consumiendo siempre el tenant y entitlement ya implementados
-   en EX-1/EX-2.
+1. EX-3 a EX-6 y las extensiones posteriores de Rendiciones están implementadas
+   sobre tenant y entitlement explícitos. El esquema/worker OCR está desplegado,
+   pero Azure y los canales externos continúan deshabilitados hasta disponer de
+   credenciales, antimalware y evidencia operacional real.
 2. Ejecutar MT-3B–D por dominio laboral, con migraciones pequeñas, backfill explícito y
    pruebas de cruce tenant antes de avanzar al siguiente dominio.
 3. Hacer tenant-aware los jobs, archivos, exports e integraciones; evitar que un
    proceso server-side dependa de un tenant implícito.
 4. Añadir observabilidad de plataforma con métricas agregadas y auditoría
    sanitizada, sin convertir el control plane en acceso silencioso a PII.
-5. Conectar aceptación y envío de invitaciones, MFA para cuentas privilegiadas
-   y administración avanzada de permisos sin relajar los gates existentes.
+5. Configurar SMTP transaccional y completar la administración avanzada de
+   permisos. La aceptación de invitaciones y MFA del alcance privilegiado actual
+   ya están conectados; no volver a allowlists por correo.
 6. Solo después del gate de aislamiento, activar el primer cliente distinto de
    ARCOTEX y validar su onboarding extremo a extremo.
 

@@ -74,6 +74,8 @@ function LoginErrorBanner() {
       ? "No pudimos completar el inicio de sesión con Google."
       : error === "security"
         ? "No pudimos comprobar el estado de seguridad de tu cuenta. Intenta nuevamente."
+        : error === "invite"
+          ? "No pudimos confirmar la invitación. Solicita un nuevo enlace e intenta otra vez."
         : null;
   if (!message) return null;
   return (
@@ -81,6 +83,11 @@ function LoginErrorBanner() {
       {message}
     </p>
   );
+}
+
+function NextDestinationInput() {
+  const searchParams = useSearchParams();
+  return <input type="hidden" name="next" value={searchParams.get("next") ?? "/"} />;
 }
 
 export default function LoginPage() {
@@ -132,6 +139,9 @@ export default function LoginPage() {
             </Suspense>
 
             <form action={formAction} className="mt-6 space-y-4">
+              <Suspense fallback={<input type="hidden" name="next" value="/" />}>
+                <NextDestinationInput />
+              </Suspense>
               <div>
                 <label htmlFor="email" className="text-xs font-medium text-slate-700">
                   Email
@@ -193,6 +203,9 @@ export default function LoginPage() {
             </div>
 
             <form action={loginWithGoogle} className="mt-4">
+              <Suspense fallback={<input type="hidden" name="next" value="/" />}>
+                <NextDestinationInput />
+              </Suspense>
               <button
                 type="submit"
                 className="flex w-full items-center justify-center gap-2 rounded-md border border-login-border px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-login-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"

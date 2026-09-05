@@ -33,6 +33,8 @@ export interface PlatformMemberItem {
   displayName: string;
   /** El esquema público no expone email de auth.users al cliente de sesión. */
   email: string | null;
+  membershipActive: boolean;
+  identityActive: boolean;
   active: boolean;
   /** Rol primario determinista para tablas compactas; `roles` conserva el RBAC multirol real. */
   roleId: string | null;
@@ -85,6 +87,8 @@ export interface PlatformAuditItem {
 export interface PlatformCompanyDetail {
   header: CompanyHeaderSummary;
   workspaceEnabled: boolean;
+  /** Puede cerrar onboarding por workspace laboral o módulo tenant-isolated activo. */
+  goLiveEligible: boolean;
   planCode: string;
   countryCode: string;
   timezone: string;
@@ -240,6 +244,7 @@ interface RawModuleDefinition {
   description: string;
   category: string;
   sort_order: number;
+  tenant_isolated: boolean;
 }
 
 interface RawInvitation {
@@ -470,6 +475,8 @@ export function mapMemberItems(
         userId: membership.user_id,
         displayName: profile.display_name,
         email: null,
+        membershipActive: membership.active,
+        identityActive: profile.active,
         active: membership.active && profile.active,
         roleId: primaryRole?.id ?? null,
         roleName: primaryRole?.name ?? null,
@@ -516,6 +523,7 @@ export function mapModuleItems(input: {
           name: definition.name,
           description: definition.description,
           category: definition.category,
+          tenantIsolated: definition.tenant_isolated,
           status: companyModule.status,
           accessLabels: [...(accessByModule.get(companyModule.module_key) ?? [])].sort((a, b) =>
             a.localeCompare(b, "es")
@@ -731,11 +739,23 @@ export async function getPlatformCompanyDetail(
   }
   if (!companyResult.data) throw new PlatformCompanyNotFoundError();
   const company = companyResult.data as RawCompany;
-  const portfolioResult = await supabase.rpc("platform_company_portfolio_page", {
-    p_company_id: company.id,
-    p_limit: 1,
-    p_offset: 0,
-  });
+  const [portfolioResult, enabledCompanyModulesResult, isolatedModuleDefinitionsResult] = await Promise.all([
+    supabase.rpc("platform_company_portfolio_page", {
+      p_company_id: company.id,
+      p_limit: 1,
+      p_offset: 0,
+    }),
+    supabase
+      .from("company_modules")
+      .select("module_key")
+      .eq("company_id", company.id)
+      .in("status", ["ENABLED", "PILOT"]),
+    supabase
+      .from("module_catalog")
+      .select("key")
+      .eq("active", true)
+      .eq("tenant_isolated", true),
+  ]);
   const portfolioRows = requireQueryData(
     portfolioResult as QueryResult<PlatformPortfolioPageRow[]>,
     "la proyección segura de la empresa"
@@ -744,6 +764,18 @@ export async function getPlatformCompanyDetail(
   if (!portfolioRow) {
     throw new PlatformDataAccessError("La empresa no aparece en la proyección segura del portafolio.");
   }
+  const enabledCompanyModules = requireQueryData(
+    enabledCompanyModulesResult,
+    "los módulos operativos de la empresa"
+  );
+  const isolatedModuleDefinitions = requireQueryData(
+    isolatedModuleDefinitionsResult,
+    "las capacidades multiempresa del catálogo"
+  );
+  const isolatedModuleKeys = new Set(isolatedModuleDefinitions.map((module) => module.key));
+  const hasEnabledTenantIsolatedModule = enabledCompanyModules.some((module) =>
+    isolatedModuleKeys.has(module.module_key)
+  );
 
   let memberships: PlatformMemberItem[] = [];
   let roles: PlatformRoleItem[] = [];
@@ -821,7 +853,7 @@ export async function getPlatformCompanyDetail(
   } else if (tab === "modules") {
     const [companyModulesResult, moduleDefinitionsResult, rolesResult, rolePermissionsResult, permissionDefinitionsResult] = await Promise.all([
       supabase.from("company_modules").select("module_key, status, settings, settings_version").eq("company_id", company.id),
-      supabase.from("module_catalog").select("key, name, description, category, sort_order").eq("active", true),
+      supabase.from("module_catalog").select("key, name, description, category, sort_order, tenant_isolated").eq("active", true),
       supabase.from("company_roles").select("id, code, name, description, active, is_system, base_role").eq("company_id", company.id),
       supabase.from("company_role_permissions").select("role_id, permission_code").eq("company_id", company.id),
       supabase.from("permission_definitions").select("code, module_key"),
@@ -882,6 +914,7 @@ export async function getPlatformCompanyDetail(
   return {
     header,
     workspaceEnabled: company.workspace_enabled,
+    goLiveEligible: company.workspace_enabled || hasEnabledTenantIsolatedModule,
     planCode: company.plan_code,
     countryCode: company.country_code,
     timezone: company.timezone,

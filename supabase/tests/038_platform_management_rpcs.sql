@@ -421,8 +421,8 @@ select throws_ok(
   $$select public.platform_set_company_module_status(
       '0a4c0000-0000-0000-0000-000000000001', 'payroll', 'DISABLED')$$,
   '23514',
-  'Los módulos de un workspace operativo no se pueden cambiar hasta completar los gates backend y RLS de MT-3D.',
-  'un entitlement operativo no cambia antes de que rutas y RLS consuman el gate');
+  'Este módulo sigue ligado al workspace laboral y no puede cambiarse hasta completar su aislamiento multiempresa.',
+  'un entitlement legacy no cambia antes de completar su aislamiento');
 reset role;
 select is((select status::text from public.company_modules
            where company_id = '0a4c0000-0000-0000-0000-000000000001'
@@ -434,8 +434,8 @@ set local request.jwt.claim.sub = '92000000-0000-0000-0000-000000000101';
 select throws_ok(
   format($$select public.platform_set_onboarding_step_completed(%L, 'go_live', true)$$,
     (select id from public.companies where slug = 'cliente-alpha-rpc')),
-  '23514', 'No se puede completar go_live mientras el workspace permanezca bloqueado.',
-  'go_live no puede completarse con el workspace fail-closed');
+  '23514', 'Completa los pasos anteriores antes de activar la empresa.',
+  'go_live no permite saltarse el checklist previo');
 reset role;
 select is((select os.status::text from public.company_onboarding_steps os
            join public.companies c on c.id = os.company_id

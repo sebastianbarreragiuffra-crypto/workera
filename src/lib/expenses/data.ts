@@ -805,24 +805,21 @@ export async function getExpensePolicySettings(
 }
 
 /**
- * Miembros activos de la empresa, para el selector de destinatario al
- * otorgar un anticipo -- grant_expense_advance() igual revalida esto en el
- * servidor (23503 si ya no es miembro activo), esto es solo para poblar el
- * formulario.
+ * Directorio mínimo de miembros activos para el selector de anticipos. El RPC
+ * autoriza por expenses.reconcile/expenses.manage y evita depender de la RLS
+ * más amplia de administración de membresías.
  */
 export async function getCompanyMembersForAdvances(
   supabase: SupabaseClient<Database>,
   context: ExpenseCompanyContext
 ): Promise<Array<{ id: string; displayName: string }>> {
-  const { data, error } = await supabase
-    .from("company_memberships")
-    .select("user_id, profiles!company_memberships_user_id_fkey(display_name)")
-    .eq("company_id", context.id)
-    .eq("active", true);
+  const { data, error } = await supabase.rpc("list_expense_advance_recipients", {
+    p_company_id: context.id,
+  });
   if (error) throw new Error("No se pudo cargar la lista de personas de la empresa.");
 
   return (data ?? [])
-    .map((membership) => ({ id: membership.user_id, displayName: unwrapEmbed(membership.profiles)?.display_name ?? "Persona sin nombre registrado" }))
+    .map((membership) => ({ id: membership.user_id, displayName: membership.display_name }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName, "es"));
 }
 

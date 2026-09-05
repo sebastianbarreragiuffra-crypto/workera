@@ -159,7 +159,8 @@ El orden importa y no es intercambiable.
 > el enforcement, pero son obligatorias antes de inscribir: cierran guards que
 > devolvían `NULL` y permiten que `service_role` escriba la bitácora MFA. Excluir
 > expresamente `20260904120000` y todo lo posterior a `20260904160000` de ese
-> primer corte. Inscribir las cuatro cuentas y recién en el paso 5 aplicar el
+> primer corte. Inscribir todas las cuentas que hoy devuelve
+> `account_requires_mfa()` y recién en el paso 5 aplicar el
 > resto con `supabase db push --include-all` (primero `--dry-run`), porque la
 > migración `20260904120000` tendrá un timestamp anterior a dos versiones ya
 > registradas. La segunda tanda debe incluir
@@ -168,7 +169,7 @@ El orden importa y no es intercambiable.
 
 1. Desplegar con `MFA_ENFORCEMENT_ENABLED=false`. Este paso es **invisible**:
    `/seguridad/mfa` queda accesible para quien entre a propósito, pero nadie es
-   redirigido ahí ni bloqueado. Avisar a las cuatro cuentas por fuera de la
+   redirigido ahí ni bloqueado. Avisar a las cuentas dentro del alcance MFA por fuera de la
    aplicación y pasarles el enlace.
 
    Desde el momento en que una de ellas inscribe y verifica su factor, sus
@@ -177,10 +178,12 @@ El orden importa y no es intercambiable.
    funciona antes del paso 5.
 2. **El OWNER se inscribe primero**, con su factor obligatorio y, de ser
    posible, el respaldo recomendado (sección 2).
-3. Se inscriben el gerente y las dos cuentas `ADMIN_RRHH` que aprueban
-   licencias.
-4. Confirmar que las cuatro cuentas tienen factor verificado con la consulta de
-   la sección 2.
+3. Se inscribe cualquier otra cuenta `OWNER`/`ADMIN` de plataforma o con rol
+   laboral legacy `SUPER_ADMIN`/`ADMIN_RRHH`. En el rollout hospedado actual
+   solo existía el único OWNER real. Los roles RBAC tenant puros no se agregan
+   hasta proteger todos sus RPC mutativos en backend.
+4. Confirmar que todas las cuentas devueltas por `account_requires_mfa()` tienen factor
+   verificado con la consulta de la sección 2.
 5. Recién entonces, dentro de una ventana de mantenimiento: poner
    `MFA_ENFORCEMENT_ENABLED=true`, aplicar el segundo corte completo y
    redesplegar. Mantener el tráfico bloqueado hasta comprobar que
@@ -194,8 +197,8 @@ El orden importa y no es intercambiable.
 > dentro de los RPC de licencias médicas y de gestión de plataforma. Una función
 > de base de datos no lee variables de entorno, así que esa guarda **no** obedece
 > a `MFA_ENFORCEMENT_ENABLED` — esa independencia es lo que la hace una segunda
-> capa y no una copia de la primera. Aplicarla antes de que el gerente haya
-> tenido la oportunidad de inscribirse lo deja sin poder aprobar licencias.
+> capa y no una copia de la primera. Aplicarla antes de que los operadores
+> sensibles hayan podido inscribirse los deja bloqueados.
 
 ### Cómo aplicar las migraciones sin romper ese orden
 

@@ -2,19 +2,35 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolveActiveCompany } from "./resolve-active-company";
 
-function mockSupabase(rows: { company_id: string; role: string; companies: { name: string; slug: string; active: boolean; workspace_enabled: boolean } | null }[]) {
+type CompanyRow = { name: string; slug: string; active: boolean; status: "ACTIVE" | "ONBOARDING" | "SUSPENDED"; workspace_enabled: boolean };
+
+function company(overrides: Partial<CompanyRow> = {}): CompanyRow {
+  return { name: "ARCOTEX", slug: "arcotex", active: true, status: "ACTIVE", workspace_enabled: true, ...overrides };
+}
+
+function mockSupabase(rows: { company_id: string; role: string | null; companies: CompanyRow | null }[]) {
+  const filters: Array<[string, unknown]> = [];
+  const query = {
+    select() {
+      return query;
+    },
+    eq(column: string, value: unknown) {
+      filters.push([column, value]);
+      return query;
+    },
+    then(resolve: (value: { data: typeof rows; error: null }) => unknown) {
+      return Promise.resolve({ data: rows, error: null }).then(resolve);
+    },
+  };
   return {
+    auth: {
+      getClaims: async () => ({ data: { claims: { sub: "user-1" } }, error: null }),
+    },
     from(table: string) {
       if (table !== "company_memberships") throw new Error(`unexpected table ${table}`);
-      return {
-        select() {
-          return this;
-        },
-        eq() {
-          return Promise.resolve({ data: rows, error: null });
-        },
-      };
+      return query;
     },
+    filters,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 }
@@ -26,20 +42,20 @@ test("resolveActiveCompany: 0 membresías -> NONE (nunca se auto-provisiona una 
 });
 
 test("resolveActiveCompany: 1 membresía -> SINGLE, con nombre/slug/rol de ESA empresa únicamente", async () => {
-  const supabase = mockSupabase([{ company_id: "c1", role: "ADMIN_RRHH", companies: { name: "ARCOTEX", slug: "arcotex", active: true, workspace_enabled: true } }]);
+  const supabase = mockSupabase([{ company_id: "c1", role: "ADMIN_RRHH", companies: company() }]);
   const result = await resolveActiveCompany(supabase);
   assert.equal(result.kind, "SINGLE");
   if (result.kind === "SINGLE") {
     assert.equal(result.membership.companyId, "c1");
     assert.equal(result.membership.companySlug, "arcotex");
-    assert.equal(result.membership.role, "ADMIN_RRHH");
+    assert.equal(result.membership.legacyRole, "ADMIN_RRHH");
   }
 });
 
 test("resolveActiveCompany: 2+ membresías -> MULTIPLE con exactamente esas empresas, nunca una lista global", async () => {
   const supabase = mockSupabase([
-    { company_id: "c1", role: "ADMIN_RRHH", companies: { name: "ARCOTEX", slug: "arcotex", active: true, workspace_enabled: true } },
-    { company_id: "c2", role: "SUPERVISOR_PRODUCTION", companies: { name: "GESTORA DEMO COMPANY", slug: "demo-co", active: true, workspace_enabled: true } },
+    { company_id: "c1", role: "ADMIN_RRHH", companies: company() },
+    { company_id: "c2", role: null, companies: company({ name: "GESTORA DEMO COMPANY", slug: "demo-co", workspace_enabled: false }) },
   ]);
   const result = await resolveActiveCompany(supabase);
   assert.equal(result.kind, "MULTIPLE");
@@ -60,20 +76,31 @@ test("resolveActiveCompany: fila sin company relacionada (RLS la filtró) se des
 
 test("resolveActiveCompany: una empresa inactiva se descarta aunque el actor de plataforma pueda verla", async () => {
   const supabase = mockSupabase([
-    { company_id: "c1", role: "ADMIN_RRHH", companies: { name: "Empresa suspendida", slug: "suspendida", active: false, workspace_enabled: true } },
+    { company_id: "c1", role: "ADMIN_RRHH", companies: company({ name: "Empresa suspendida", slug: "suspendida", active: false }) },
   ]);
   const result = await resolveActiveCompany(supabase);
   assert.deepEqual(result, { kind: "NONE" });
 });
 
-test("resolveActiveCompany: un workspace bloqueado no se resuelve como operativo", async () => {
+test("resolveActiveCompany: un tenant RBAC puro sigue siendo accesible aunque el workspace laboral esté bloqueado", async () => {
   const supabase = mockSupabase([
-    { company_id: "c1", role: "ADMIN_RRHH", companies: { name: "En onboarding", slug: "onboarding", active: true, workspace_enabled: false } },
+    { company_id: "c1", role: null, companies: company({ name: "En onboarding", slug: "onboarding", status: "ONBOARDING", workspace_enabled: false }) },
   ]);
   const result = await resolveActiveCompany(supabase);
-  assert.deepEqual(result, { kind: "NONE" });
+  assert.equal(result.kind, "SINGLE");
+  if (result.kind === "SINGLE") {
+    assert.equal(result.membership.legacyRole, null);
+    assert.equal(result.membership.workspaceEnabled, false);
+    assert.equal(result.membership.status, "ONBOARDING");
+  }
 });
 
 test("resolveActiveCompany: enumera desde el cliente de sesión; la selección de workspace se valida en una capa posterior", () => {
   assert.equal(resolveActiveCompany.length, 1, "resolveActiveCompany debe tomar únicamente el cliente de sesión");
+});
+
+test("resolveActiveCompany: filtra explícitamente por el usuario autenticado aunque RLS permita administrar otros miembros", async () => {
+  const supabase = mockSupabase([]);
+  await resolveActiveCompany(supabase);
+  assert.deepEqual(supabase.filters, [["user_id", "user-1"], ["active", true]]);
 });

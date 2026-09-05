@@ -7,6 +7,7 @@ import { getNavSectionsForRole, roleLabel } from "../../components/shell/nav-con
 import { getPeriodStatus } from "../../lib/view-models/dashboard-view";
 import { todayInSantiago } from "../../lib/view-models/date-utils";
 import { listExpenseCompaniesFromClient } from "../../lib/expenses/access";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../lib/tenant/legacy-workforce";
 
 const AREA_LABEL: Record<"SUPERVISOR_PRODUCTION" | "SUPERVISOR_INSTALLATION", string> = {
   SUPERVISOR_PRODUCTION: "Producción",
@@ -27,7 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   const supabase = await createClient();
-  const [periodStatus, platformMembership, expenseCompanies] = await Promise.all([
+  const [periodStatus, platformMembership, expenseCompanies, workforceMembership] = await Promise.all([
     getPeriodStatus(supabase, todayInSantiago()),
     supabase
       .from("platform_memberships")
@@ -36,11 +37,29 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       .eq("active", true)
       .maybeSingle(),
     listExpenseCompaniesFromClient(supabase, profile.id),
+    supabase
+      .from("company_memberships")
+      .select("company_id, companies!inner(id)")
+      .eq("user_id", profile.id)
+      .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
+      .eq("active", true)
+      .eq("companies.active", true)
+      .eq("companies.status", "ACTIVE")
+      .eq("companies.workspace_enabled", true)
+      .maybeSingle(),
   ]);
 
-  const expenseCompany = expenseCompanies.find((company) => company.slug === "arcotex") ?? expenseCompanies[0];
+  if (workforceMembership.error || !workforceMembership.data) {
+    redirect("/");
+  }
+
+  const expensesHref = expenseCompanies.length > 1
+    ? "/rendiciones"
+    : expenseCompanies[0]
+      ? `/empresas/${expenseCompanies[0].slug}/rendiciones`
+      : null;
   const sections = getNavSectionsForRole(profile.role, {
-    expensesHref: expenseCompany ? `/empresas/${expenseCompany.slug}/rendiciones` : null,
+    expensesHref,
   });
   const areaLabel =
     profile.role === "SUPERVISOR_PRODUCTION" || profile.role === "SUPERVISOR_INSTALLATION" ? AREA_LABEL[profile.role] : null;

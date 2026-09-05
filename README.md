@@ -49,6 +49,13 @@ El detalle del límite multiempresa y las decisiones reemplazadas está en
 - Control plane MT-3A: ciclo de vida de clientes, membresías globales, RBAC
   configurable por empresa, módulos, invitaciones, onboarding, organigrama y
   auditoría de plataforma.
+- Los flujos de transición del control plane están cerrados por RPC auditados:
+  invitación/reenvío/revocación, aceptación sin acumulación accidental de
+  privilegios, cambio de rol principal, baja/reactivación de membresía, módulos
+  aislados e onboarding idempotente. Dar de baja una membresía ARCOTEX revoca
+  también la autorización laboral legacy aunque `profiles.role` se preserve
+  para una reactivación explícita. El organigrama impide jefaturas principales
+  solapadas y ciclos temporales.
 - ARCOTEX conserva sus flujos de asistencia, novedades, documentos, nómina e
   integración Workera. Esos dominios todavía no están completamente aislados
   para operar una segunda empresa.
@@ -73,23 +80,28 @@ El detalle del límite multiempresa y las decisiones reemplazadas está en
   aislamiento por `company_id` en cada paso. El worker nunca sobrescribe los
   montos declarados por la persona: solo dejan discrepancias visibles y exigen
   revisión humana con comentario obligatorio al rechazar. Completo y validado
-  en local; **todavía sin desplegar a staging** y con Azure deshabilitado
-  (`EXPENSE_OCR_ENABLED=false` por defecto) hasta configurar credenciales
-  reales -- ningún resultado de esta fase fue probado contra la API de Azure
-  en producción.
+  en local. El esquema y el worker ya están desplegados en staging, pero Azure
+  permanece deshabilitado (`EXPENSE_OCR_ENABLED=false` por defecto) hasta
+  configurar credenciales reales; ningún resultado de esta fase fue probado
+  contra la API de Azure en producción.
 - Los archivos externos de correo/WhatsApp entran a cuarentena antes de OCR.
   El worker de seguridad, leases, checksum y canarios sintéticos ya existe,
   pero su único scanner es un fixture que no puede activarse en producción.
   `EXPENSE_FILE_SCAN_ENABLED=false` y ambos canales deben seguir apagados hasta
   seleccionar y verificar un proveedor antimalware real; ver
   [docs/EXPENSE_FILE_QUARANTINE.md](docs/EXPENSE_FILE_QUARANTINE.md).
-- MFA (TOTP) para cuentas privilegiadas está **en master y desplegado en
-  staging alojado** desde el commit `138288d`: el dominio canónico es
+- MFA (TOTP) para cuentas privilegiadas está **en master, activo y verificado
+  en staging alojado**: el dominio canónico es
   `https://arcotex-workera-staging.vercel.app`, Vercel tiene
   `MFA_ENFORCEMENT_ENABLED=true`, Google OAuth fue comprobado hasta
   `/login/mfa` y la única identidad que actualmente coincide con el conjunto
-  privilegiado tiene dos factores verificados. Nuevas identidades que entren
-  a ese conjunto deberán inscribirse en su primer acceso. Incluye:
+  privilegiado tiene dos factores verificados. Una sola identidad OWNER es
+  suficiente para el alcance actual; una segunda es una mejora futura, no un
+  bloqueo de MFA. Nuevas identidades que sean OWNER/ADMIN de plataforma o
+  reciban los roles laborales legacy SUPER_ADMIN/ADMIN_RRHH deberán
+  inscribirse en su primer acceso. Los roles RBAC puros de otros tenants no se
+  incorporarán a esa regla hasta que todos sus RPC mutativos tengan la misma
+  guarda AAL2 en backend. Incluye:
   inscripción y gestión de factores, desafío en el login por contraseña y por
   OAuth, gate de middleware detrás de `MFA_ENFORCEMENT_ENABLED` (default
   `false`), guarda `aal2` dentro de los RPC sensibles y en las Server Actions
@@ -101,6 +113,9 @@ El detalle del límite multiempresa y las decisiones reemplazadas está en
   migraciones ya no es libre**: el procedimiento vigente, incluido el
   break-glass del OWNER, está en
   [docs/PLATFORM_OWNER_RUNBOOK.md](docs/PLATFORM_OWNER_RUNBOOK.md).
+  La evidencia sin secretos está en
+  [docs/MFA_HOSTED_EVIDENCE.md](docs/MFA_HOSTED_EVIDENCE.md); el ensayo de
+  recuperación sigue como gate separado y no se ejecuta sobre el único OWNER.
 - El dashboard usa KPIs agregados y la cartera se busca, filtra y pagina en el
   servidor. El detalle carga solo la pestaña solicitada y pagina membresías;
   administrar la plataforma no implica leer automáticamente la nómina de cada

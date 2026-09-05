@@ -1,8 +1,10 @@
 import "server-only";
 import { createClient as createSessionClient } from "../supabase/server";
 import { createAdminClient } from "../supabase/admin-client";
-import { requireAppAdmin, AuthorizationError } from "../supabase/authorize";
+import { AuthorizationError } from "../supabase/authorize";
 import type { Database } from "../supabase/database.types";
+import { getPlatformSessionFromClient } from "../platform/authorization";
+import { getVerifiedCurrentAal } from "../auth/mfa-account";
 
 /**
  * Servicios de gestión de usuarios de la aplicación (Fase 5D, PASO 9/10 del
@@ -38,6 +40,21 @@ export interface AppUserSummary {
   createdAt: string;
 }
 
+async function requireGlobalIdentityOwner() {
+  // Una identidad global solo puede administrarla el OWNER real de la
+  // plataforma después de verificar su segundo factor. No se exige un rol
+  // Arcotex: un futuro OWNER legítimo puede no pertenecer a ese cliente.
+  const session = await createSessionClient();
+  const [platform, aal] = await Promise.all([
+    getPlatformSessionFromClient(session),
+    getVerifiedCurrentAal(session),
+  ]);
+  if (platform?.role !== "OWNER" || aal !== "aal2") {
+    throw new AuthorizationError("Esta operación requiere OWNER de plataforma con MFA verificado.");
+  }
+  return session;
+}
+
 /**
  * Lista los usuarios de la aplicación. Requiere APP_ADMIN (SUPER_ADMIN) --
  * restringido en Fase 8D (antes permitía también ADMIN_RRHH; el encargo de
@@ -45,9 +62,7 @@ export interface AppUserSummary {
  * APP_ADMIN, ADMIN_RRHH no la hereda).
  */
 export async function listAppUsers(): Promise<AppUserSummary[]> {
-  await requireAppAdmin();
-
-  const session = await createSessionClient();
+  const session = await requireGlobalIdentityOwner();
   const { data, error } = await session
     .from("profiles")
     .select("id, display_name, role, active, created_at")
@@ -73,16 +88,12 @@ export interface CreateAppUserInput {
 }
 
 /**
- * Crea una cuenta humana nueva (Supabase Auth, vía admin client) y le asigna
- * el rol solicitado. Requiere APP_ADMIN (SUPER_ADMIN) -- restringido en
- * Fase 8D (antes permitía también ADMIN_RRHH; "role assignment"/"user
- * administration" son capacidades exclusivas de APP_ADMIN por encargo
- * explícito). La RLS de `profiles_update` sigue siendo la autoridad real
- * para la protección de SUPER_ADMIN -- este gate es defensa en profundidad,
- * no el único lugar donde se decide.
+ * Compatibilidad exclusiva del workspace laboral Arcotex: crea una identidad
+ * global y le asigna un app_role legacy. Las altas multiempresa normales usan
+ * company_invitations; no se debe reutilizar este servicio para otro tenant.
  */
 export async function createAppUser(input: CreateAppUserInput): Promise<{ userId: string }> {
-  await requireAppAdmin();
+  const session = await requireGlobalIdentityOwner();
 
   const admin = createAdminClient("auth-user-provisioning");
   const { data, error } = await admin.auth.admin.createUser({
@@ -99,13 +110,22 @@ export async function createAppUser(input: CreateAppUserInput): Promise<{ userId
   // El trigger on_auth_user_created (Fase 3) ya creó la fila de profiles con
   // role=NULL. La asignación de rol pasa por la sesión normal, no por el
   // admin client, para quedar sujeta a la misma RLS de profiles_update.
-  const session = await createSessionClient();
-  const { error: updateError } = await session
+  const { data: updatedProfile, error: updateError } = await session
     .from("profiles")
     .update({ role: input.role, display_name: input.displayName })
-    .eq("id", data.user.id);
+    .eq("id", data.user.id)
+    .select("id")
+    .single();
 
-  if (updateError) throw updateError;
+  if (updateError || !updatedProfile) {
+    const { error: cleanupError } = await admin.auth.admin.deleteUser(data.user.id);
+    if (cleanupError) {
+      console.error("[auth] no se pudo revertir una cuenta sin rol", {
+        event: "auth_user_provisioning_rollback_failed",
+      });
+    }
+    throw updateError ?? new Error("No se confirmó la asignación de identidad global.");
+  }
 
   return { userId: data.user.id };
 }
@@ -117,11 +137,9 @@ export async function createAppUser(input: CreateAppUserInput): Promise<{ userId
  * incluida) como defensa en profundidad, no como único gate.
  */
 export async function assignRole(targetUserId: string, role: AppRole): Promise<void> {
-  await requireAppAdmin();
-
-  const session = await createSessionClient();
-  const { error } = await session.from("profiles").update({ role }).eq("id", targetUserId);
-  if (error) throw error;
+  const session = await requireGlobalIdentityOwner();
+  const { data, error } = await session.from("profiles").update({ role }).eq("id", targetUserId).select("id").single();
+  if (error || !data) throw error ?? new Error("No se confirmó el cambio de rol.");
 }
 
 /**
@@ -131,9 +149,7 @@ export async function assignRole(targetUserId: string, role: AppRole): Promise<v
  * activo) como defensa en profundidad.
  */
 export async function setUserActive(targetUserId: string, active: boolean): Promise<void> {
-  await requireAppAdmin();
-
-  const session = await createSessionClient();
-  const { error } = await session.from("profiles").update({ active }).eq("id", targetUserId);
-  if (error) throw error;
+  const session = await requireGlobalIdentityOwner();
+  const { data, error } = await session.from("profiles").update({ active }).eq("id", targetUserId).select("id").single();
+  if (error || !data) throw error ?? new Error("No se confirmó el cambio de estado.");
 }

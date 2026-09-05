@@ -36,11 +36,12 @@ function SubmitButton() {
  * guardado fuera de él -- deja elegir cuál usar, porque justamente el segundo
  * existe para cuando el primero no está a mano.
  */
-export function MfaChallenge({ factors }: { factors: MfaChallengeFactor[] }) {
+export function MfaChallenge({ factors, next = "/" }: { factors: MfaChallengeFactor[]; next?: string }) {
   const [state, formAction] = useActionState(verifyMfaChallengeAction, MFA_CHALLENGE_INITIAL_STATE);
 
   return (
     <form action={formAction}>
+      <input type="hidden" name="next" value={next} />
       {factors.length > 1 ? (
         <div className="mb-4">
           <label htmlFor="factorId" className="text-xs font-medium text-slate-700">

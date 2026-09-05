@@ -68,8 +68,10 @@ select ok(
 );
 select ok(
   pg_get_functiondef('public.authorize_workforce_data_access(text,uuid,text,date,date)'::regprocedure)
-    ~ $$slug = 'arcotex'$$,
-  '11) el gate declara explicitamente su alcance legacy ARCOTEX'
+    ~ $$id = '0a4c0000-0000-0000-0000-000000000001'::uuid$$
+  and pg_get_functiondef('public.authorize_workforce_data_access(text,uuid,text,date,date)'::regprocedure)
+    !~ $$slug = 'arcotex'$$,
+  '11) el gate declara ARCOTEX por UUID estable, no por slug mutable'
 );
 select ok(
   (select qual::text like '%can_read_supplier_master_path%'

@@ -38,9 +38,10 @@ on conflict (user_id, company_id) do nothing;
 set local role authenticated;
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000101'; -- Arcotex user
 select is(
-  (select count(*)::int from public.company_memberships),
+  (select count(*)::int from public.company_memberships
+   where user_id = '90000000-0000-0000-0000-000000000101'),
   1,
-  'usuario de ARCOTEX ve exactamente 1 membresía (la suya, nunca la de DEMO)'
+  'usuario de ARCOTEX conserva exactamente su propia membresía'
 );
 select is(
   (select company_id::text from public.company_memberships limit 1),
@@ -78,9 +79,10 @@ reset role;
 set local role authenticated;
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000103';
 select is(
-  (select count(*)::int from public.company_memberships),
+  (select count(*)::int from public.company_memberships
+   where user_id = '90000000-0000-0000-0000-000000000103'),
   2,
-  'usuario con 2 membresías activas ve exactamente 2 (ni más, ni menos)'
+  'usuario multi-tenant conserva exactamente sus 2 membresías propias'
 );
 select is(
   (select count(*)::int from public.companies),

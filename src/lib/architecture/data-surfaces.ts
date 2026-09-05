@@ -70,7 +70,8 @@ export const RPC_CONSUMER_SURFACES = [
       "platform_assign_company_role", "platform_create_company",
       "platform_create_company_invitation", "platform_create_organization_unit",
       "platform_mark_company_invitation_delivery", "platform_set_company_module_status",
-      "platform_set_onboarding_step_completed",
+      "platform_revoke_company_invitation", "platform_set_onboarding_step_completed",
+      "platform_set_company_membership_active",
     ],
     dynamicRpcs: [], authorization: "requirePlatformManager y AAL2; RPC repite permiso de plataforma.",
     auditControl: "PLATFORM_LEDGER", dataClass: "SENSITIVE_HR",
@@ -82,6 +83,13 @@ export const RPC_CONSUMER_SURFACES = [
     literalRpcs: ["can_reset_mfa_for"], dynamicRpcs: [],
     authorization: "Sesión AAL2 y regla owner-only antes de usar Auth Admin.",
     auditControl: "PARTIAL", dataClass: "AUTH", blockers: ["HOSTED_MFA_ROLLOUT"],
+  },
+  {
+    source: "src/lib/auth/mfa-account.ts",
+    domain: "identity", executionIdentity: "SESSION", capability: null, tenantScope: "NONE",
+    literalRpcs: ["session_requires_mfa"], dynamicRpcs: [],
+    authorization: "Claims verificados, perfil activo y autoridad SQL única deciden la obligación MFA.",
+    auditControl: "AUTH_PROVIDER", dataClass: "AUTH", blockers: ["HOSTED_MFA_ROLLOUT"],
   },
   {
     source: "src/lib/business-rules/process-attendance-day.ts",
@@ -262,7 +270,7 @@ export const RPC_CONSUMER_SURFACES = [
     literalRpcs: [
       "expense_dashboard_summary", "get_expense_accounting_company_health",
       "get_expense_indicators", "list_expense_accounting_ready_reports",
-      "list_expense_reconciliation_candidates",
+      "list_expense_advance_recipients", "list_expense_reconciliation_candidates",
     ],
     dynamicRpcs: [], authorization: "Contexto de empresa previo y RPCs con company_id/permiso.",
     auditControl: "NOT_APPLICABLE", dataClass: "FINANCIAL", blockers: [],
@@ -320,6 +328,13 @@ export const RPC_CONSUMER_SURFACES = [
     literalRpcs: ["session_requires_mfa"], dynamicRpcs: [],
     authorization: "JWT actual; respuesta fail-closed determina redirección AAL2.",
     auditControl: "AUTH_PROVIDER", dataClass: "AUTH", blockers: ["HOSTED_MFA_ROLLOUT"],
+  },
+  {
+    source: "src/lib/supabase/authorize.ts",
+    domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "LEGACY_ARCOTEX",
+    literalRpcs: ["is_medical_license_approver"], dynamicRpcs: [],
+    authorization: "El RPC exige identidad activa, flag, membresía sentinel y licenses.approve.",
+    auditControl: "NOT_APPLICABLE", dataClass: "SENSITIVE_HR", blockers: ["LABOR_MULTI_TENANCY"],
   },
   {
     source: "src/lib/sync/scheduler.ts",

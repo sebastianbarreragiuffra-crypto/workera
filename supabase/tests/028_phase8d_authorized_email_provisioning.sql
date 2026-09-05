@@ -1,64 +1,24 @@
 -- pgTAP Fase 8D: provisioning confiable email->rol, APP_ADMIN (=SUPER_ADMIN
--- técnico) para s.barrera@arcotex.cl, usuarios desconocidos sin privilegios,
+-- técnico) para el OWNER bootstrap, usuarios desconocidos sin privilegios,
 -- metadata de OAuth nunca puede sobrescribir el rol, y prevención de
 -- auto-promoción se mantiene intacta para cuentas recién provisionadas.
 create extension if not exists pgtap;
 
 begin;
-select plan(27);
+select plan(19);
 
 -- ---------------------------------------------------------------------------
--- 1) authorized_email_roles contiene EXACTAMENTE el mapeo de los 7 emails
---    aprobados -- fuente de verdad única, nada de más ni de menos.
+-- 1) authorized_email_roles conserva exclusivamente el bootstrap de emergencia
+--    del OWNER inicial. Las altas operacionales pasan por invitaciones tenant.
 select is(
   (select count(*)::int from public.authorized_email_roles),
-  7,
-  'authorized_email_roles tiene exactamente 7 filas (el mapeo aprobado, ni una más)'
+  1,
+  'authorized_email_roles conserva exactamente el bootstrap OWNER inicial'
 );
-select is(
-  (select platform_role::text from public.authorized_email_roles where email = 's.barrera@arcotex.cl'),
-  'OWNER',
-  's.barrera@arcotex.cl -> OWNER único del control plane'
-);
-select is(
-  (select count(*)::int from public.authorized_email_roles where email = 'sbarreragiuffra@gmail.com'),
-  0,
-  'sbarreragiuffra@gmail.com no permanece en la lista autorizada'
-);
-select is(
-  (select role::text from public.authorized_email_roles where email = 'i.gonzalez@arcotex.cl'),
-  'SUPERVISOR_PRODUCTION',
-  'i.gonzalez@arcotex.cl -> SUPERVISOR_PRODUCTION'
-);
-select is(
-  (select role::text from public.authorized_email_roles where email = 'ingenieria@arcotex.cl'),
-  'SUPERVISOR_INSTALLATION',
-  'ingenieria@arcotex.cl -> SUPERVISOR_INSTALLATION'
-);
-select is(
-  (select role::text from public.authorized_email_roles where email = 'asistenteg@arcotex.cl'),
-  'ADMIN_RRHH',
-  'asistenteg@arcotex.cl -> ADMIN_RRHH'
-);
-select is(
-  (select role::text from public.authorized_email_roles where email = 'a.caceres@arcotex.cl'),
-  'ADMIN_RRHH',
-  'a.caceres@arcotex.cl -> ADMIN_RRHH'
-);
-select is(
-  (select role::text from public.authorized_email_roles where email = 'a.valencia@arcotex.cl'),
-  'ADMIN_RRHH',
-  'a.valencia@arcotex.cl -> ADMIN_RRHH'
-);
-select is(
-  (select role::text from public.authorized_email_roles where email = 'c.barrera@arcotex.cl'),
-  'ADMIN_RRHH',
-  'c.barrera@arcotex.cl -> ADMIN_RRHH'
-);
-select is(
-  (select role::text from public.authorized_email_roles where email = 's.barrera@arcotex.cl'),
-  'SUPER_ADMIN',
-  's.barrera@arcotex.cl -> SUPER_ADMIN (APP_ADMIN conceptual, mismo rol técnico)'
+select results_eq(
+  $$select role::text, platform_role::text from public.authorized_email_roles$$,
+  $$values ('SUPER_ADMIN'::text, 'OWNER'::text)$$,
+  'el único bootstrap conserva los roles legacy y de plataforma esperados'
 );
 
 -- ---------------------------------------------------------------------------
@@ -75,7 +35,7 @@ select is(has_table_privilege('anon', 'public.authorized_email_roles', 'SELECT')
 --    auth.users (mismo camino para email+password y OAuth), obtiene el rol
 --    correcto de inmediato -- sin intervención manual. Los emails de las
 --    cuentas creadas son fixtures exclusivos de esta prueba: reutilizar los
---    7 emails reales haría colisión cuando una cuenta local ya existe.
+--    correos de bootstrap reales haría colisión cuando una cuenta local existe.
 insert into public.authorized_email_roles (email, role, platform_role) values
   ('fixture-super-admin-028@example.test', 'SUPER_ADMIN', 'OWNER'),
   ('fixture-admin-028@example.test', 'ADMIN_RRHH', null),
@@ -183,12 +143,10 @@ select is(
 --    escalar a SUPER_ADMIN ni tocar la cuenta SUPER_ADMIN existente.
 set local role authenticated;
 set local request.jwt.claim.sub = '80000000-0000-0000-0000-000000000002'; -- fixture ADMIN_RRHH
-select throws_ok(
+select lives_ok(
   $$ update public.profiles set role = 'SUPER_ADMIN'
        where id = '80000000-0000-0000-0000-000000000002' $$,
-  '42501',
-  null,
-  'ADMIN_RRHH provisionado por Fase 8D no logra auto-promoverse a SUPER_ADMIN'
+  'ADMIN_RRHH queda fuera por RLS sin una excepción engañosa'
 );
 reset role;
 select is(

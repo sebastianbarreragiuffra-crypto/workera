@@ -283,7 +283,11 @@ export async function updateSession(
       return mfaRequired;
     }
 
-    const mfaRedirect = authPageRedirect(request, "/seguridad/mfa");
+    const requestedDestination = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+    const mfaRedirect = authPageRedirect(
+      request,
+      `/seguridad/mfa?next=${encodeURIComponent(requestedDestination)}`,
+    );
     copyCookies(responseRef.current, mfaRedirect);
     return mfaRedirect;
   }
@@ -298,7 +302,11 @@ export async function updateSession(
     return unauthorized;
   }
 
-  const redirectResponse = authPageRedirect(request, "/login");
+  const requestedDestination = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+  const redirectResponse = authPageRedirect(
+    request,
+    `/login?next=${encodeURIComponent(requestedDestination)}`,
+  );
   copyCookies(responseRef.current, redirectResponse);
   return redirectResponse;
 }

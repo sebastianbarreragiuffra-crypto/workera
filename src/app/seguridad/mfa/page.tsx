@@ -6,20 +6,21 @@ import { MfaLoadError } from "@/components/auth/MfaLoadError";
 import { MfaSignOut } from "@/components/auth/MfaSignOut";
 import { getMfaAccountState, getVerifiedMfaSessionState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
+import { AUTH_FLOW_PATHS, safeInternalDestination } from "@/lib/auth/public-origin";
 import { MfaEnrollment, type MfaFactorView } from "./MfaEnrollment";
 
 export const metadata = {
   title: "Segundo factor — GESTORA",
 };
 
-function MfaPageFrame({ children }: { children: React.ReactNode }) {
+function MfaPageFrame({ children, returnHref = "/" }: { children: React.ReactNode; returnHref?: string }) {
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-12">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <GestoraBrand subtitle="Acceso seguro" />
         <div className="flex items-center gap-4">
           <Link
-            href="/"
+            href={returnHref}
             className="text-sm font-medium text-arcotex-blue hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
           >
             Volver
@@ -51,7 +52,9 @@ function MfaPageFrame({ children }: { children: React.ReactNode }) {
  * salida. Acá solo se exige sesión, que es la única condición razonable para
  * una pantalla cuyo propósito es dejar de estar a medio autenticar.
  */
-export default async function MfaPage() {
+export default async function MfaPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  const requestedNext = safeInternalDestination((await searchParams).next ?? null, "/", AUTH_FLOW_PATHS);
+  const retryHref: `/seguridad/mfa?next=${string}` = `/seguridad/mfa?next=${encodeURIComponent(requestedNext)}`;
   const supabase = await createClient();
   let account;
   try {
@@ -61,8 +64,8 @@ export default async function MfaPage() {
       event: "mfa_management_account_load_failed",
     });
     return (
-      <MfaPageFrame>
-        <MfaLoadError retryHref="/seguridad/mfa" />
+      <MfaPageFrame returnHref={requestedNext}>
+        <MfaLoadError retryHref={retryHref} />
       </MfaPageFrame>
     );
   }
@@ -78,8 +81,8 @@ export default async function MfaPage() {
       event: "mfa_management_state_load_failed",
     });
     return (
-      <MfaPageFrame>
-        <MfaLoadError retryHref="/seguridad/mfa" />
+      <MfaPageFrame returnHref={requestedNext}>
+        <MfaLoadError retryHref={retryHref} />
       </MfaPageFrame>
     );
   }
@@ -103,7 +106,7 @@ export default async function MfaPage() {
   const needsChallenge = mfaSession.currentLevel !== "aal2" && verifiedFactors.length > 0;
 
   return (
-    <MfaPageFrame>
+    <MfaPageFrame returnHref={requestedNext}>
         {needsChallenge ? (
           <section className="rounded-xl border border-slate-200 bg-card p-6 shadow-sm">
             <h2 className="text-base font-semibold text-foreground">Verifica tu identidad</h2>
@@ -114,6 +117,7 @@ export default async function MfaPage() {
             <div className="mt-4 max-w-sm">
               <MfaChallenge
                 factors={verifiedFactors.map((factor) => ({ id: factor.id, friendlyName: factor.friendlyName }))}
+                next={requestedNext}
               />
             </div>
           </section>

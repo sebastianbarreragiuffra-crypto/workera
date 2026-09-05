@@ -51,9 +51,10 @@ no sustituyen un modelo de amenazas vigente, un pentest ni evidencia operacional
 
 El sistema **no está aprobado para staging con PII ni para producción**. El
 staging existente contiene 97 registros de empleados cuya anonimización no está
-demostrada. El código MFA/AAL2 ya está integrado y probado localmente, pero aún
-faltan inscripción y activación hospedadas, controles de abuso, prueba real de
-backup y restauración DB+Storage, antimalware, reducción del blast radius de `service_role`,
+demostrada. El rollout MFA/AAL2 del único OWNER actual ya está activo y
+verificado en hosted, con dos factores TOTP; el ensayo de recuperación queda
+separado y no se ejecuta sobre esa única identidad. Aún faltan controles de
+abuso, prueba real de backup y restauración DB+Storage, antimalware, reducción del blast radius de `service_role`,
 aislamiento laboral para una segunda empresa, observabilidad, incident response,
 revisión legal y canarios. Estos son bloqueos, no mejoras opcionales.
 
@@ -723,9 +724,10 @@ Orden de ejecución recomendado:
 | P0-C seguridad real | MFA rollout, restore drill, canarios, alertas/paging, DAST y pentest | sí; ventana, cuentas de recuperación y responsables presentes |
 | P0-D aceptación | cierre de threat model, riesgo residual, privacidad/legal y decisión GO/NO-GO | responsables de negocio, seguridad y datos |
 
-P0-A puede continuar de forma remota. P0-C no debe ejecutarse mientras el owner
-no pueda completar challenge/recovery y verificar el resultado en los paneles;
-el código ya presente no equivale a activación segura.
+P0-A puede continuar de forma remota. La porción MFA de P0-C ya se ejecutó con
+el OWNER presente y se verificó en hosted; restore drill, canarios, alertas,
+DAST y pentest siguen requiriendo su propia ventana y evidencia. El cierre MFA
+no convierte por sí solo el resto de P0-C en completado.
 
 La decisión actual ya no se calcula de memoria: `npm run readiness:report`
 evalúa local, staging sintético, marcha blanca ARCOTEX, piloto de Rendiciones y
@@ -735,9 +737,9 @@ de evidencia, activación y rollback está en `docs/PILOT_READINESS_RUNBOOK.md`.
 - Poner el staging actual en hold, clasificar sus 97 registros y reemplazar por
   datos sintéticos/minimizados o aplicar controles equivalentes a producción.
 - Aprobar `docs/THREAT_MODEL_CURRENT.md` con owners y aceptación residual.
-- Activar MFA/AAL2 en un ambiente hospedado siguiendo el rollout de dos pasos;
-  ensayar recuperación owner con segundo TOTP, revocación y rollback de la capa
-  RPC antes de habilitar el enforcement.
+- Conservar activo el rollout MFA/AAL2 hospedado ya verificado. Ensayar la
+  recuperación y revocación con una cuenta de prueba separada; no destruir los
+  factores del único OWNER real para producir evidencia.
 - Verificar rate limits/Auth/CAPTCHA y controles de abuso en Supabase hospedado.
 - Demostrar aislamiento del dominio laboral con una segunda empresa real/sintética
   completa y un inventario continuo de tablas, views, RPC, Storage, exports, jobs
@@ -798,8 +800,8 @@ Bloqueos principales:
 
 - Dominio laboral todavía no demostrado como seguro para una segunda empresa.
 - Backup/PITR y restore drill no implementados ni probados.
-- MFA está integrado y probado localmente, pero no existe evidencia hospedada de
-  inscripción, activación, recuperación y rollback.
+- MFA está integrado, activo y comprobado en hosted para el único OWNER; queda
+  pendiente solo el gate separado de recuperación con una identidad de prueba.
 - El threat model vigente no tiene aceptación formal ni owners asignados.
 - Abuso/Auth, antimalware, blast radius de `service_role` e incident response no
   tienen evidencia operacional.

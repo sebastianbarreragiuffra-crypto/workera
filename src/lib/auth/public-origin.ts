@@ -27,6 +27,15 @@ export class PublicOriginConfigurationError extends Error {
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const INTERNAL_URL_BASE = "https://internal-app.invalid";
 
+/** Rutas transitorias que nunca son un destino final post-autenticación. */
+export const AUTH_FLOW_PATHS: ReadonlySet<string> = new Set([
+  "/login",
+  "/login/mfa",
+  "/seguridad/mfa",
+  "/auth/callback",
+  "/auth/confirm",
+]);
+
 function isLoopback(url: URL): boolean {
   return LOOPBACK_HOSTS.has(url.hostname.toLowerCase());
 }

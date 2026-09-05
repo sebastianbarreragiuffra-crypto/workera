@@ -48,3 +48,23 @@ test("el error visible permite reintentar o cerrar sesión sin filtrar el provee
   assert.match(source, /<MfaSignOut \/>/);
   assert.doesNotMatch(source, /error\.message|error\.stack|SUPABASE|token|claims/);
 });
+
+test("reintentar una carga MFA conserva el destino interno ya sanitizado", () => {
+  const expectations = [
+    { pagePath: MANAGEMENT_PAGE, route: "/seguridad/mfa" },
+    { pagePath: CHALLENGE_PAGE, route: "/login/mfa" },
+  ];
+
+  for (const { pagePath, route } of expectations) {
+    const source = read(pagePath);
+    assert.ok(
+      source.includes(`\`${route}?next=\${encodeURIComponent(requestedNext)}\``),
+      `${route} debe codificar el destino sanitizado en el enlace de reintento`,
+    );
+    assert.equal(
+      source.match(/<MfaLoadError retryHref=\{retryHref\} \/>/g)?.length,
+      2,
+      `${route} debe conservar next tanto ante error de cuenta como de estado MFA`,
+    );
+  }
+});

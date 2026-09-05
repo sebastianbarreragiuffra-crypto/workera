@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { resolvePostLoginDestination } from "@/lib/auth/mfa-account";
 import {
+  AUTH_FLOW_PATHS,
   publicAppUrl,
   resolvePublicOrigin,
   safeInternalDestination,
@@ -10,13 +11,11 @@ import { acceptCurrentUserInvitations } from "@/lib/platform/invitations";
 import { createClient } from "@/lib/supabase/server";
 
 const EMAIL_OTP_TYPES = new Set<EmailOtpType>(["invite", "email", "magiclink", "recovery", "email_change"]);
-const CONFIRM_CALLBACK_PATHS = new Set(["/auth/callback", "/auth/confirm"]);
-
 export async function GET(request: NextRequest) {
   const { searchParams, origin: requestOrigin } = new URL(request.url);
   const tokenHash = searchParams.get("token_hash");
   const requestedType = searchParams.get("type") as EmailOtpType | null;
-  const next = safeInternalDestination(searchParams.get("next"), "/", CONFIRM_CALLBACK_PATHS);
+  const next = safeInternalDestination(searchParams.get("next"), "/", AUTH_FLOW_PATHS);
 
   try {
     resolvePublicOrigin(requestOrigin);
@@ -34,7 +33,9 @@ export async function GET(request: NextRequest) {
       try {
         await acceptCurrentUserInvitations(supabase);
         const mfaDestination = await resolvePostLoginDestination(supabase);
-        const destination = mfaDestination === "/" ? next : mfaDestination;
+        const destination = mfaDestination === "/"
+          ? next
+          : `${mfaDestination}?next=${encodeURIComponent(next)}`;
         return NextResponse.redirect(publicAppUrl(destination, requestOrigin));
       } catch {
         console.error("[auth] no se pudo resolver el destino tras confirmar el acceso", {
