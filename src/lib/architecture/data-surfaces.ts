@@ -197,6 +197,17 @@ export const RPC_CONSUMER_SURFACES = [
     auditControl: "JOB_LEDGER", dataClass: "FINANCIAL", blockers: ["ANTIMALWARE_PROVIDER", "HOSTED_OBSERVABILITY"],
   },
   {
+    source: "src/lib/expense-file-scan/repository.ts",
+    domain: "expenses", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "expense-file-scan-worker",
+    tenantScope: "ROW_SCOPED_JOB",
+    literalRpcs: [
+      "claim_expense_file_scans", "complete_expense_file_scan",
+      "fail_expense_file_scan", "reclaim_stale_expense_file_scans",
+    ],
+    dynamicRpcs: [], authorization: "CRON_SECRET/flag y RPC de cuarentena con lease/fencing; checksum se verifica antes del adapter.",
+    auditControl: "JOB_LEDGER", dataClass: "FINANCIAL", blockers: ["ANTIMALWARE_PROVIDER", "HOSTED_OBSERVABILITY"],
+  },
+  {
     source: "src/lib/expense-whatsapp/service.ts",
     domain: "expenses", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "expense-whatsapp-ingestion",
     tenantScope: "EXPLICIT_COMPANY",
@@ -382,6 +393,12 @@ export const STORAGE_CONSUMER_SURFACES = [
     source: "src/lib/expense-ocr/repository.ts", bucket: "expense-receipts", operation: "download", occurrences: 1,
     domain: "expenses", executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "ROW_SCOPED_JOB",
     authorization: "Job fenced solo recibe ruta de recibo CLEAN reclamada por RPC.", securityState: "QUARANTINE_ENFORCED",
+    blockers: ["ANTIMALWARE_PROVIDER", "HOSTED_OBSERVABILITY"],
+  },
+  {
+    source: "src/lib/expense-file-scan/repository.ts", bucket: "expense-receipts", operation: "download", occurrences: 1,
+    domain: "expenses", executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "ROW_SCOPED_JOB",
+    authorization: "Claim fenced entrega una ruta PENDING_SCAN; el worker verifica SHA-256 antes del adapter.", securityState: "QUARANTINE_ENFORCED",
     blockers: ["ANTIMALWARE_PROVIDER", "HOSTED_OBSERVABILITY"],
   },
   {

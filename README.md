@@ -77,6 +77,12 @@ El detalle del límite multiempresa y las decisiones reemplazadas está en
   (`EXPENSE_OCR_ENABLED=false` por defecto) hasta configurar credenciales
   reales -- ningún resultado de esta fase fue probado contra la API de Azure
   en producción.
+- Los archivos externos de correo/WhatsApp entran a cuarentena antes de OCR.
+  El worker de seguridad, leases, checksum y canarios sintéticos ya existe,
+  pero su único scanner es un fixture que no puede activarse en producción.
+  `EXPENSE_FILE_SCAN_ENABLED=false` y ambos canales deben seguir apagados hasta
+  seleccionar y verificar un proveedor antimalware real; ver
+  [docs/EXPENSE_FILE_QUARANTINE.md](docs/EXPENSE_FILE_QUARANTINE.md).
 - MFA (TOTP) para cuentas privilegiadas está **en master y sin desplegar**:
   inscripción y gestión de factores, desafío en el login por contraseña y por
   OAuth, gate de middleware detrás de `MFA_ENFORCEMENT_ENABLED` (default

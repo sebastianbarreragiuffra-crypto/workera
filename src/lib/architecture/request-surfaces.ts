@@ -120,6 +120,14 @@ export const REQUEST_SURFACES = [
     blockers: ["ANTIMALWARE_PROVIDER", "HOSTED_OBSERVABILITY"],
   },
   {
+    source: "src/app/api/jobs/expense-file-scan/route.ts", route: "/api/jobs/expense-file-scan", method: "GET", kind: "CRON_JOB",
+    domain: "expenses", authentication: "CRON_SECRET", tenantScope: "ROW_SCOPED_JOB",
+    authorization: "Bearer CRON_SECRET, flag fail-closed y claims fenced de la cuarentena.",
+    mutates: true, maxBodyBytes: null, idempotency: "LEASE_AND_FENCING", abuseControl: "CRON_SECRET_AND_LEASE",
+    auditControl: "JOB_LEDGER", featureFlag: "EXPENSE_FILE_SCAN_ENABLED", dataClass: "FINANCIAL",
+    blockers: ["ANTIMALWARE_PROVIDER", "HOSTED_OBSERVABILITY"],
+  },
+  {
     source: "src/app/api/jobs/expense-assistant-retention/route.ts", route: "/api/jobs/expense-assistant-retention", method: "GET", kind: "CRON_JOB",
     domain: "expenses", authentication: "CRON_SECRET", tenantScope: "GLOBAL_MINIMIZED",
     authorization: "Bearer CRON_SECRET; RPC limitada a purgar consultas expiradas.",

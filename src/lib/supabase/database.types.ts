@@ -5742,6 +5742,18 @@ export type Database = {
         }
         Returns: undefined
       }
+      claim_expense_file_scans: {
+        Args: { p_limit?: number; p_worker_id: string }
+        Returns: {
+          attempt: number
+          capture_id: string
+          checksum_sha256: string
+          company_id: string
+          mime_type: string
+          source: string
+          storage_path: string
+        }[]
+      }
       claim_expense_ocr_jobs: {
         Args: { p_limit?: number; p_worker_id: string }
         Returns: {
@@ -5834,6 +5846,16 @@ export type Database = {
           p_succeeded_count: number
         }
         Returns: undefined
+      }
+      complete_expense_file_scan: {
+        Args: {
+          p_capture_id: string
+          p_result_code: string
+          p_scanner: string
+          p_verdict: string
+          p_worker_id: string
+        }
+        Returns: Database["public"]["Enums"]["expense_file_security_status"]
       }
       complete_expense_ocr_job: {
         Args: { p_extraction: Json; p_job_id: string; p_worker_id: string }
@@ -5980,6 +6002,17 @@ export type Database = {
           p_job_id: string
           p_retry_delay_seconds?: number
           p_retryable: boolean
+          p_worker_id: string
+        }
+        Returns: boolean
+      }
+      fail_expense_file_scan: {
+        Args: {
+          p_capture_id: string
+          p_result_code: string
+          p_retry_delay_seconds?: number
+          p_retryable: boolean
+          p_scanner: string
           p_worker_id: string
         }
         Returns: boolean
@@ -6271,6 +6304,10 @@ export type Database = {
         Returns: string
       }
       reclaim_stale_expense_ocr_jobs: {
+        Args: { p_stale_after_seconds?: number }
+        Returns: number
+      }
+      reclaim_stale_expense_file_scans: {
         Args: { p_stale_after_seconds?: number }
         Returns: number
       }

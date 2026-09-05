@@ -10,6 +10,10 @@
       "schedule": "30 10 * * *"
     },
     {
+      "path": "/api/jobs/expense-file-scan",
+      "schedule": "0 10 * * *"
+    },
+    {
       "path": "/api/jobs/expense-assistant-retention",
       "schedule": "15 11 * * *"
     },

@@ -94,10 +94,12 @@ Fronteras:
 - Riesgo: PDF/JPG/PNG de web, correo o WhatsApp explota parser/navegador, se sirve
   inline o llega a RR. HH. sin inspección.
 - Evidencia: límites, MIME + magic bytes y Storage privado. Rendiciones posee
-  cuarentena durable `PENDING_SCAN`/`CLEAN` con leases/fencing; documentos
+  cuarentena durable `PENDING_SCAN`/`CLEAN` con leases/fencing y un worker que
+  revalida tamaño, MIME y SHA-256 antes del contrato de scanner; documentos
   laborales usan reserva personal, commit atómico y compensación de huérfano,
   descarga tenant-aware auditada y entrega forzada como adjunto no ejecutable,
-  pero todavía no un estado de escaneo. No hay proveedor antimalware/CDR real.
+  pero todavía no un estado de escaneo. El único adapter actual es un fixture
+  bloqueado en producción; no hay proveedor antimalware/CDR real.
 - Estado: `BLOCKED` para conectores externos y piloto con archivos reales.
 - Control requerido: conectar antimalware/CDR a la cuarentena ya implementada,
   definir retención de rechazados, mantener no descarga antes de `CLEAN`, `Content-Disposition`, `nosniff`,

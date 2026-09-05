@@ -51,6 +51,12 @@ export const SERVICE_ROLE_CAPABILITIES = {
     authorization: "CRON_SECRET y EXPENSE_OCR_ENABLED; el repositorio opera únicamente RPC de cola fenced.",
     resources: ["RPC de expense_ocr_jobs", "bucket privado expense-receipts READ"],
   },
+  "expense-file-scan-worker": {
+    consumers: ["src/lib/expense-file-scan/service.ts"],
+    entrypoints: ["CRON"],
+    authorization: "CRON_SECRET y EXPENSE_FILE_SCAN_ENABLED; RPC reclama solo archivos externos en cuarentena con lease fenced.",
+    resources: ["RPC de cuarentena expense_file_scans", "bucket privado expense-receipts READ"],
+  },
   "expense-receipt-storage": {
     consumers: ["src/lib/expense-capture/service.ts"],
     entrypoints: ["USER_ACTION", "WEBHOOK"],

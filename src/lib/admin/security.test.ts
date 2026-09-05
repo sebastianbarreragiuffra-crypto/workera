@@ -56,6 +56,7 @@ const SERVICE_ROLE_DIRECTORIES = [
   "sync",
   "rule-engine",
   "expense-ocr",
+  "expense-file-scan",
   "expense-capture",
   "expense-bank",
   "expense-accounting",

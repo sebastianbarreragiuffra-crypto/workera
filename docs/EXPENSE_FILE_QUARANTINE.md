@@ -1,7 +1,8 @@
 # Cuarentena de archivos de Rendiciones
 
-Estado: **frontera durable implementada y probada localmente; proveedor
-antimalware no seleccionado y conectores externos apagados**.
+Estado: **frontera durable y worker provider-agnostic implementados y probados
+localmente; proveedor antimalware real no seleccionado y conectores externos
+apagados**.
 
 La migración `20260905100000_expense_file_quarantine.sql` cambia el flujo para
 que recibir un archivo no equivalga a confiar en él. Correo y WhatsApp entran
@@ -27,6 +28,16 @@ Solo `service_role` puede ejecutar `claim_expense_file_scans`,
 obtuvo la lease; los mensajes guardados son códigos sanitizados de hasta 80
 caracteres, no contenido del archivo ni respuestas crudas del proveedor.
 
+El runtime en `src/lib/expense-file-scan/` ya consume esas cuatro RPC: recupera
+leases vencidas, reclama con `SKIP LOCKED`, descarga desde el bucket privado,
+revalida tamaño, MIME y SHA-256, entrega bytes al contrato `ExpenseFileScanner`
+y completa o reintenta con códigos allowlisted. La ruta de cron
+`/api/jobs/expense-file-scan` exige `CRON_SECRET` y un flag independiente.
+
+Existe `FixtureExpenseFileScanner` para canarios sintéticos CLEAN/REJECTED. Su
+configuración exige doble opt-in y rechaza siempre `NODE_ENV=production`; no es
+un antivirus, no permite cerrar el gate y no autoriza habilitar canales reales.
+
 ## Defensas independientes
 
 La seguridad no depende de una sola comprobación de UI:
@@ -50,11 +61,14 @@ Antes de habilitar `EXPENSE_EMAIL_CAPTURE_ENABLED` o
 `EXPENSE_WHATSAPP_CAPTURE_ENABLED` en un ambiente con datos reales se requiere:
 
 - elegir y contratar el scanner/antimalware o CDR;
-- implementar su adapter server-only con timeout, egress allowlisted y circuit
-  breaker;
-- ejecutar el worker sobre estas RPC, sin saltarse la cuarentena;
+- implementar su adapter server-only real con timeout, egress allowlisted y
+  circuit breaker sobre el contrato ya creado;
+- decidir si cargas web/cámara también migran de `VALIDATED_INTERNAL` a
+  cuarentena obligatoria para el alcance del piloto;
 - definir SLA, retención de rechazados y alertas por backlog/fallo terminal;
 - probar canarios limpios e inofensivos de detección en staging aislado.
 
-La prueba pgTAP `072_expense_file_quarantine.sql` cubre 38 invariantes y la
-batería completa de 72 archivos/1.578 checks pasó en una pila Supabase aislada.
+La prueba pgTAP `072_expense_file_quarantine.sql` cubre las invariantes de base;
+las pruebas de worker agregan canarios limpio/rechazado, checksum alterado,
+configuración fail-closed y sanitización de errores. El gate sigue en NO-GO
+hasta conectar y verificar un proveedor real.

@@ -9,7 +9,7 @@ reales de `src`: una ruta/método, acción exportada, RPC u operación Storage
 nueva, un archivo movido o un feature flag que deje de consultarse rompe la
 suite hasta que exista una decisión explícita de seguridad.
 
-El registro cubre las 20 superficies HTTP actuales y declara para cada una:
+El registro cubre las 21 superficies HTTP actuales y declara para cada una:
 
 - dominio y tipo de entrada;
 - autenticación y autorización efectiva;
@@ -25,8 +25,8 @@ también impide autorizar con roles/usuarios recibidos por `FormData`, exige que
 la autorización preceda al parseo de bytes y evita que aparezca una familia de
 uploads sin un máximo explícito de hasta 10 MiB.
 
-El inventario de datos cubre exactamente 29 archivos consumidores, 88 nombres
-RPC permitidos y 13 operaciones Storage agrupadas en 12 perfiles. Declara la
+El inventario de datos cubre exactamente 30 archivos consumidores, 92 nombres
+RPC permitidos y 14 operaciones Storage agrupadas en 13 perfiles. Declara la
 identidad de ejecución (sesión o capability `service_role`), alcance tenant,
 autorización, auditoría, clase de datos, bucket y estado de cuarentena. Los RPC
 dinámicos tienen una allowlist cerrada; un capability inexistente, un bucket
@@ -39,6 +39,9 @@ nuevo o una operación no registrada rompe CI.
   apagadas. La cuarentena durable ya impide lectura, asociación y OCR antes de
   `CLEAN`; el inventario impide considerarlas habilitables mientras falten el
   proveedor antimalware real y rate limit en el borde.
+- El scanner de cuarentena tiene ruta cron, capability `service_role`, worker
+  con leases/fencing, verificación SHA-256 y canarios sintéticos. Su fixture no
+  puede arrancar en producción; falta seleccionar y validar el proveedor real.
 - Los jobs usan `CRON_SECRET`; OCR y contabilidad poseen leases/fencing. Aún
   requieren observabilidad hospedada y alertas reales.
 - La importación bancaria de Rendiciones ya tiene sesión, tenant, permiso,

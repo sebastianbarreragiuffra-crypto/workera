@@ -29,6 +29,7 @@ export const LIBRARY_MODULES = {
   "expense-bank": { realm: "expenses", owner: "expenses", purpose: "Importación y conciliación bancaria" },
   "expense-capture": { realm: "expenses", owner: "expenses", purpose: "Persistencia privada de comprobantes" },
   "expense-email": { realm: "expenses", owner: "expenses", purpose: "Adaptador de ingreso por correo" },
+  "expense-file-scan": { realm: "expenses", owner: "expenses-security", purpose: "Cuarentena y adaptador antimalware" },
   "expense-ocr": { realm: "expenses", owner: "expenses", purpose: "Extracción OCR asíncrona" },
   "expense-whatsapp": { realm: "expenses", owner: "expenses", purpose: "Adaptador de ingreso por WhatsApp" },
   expenses: { realm: "expenses", owner: "expenses", purpose: "Núcleo y casos de uso de rendiciones" },
