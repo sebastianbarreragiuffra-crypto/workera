@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { isValidCronSecretHeader } from "@/lib/auth/cron-secret";
+import { isSupportingDocumentCleanupExpectedActive } from "@/lib/supporting-document-cleanup/config";
 import {
   runSupportingDocumentCleanupWithServiceRole,
   type SupportingDocumentCleanupOperationsResult,
@@ -19,6 +20,12 @@ export function supportingDocumentCleanupHttpStatus(
   return result.health.requiresAttention ? 503 : 200;
 }
 
+export function supportingDocumentCleanupPausedHttpStatus(
+  expectedActive: boolean,
+): number {
+  return expectedActive ? 503 : 200;
+}
+
 export async function handleSupportingDocumentCleanup(
   request: NextRequest,
   runCleanup: () => Promise<SupportingDocumentCleanupOperationsResult> = runSupportingDocumentCleanupWithServiceRole,
@@ -27,10 +34,16 @@ export async function handleSupportingDocumentCleanup(
     return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   }
   if (process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED !== "true") {
-    return NextResponse.json({
-      enabled: false,
-      reason: "SUPPORTING_DOCUMENT_CLEANUP_ENABLED is not true",
-    });
+    const expectedActive = isSupportingDocumentCleanupExpectedActive();
+    return NextResponse.json(
+      {
+        enabled: false,
+        expectedActive,
+        reason: "SUPPORTING_DOCUMENT_CLEANUP_ENABLED is not true",
+        ...(expectedActive ? { errorCode: "CLEANUP_DISABLED_UNEXPECTEDLY" } : {}),
+      },
+      { status: supportingDocumentCleanupPausedHttpStatus(expectedActive) },
+    );
   }
   const correlationId = randomUUID();
   try {

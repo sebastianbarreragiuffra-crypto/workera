@@ -6,6 +6,7 @@ import {
   handleSupportingDocumentCleanup,
   isAuthorizedSupportingDocumentCleanupCron,
   supportingDocumentCleanupHttpStatus,
+  supportingDocumentCleanupPausedHttpStatus,
 } from "./route";
 
 function request(header?: string): NextRequest {
@@ -28,13 +29,16 @@ test("el cron de limpieza falla cerrado sin CRON_SECRET", () => {
 test("una invocacion autorizada permanece inerte con el barrido apagado", async () => {
   const previousSecret = process.env.CRON_SECRET;
   const previousEnabled = process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED;
+  const previousExpected = process.env.SUPPORTING_DOCUMENT_CLEANUP_MONITOR_EXPECT_ENABLED;
   process.env.CRON_SECRET = "fake-cron-secret-for-tests-000000000000";
   process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED = "false";
+  delete process.env.SUPPORTING_DOCUMENT_CLEANUP_MONITOR_EXPECT_ENABLED;
   try {
     const response = await GET(request("Bearer fake-cron-secret-for-tests-000000000000"));
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
       enabled: false,
+      expectedActive: false,
       reason: "SUPPORTING_DOCUMENT_CLEANUP_ENABLED is not true",
     });
   } finally {
@@ -42,7 +46,40 @@ test("una invocacion autorizada permanece inerte con el barrido apagado", async 
     else process.env.CRON_SECRET = previousSecret;
     if (previousEnabled === undefined) delete process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED;
     else process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED = previousEnabled;
+    if (previousExpected === undefined) delete process.env.SUPPORTING_DOCUMENT_CLEANUP_MONITOR_EXPECT_ENABLED;
+    else process.env.SUPPORTING_DOCUMENT_CLEANUP_MONITOR_EXPECT_ENABLED = previousExpected;
   }
+});
+
+test("el cron alerta si el ambiente exige el barrido y el flag se perdio", async () => {
+  const previousSecret = process.env.CRON_SECRET;
+  const previousEnabled = process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED;
+  const previousExpected = process.env.SUPPORTING_DOCUMENT_CLEANUP_MONITOR_EXPECT_ENABLED;
+  process.env.CRON_SECRET = "fake-cron-secret-for-tests-000000000000";
+  process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED = "false";
+  process.env.SUPPORTING_DOCUMENT_CLEANUP_MONITOR_EXPECT_ENABLED = "true";
+  try {
+    const response = await GET(request("Bearer fake-cron-secret-for-tests-000000000000"));
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), {
+      enabled: false,
+      expectedActive: true,
+      reason: "SUPPORTING_DOCUMENT_CLEANUP_ENABLED is not true",
+      errorCode: "CLEANUP_DISABLED_UNEXPECTEDLY",
+    });
+  } finally {
+    if (previousSecret === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = previousSecret;
+    if (previousEnabled === undefined) delete process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED;
+    else process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED = previousEnabled;
+    if (previousExpected === undefined) delete process.env.SUPPORTING_DOCUMENT_CLEANUP_MONITOR_EXPECT_ENABLED;
+    else process.env.SUPPORTING_DOCUMENT_CLEANUP_MONITOR_EXPECT_ENABLED = previousExpected;
+  }
+});
+
+test("el estado pausado distingue pausa deliberada de deriva de configuracion", () => {
+  assert.equal(supportingDocumentCleanupPausedHttpStatus(false), 200);
+  assert.equal(supportingDocumentCleanupPausedHttpStatus(true), 503);
 });
 
 const baseResult = {

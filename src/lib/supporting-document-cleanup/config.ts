@@ -2,6 +2,12 @@ import "server-only";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
+export function isSupportingDocumentCleanupExpectedActive(
+  env: Environment = process.env,
+): boolean {
+  return env.SUPPORTING_DOCUMENT_CLEANUP_MONITOR_EXPECT_ENABLED === "true";
+}
+
 export function readSupportingDocumentCleanupStaleSeconds(
   env: Environment = process.env,
 ): number {

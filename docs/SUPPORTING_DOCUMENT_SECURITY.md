@@ -30,6 +30,11 @@ dominio laboral. No activa proveedores ni cambia datos hospedados.
    pueda alertar; el umbral conservador es 26 horas. Cada respuesta habilitada
    incluye un UUID de correlación y los fallos se registran solo con código y
    clase, nunca con la ruta o el mensaje crudo de Storage.
+10. En un ambiente donde el barrido debe operar, configurar simultáneamente
+    `SUPPORTING_DOCUMENT_CLEANUP_ENABLED=true` y
+    `SUPPORTING_DOCUMENT_CLEANUP_MONITOR_EXPECT_ENABLED=true`. Si el primer
+    flag se pierde, el cron responde 503 con un código estable en vez de
+    reportar una pausa saludable. Ambos siguen en `false` por defecto.
 
 ## Entrega vigente
 
