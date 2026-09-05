@@ -152,7 +152,7 @@ export const RPC_CONSUMER_SURFACES = [
     domain: "expenses", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "expense-assistant-retention",
     tenantScope: "GLOBAL_MINIMIZED", literalRpcs: ["purge_expired_expense_assistant_queries"], dynamicRpcs: [],
     authorization: "Solo cron autenticado; RPC limitada a borrar consultas vencidas.",
-    auditControl: "PARTIAL", dataClass: "INTERNAL", blockers: ["HOSTED_OBSERVABILITY"],
+    auditControl: "JOB_LEDGER", dataClass: "INTERNAL", blockers: ["HOSTED_OBSERVABILITY"],
   },
   {
     source: "src/lib/expense-bank/service.ts",

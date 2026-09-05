@@ -140,7 +140,7 @@ export const REQUEST_SURFACES = [
     domain: "expenses", authentication: "CRON_SECRET", tenantScope: "GLOBAL_MINIMIZED",
     authorization: "Bearer CRON_SECRET; RPC limitada a purgar consultas expiradas.",
     mutates: true, maxBodyBytes: null, idempotency: "IDEMPOTENT_DELETE", abuseControl: "CRON_SECRET_AND_LEASE",
-    auditControl: "MISSING", featureFlag: null, dataClass: "INTERNAL", blockers: ["HOSTED_OBSERVABILITY"],
+    auditControl: "JOB_LEDGER", featureFlag: null, dataClass: "INTERNAL", blockers: ["HOSTED_OBSERVABILITY"],
   },
   {
     source: "src/app/api/jobs/expense-accounting/route.ts", route: "/api/jobs/expense-accounting", method: "GET", kind: "CRON_JOB",
