@@ -10,6 +10,7 @@ import { buildWeeklyMealGoogleFormPayload, type WeeklyMealGoogleFormPayload } fr
 import { createWeeklyMealGoogleForm, COLACIONES_FORMS_LIST_CACHE_TAG } from "../../../lib/colaciones/google-forms";
 import { openPendingMealFormState, sealPendingMealFormState } from "../../../lib/colaciones/pending-form-state";
 import { getNextFridayMealFormClosing } from "../../../lib/colaciones/weekly-form-schedule";
+import { enforceWorkforceActionRateLimit } from "../../../lib/decisions/workforce-action-rate-limit";
 
 /**
  * Flujo de colaciones: subir el menú crea el Google Form automáticamente,
@@ -55,6 +56,15 @@ export interface MenuUploadState {
 
 const IDLE_STATE_BASE = { fileName: "", menu: null, googleForm: null, pendingToken: null };
 
+async function mealMutationLimitError(): Promise<string | null> {
+  try {
+    await enforceWorkforceActionRateLimit(await createClient(), "workforce.meals.manage");
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : "Acción bloqueada por seguridad.";
+  }
+}
+
 function toCreatedFormState(created: Awaited<ReturnType<typeof createWeeklyMealGoogleForm>>): CreatedFormState {
   return {
     formId: created.formId,
@@ -77,6 +87,8 @@ export async function parseMealMenuAction(_previousState: MenuUploadState, formD
   if (!profile?.role || !isPrivilegedAdmin(profile.role)) {
     return { status: "error", message: "No tienes permiso para adjuntar menús de colaciones.", ...IDLE_STATE_BASE };
   }
+  const limitError = await mealMutationLimitError();
+  if (limitError) return { status: "error", message: limitError, ...IDLE_STATE_BASE };
 
   const file = formData.get("menuFile");
   if (!(file instanceof File) || file.size === 0) {
@@ -131,6 +143,8 @@ export async function retryCreateGoogleFormAction(_previousState: MenuUploadStat
   if (!profile?.role || !isPrivilegedAdmin(profile.role)) {
     return { status: "error", message: "No tienes permiso para reintentar la creación del formulario.", ...IDLE_STATE_BASE };
   }
+  const limitError = await mealMutationLimitError();
+  if (limitError) return { status: "error", message: limitError, ...IDLE_STATE_BASE };
 
   const pendingToken = formData.get("pendingToken");
   if (typeof pendingToken !== "string" || !pendingToken) {

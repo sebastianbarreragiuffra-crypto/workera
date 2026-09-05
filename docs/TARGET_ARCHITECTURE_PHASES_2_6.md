@@ -1,8 +1,8 @@
 # Arquitectura total de GESTORA — plataforma multiempresa
 
 Estado al 5 de septiembre de 2026. Base auditada: rama
-`codex/phases2-6-autonomous`, hasta commit `a822043`, 45 commits delante y 0 detrás de
-`origin/master` antes de redactar esta revisión. Este documento consolida la
+`codex/phases2-6-autonomous`, incluido el cierre local de cuotas de mutación.
+Este documento consolida la
 arquitectura vigente y objetivo de **todo el producto**: control plane,
 workspaces, asistencia, Rendiciones, documentos, integraciones, datos,
 seguridad, operación e IA. El nombre del archivo se conserva para no romper los
@@ -224,7 +224,7 @@ backlog retenido intencionalmente de una recuperación técnica.
   versionadas antes de extraer un servicio.
 - El gate de límites de módulo impide dependencias nuevas no autorizadas entre
   plataforma, laboral, Rendiciones e integraciones. Los inventarios ejecutables
-  cubren HTTP, Server Actions, 87 RPC y 13 operaciones Storage. La extracción
+  cubren HTTP, Server Actions, 88 RPC y 13 operaciones Storage. La extracción
   física sigue siendo un objetivo condicionado por carga y ownership, no una
   garantía del despliegue actual.
 
@@ -717,7 +717,7 @@ Orden de ejecución recomendado:
 
 | Bloque | Puede ejecutarse sin activar proveedores | Requiere owner/ambiente hospedado |
 |---|---|---|
-| P0-A arquitectura | límites de módulo; inventarios ejecutables de HTTP, Server Actions, RPC y Storage; cuarentena y entregas financieras de Rendiciones; upload/download documental, exports laborales y mutaciones del control plane atómicos, limitados y auditados. Faltan tenant sintético del resto laboral, límites de decisiones laborales, adapter antimalware, telemetría hospedada y runbooks operacionales | no |
+| P0-A arquitectura | límites de módulo; inventarios ejecutables de HTTP, Server Actions, RPC y Storage; cuarentena y entregas/mutaciones de Rendiciones; upload/download documental, exports y mutaciones laborales, y control plane atómicos, limitados y auditados. Faltan tenant sintético del resto laboral, adapter antimalware, telemetría hospedada y runbooks operacionales | no |
 | P0-B plataforma | configuración de grants/secrets, staging sintético y automatización de evidencias | acceso administrativo controlado |
 | P0-C seguridad real | MFA rollout, restore drill, canarios, alertas/paging, DAST y pentest | sí; ventana, cuentas de recuperación y responsables presentes |
 | P0-D aceptación | cierre de threat model, riesgo residual, privacidad/legal y decisión GO/NO-GO | responsables de negocio, seguridad y datos |

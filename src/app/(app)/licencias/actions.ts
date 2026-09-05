@@ -10,6 +10,7 @@ import { uploadMedicalLicense, approveMedicalLicense, rejectMedicalLicense, MAX_
 import { MAX_SUPPORTING_DOCUMENT_SIZE_BYTES } from "../../../lib/decisions/documents";
 import { extractMedicalLicenseDates } from "../../../lib/decisions/medical-license-extraction";
 import { todayInSantiago, isCalendarDate } from "../../../lib/view-models/date-utils";
+import { enforceWorkforceActionRateLimit } from "../../../lib/decisions/workforce-action-rate-limit";
 
 /**
  * Server Actions de Licencias. Cada una usa el cliente de SESIÓN (nunca
@@ -114,6 +115,11 @@ export async function approveMedicalLicenseAction(_prev: ApproveMedicalLicenseAc
   }
 
   const supabase = await createClient();
+  try {
+    await enforceWorkforceActionRateLimit(supabase, "workforce.medical.decide");
+  } catch (err) {
+    return { status: "error", message: err instanceof Error ? err.message : "Acción bloqueada por seguridad." };
+  }
   const approvalId = formData.get("approvalId") as string | null;
   const confirmedStartDate = formData.get("confirmedStartDate") as string | null;
   const confirmedEndDate = formData.get("confirmedEndDate") as string | null;
@@ -163,6 +169,11 @@ export async function rejectMedicalLicenseAction(_prev: RejectMedicalLicenseActi
   }
 
   const supabase = await createClient();
+  try {
+    await enforceWorkforceActionRateLimit(supabase, "workforce.medical.decide");
+  } catch (err) {
+    return { status: "error", message: err instanceof Error ? err.message : "Acción bloqueada por seguridad." };
+  }
   const approvalId = formData.get("approvalId") as string | null;
   const reason = (formData.get("reason") as string | null)?.trim();
 

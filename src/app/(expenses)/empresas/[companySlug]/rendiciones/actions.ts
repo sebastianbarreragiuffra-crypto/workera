@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { z } from "zod";
-import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
+import { getExpenseCompanyContextFromClient as getExpenseCompanyContextWithoutMutationLimit } from "@/lib/expenses/access";
 import { getExpenseSpecialRates } from "@/lib/expenses/data";
 import { validateExpenseReceiptFile } from "@/lib/expenses/receipts";
 import { getExpenseEmailDomain } from "@/lib/expense-email/config";
@@ -15,6 +15,7 @@ import { runExpenseOcrWorkerWithServiceRole } from "@/lib/expense-ocr/service";
 import { runExpenseAccountingWorkerWithServiceRole } from "@/lib/expense-accounting/service";
 import { readExpenseAccountingConfig } from "@/lib/expense-accounting/config";
 import { createClient } from "@/lib/supabase/server";
+import { consumeApplicationActionRateLimit } from "@/lib/shared/action-rate-limit";
 import { unwrapEmbed } from "@/lib/supabase/embed";
 import type { Json } from "@/lib/supabase/database.types";
 
@@ -137,6 +138,28 @@ function entries(formData: FormData): Record<string, FormDataEntryValue> {
 
 function failed(message = "Revisa los datos e intenta nuevamente."): ExpenseActionState {
   return { status: "error", message };
+}
+
+/**
+ * Todas las funciones de este archivo son mutaciones. Centralizar la cuota en
+ * el mismo punto que resuelve empresa evita que una acción futura quede fuera
+ * por olvido. La autorización fina sigue en context/RLS/RPC; ante caída o
+ * bloqueo se devuelve null y cada acción conserva su respuesta genérica.
+ */
+async function getExpenseCompanyContextFromClient(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  companySlug: string,
+) {
+  const context = await getExpenseCompanyContextWithoutMutationLimit(supabase, companySlug);
+  if (!context) return null;
+  const decision = await consumeApplicationActionRateLimit(supabase, {
+    scope: "expenses.workflow.mutate",
+    companyId: context.id,
+  });
+  // El RPC ya registra solo el primer exceso de la ventana. No escribir un log
+  // por cada rechazo evita convertir tráfico abusivo en amplificación de logs.
+  if (decision.status !== "ALLOWED") return null;
+  return context;
 }
 
 function reportPath(companySlug: string, reportId: string): string {

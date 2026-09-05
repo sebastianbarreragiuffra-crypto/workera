@@ -5870,6 +5870,18 @@ export type Database = {
           retry_after_seconds: number
         }[]
       }
+      consume_application_action_rate_limit: {
+        Args: {
+          p_company_id?: string | null
+          p_scope: string
+        }
+        Returns: {
+          allowed: boolean
+          remaining: number
+          request_limit: number
+          retry_after_seconds: number
+        }[]
+      }
       create_expense_report: {
         Args: {
           p_client_request_id: string

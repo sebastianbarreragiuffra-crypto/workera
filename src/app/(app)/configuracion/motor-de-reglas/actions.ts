@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getCurrentProfile } from "../../../../lib/auth/session";
 import { runRuleEngineWithServiceRole } from "../../../../lib/rule-engine/service";
+import { createClient } from "../../../../lib/supabase/server";
+import { enforceWorkforceActionRateLimit } from "../../../../lib/decisions/workforce-action-rate-limit";
 
 /**
  * Disparo manual del motor de reglas (MB-2).
@@ -32,6 +34,11 @@ export async function processAttendanceDayAction(
   if (!profile?.role) redirect("/login");
   if (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH") {
     return { status: "error", message: "Esta operación requiere rol SUPER_ADMIN o ADMIN_RRHH." };
+  }
+  try {
+    await enforceWorkforceActionRateLimit(await createClient(), "workforce.rule_engine.run");
+  } catch (err) {
+    return { status: "error", message: err instanceof Error ? err.message : "Acción bloqueada por seguridad." };
   }
 
   const date = String(formData.get("date") ?? "").trim();

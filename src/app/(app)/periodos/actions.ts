@@ -9,6 +9,7 @@ import {
   transitionReportingPeriod,
   type ReportingPeriodStatus,
 } from "../../../lib/periods/reporting-periods";
+import { enforceWorkforceActionRateLimit } from "../../../lib/decisions/workforce-action-rate-limit";
 
 /**
  * Server Actions de administración de períodos (MB-7). Cliente de SESIÓN
@@ -33,6 +34,7 @@ async function requirePeriodAdmin() {
   if (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH") {
     throw new Error("Esta operación requiere rol SUPER_ADMIN o ADMIN_RRHH.");
   }
+  await enforceWorkforceActionRateLimit(await createClient(), "workforce.periods.manage");
   return profile;
 }
 

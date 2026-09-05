@@ -9,6 +9,7 @@ import { isPrivilegedAdmin } from "../../../lib/supabase/authorize";
 import { parseSuppliersExcel, importSuppliers, deactivateSupplier } from "../../../lib/payroll/suppliers-import";
 import { parseInvoiceExcel, generatePayrollBatch } from "../../../lib/payroll/invoice-import";
 import { computeSupplierMasterPreview, applySupplierMasterImport, validateFileMeta, type SupplierMasterPreview } from "../../../lib/payroll/supplier-master";
+import { enforceWorkforceActionRateLimit } from "../../../lib/decisions/workforce-action-rate-limit";
 
 /**
  * Server Actions de Nómina de Pago. Cada una usa el cliente de SESIÓN
@@ -28,7 +29,9 @@ async function requirePayrollAccess() {
   // (sección 7 del diseño). Va DESPUÉS del chequeo de rol: quien no está
   // autorizado debe seguir recibiendo el error de rol y no uno de MFA, que le
   // revelaría que su rol sí alcanzaba.
-  await assertSecondFactorForPrivileged(await createClient());
+  const supabase = await createClient();
+  await assertSecondFactorForPrivileged(supabase);
+  await enforceWorkforceActionRateLimit(supabase, "workforce.payroll.manage");
   return profile;
 }
 

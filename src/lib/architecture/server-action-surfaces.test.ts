@@ -74,8 +74,8 @@ test("la deuda legacy y la ausencia de rate limit nunca quedan ocultas", () => {
     if (surface.tenantScope === "LEGACY_ARCOTEX") {
       assert.ok(surface.blockers.includes("LABOR_MULTI_TENANCY"), surface.source);
     }
-    if (surface.abuseControl === "MISSING") {
-      assert.ok(surface.blockers.includes("APPLICATION_RATE_LIMIT"), surface.source);
+    if ((surface.abuseControl as string) === "MISSING") {
+      assert.ok((surface.blockers as readonly string[]).includes("APPLICATION_RATE_LIMIT"), surface.source);
     }
   }
 });
@@ -83,7 +83,11 @@ test("la deuda legacy y la ausencia de rate limit nunca quedan ocultas", () => {
 test("los limites distribuidos declarados tienen evidencia en la frontera", () => {
   for (const surface of SERVER_ACTION_SURFACES.filter((item) => item.abuseControl === "DATABASE_RATE_LIMIT")) {
     const source = readFileSync(path.join(REPO_ROOT, surface.source), "utf8");
-    assert.match(source, /consumePlatformActionRateLimit\(/, surface.source);
+    assert.match(
+      source,
+      /consumePlatformActionRateLimit\(|consumeApplicationActionRateLimit\(|enforceWorkforceActionRateLimit\(/,
+      surface.source,
+    );
     assert.ok(!(surface.blockers as readonly string[]).includes("APPLICATION_RATE_LIMIT"), surface.source);
   }
 });

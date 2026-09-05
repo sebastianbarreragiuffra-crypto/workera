@@ -10,6 +10,7 @@ import {
 import {
   RPC_CONSUMER_SURFACES,
   STORAGE_CONSUMER_SURFACES,
+  type DataSurfaceDomain,
   type DataSurfaceBlocker,
 } from "./data-surfaces";
 
@@ -61,7 +62,7 @@ export type ReadinessStageId =
 
 export type ReadinessDecision = "GO" | "NO_GO";
 type SurfaceBlocker = RequestSurfaceBlocker | ServerActionBlocker | DataSurfaceBlocker;
-type SurfaceDomain = RequestSurfaceDomain;
+type SurfaceDomain = RequestSurfaceDomain | DataSurfaceDomain;
 
 interface StageDefinition {
   readonly id: ReadinessStageId;
@@ -138,11 +139,11 @@ export const READINESS_GATES = [
   },
   {
     id: "APPLICATION_RATE_LIMIT",
-    title: "Cuotas para decisiones laborales y APIs restantes",
+    title: "Cuota faltante en una superficie de aplicación inventariada",
     status: "OPEN_CODE",
-    owner: "Security / Workforce",
-    evidence: ["docs/ABUSE_RATE_LIMITING_PLAN.md"],
-    nextAction: "Medir volumen por supervisor y proteger decisiones/configuración legacy.",
+    owner: "Security / Engineering",
+    evidence: ["docs/ABUSE_RATE_LIMITING_PLAN.md", "src/lib/architecture/request-surfaces.ts", "src/lib/architecture/server-action-surfaces.ts"],
+    nextAction: "Implementar cualquier superficie futura que vuelva a declarar este bloqueo.",
   },
   {
     id: "EDGE_RATE_LIMIT",

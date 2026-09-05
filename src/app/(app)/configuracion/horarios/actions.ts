@@ -13,6 +13,7 @@ import {
   type LegalBasis,
   type WorkScheduleRule,
 } from "../../../../lib/schedules/schedule-administration";
+import { enforceWorkforceActionRateLimit } from "../../../../lib/decisions/workforce-action-rate-limit";
 
 /**
  * Server Actions de administración de horarios (MB-1).
@@ -38,6 +39,7 @@ async function requireScheduleAdmin() {
   if (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH") {
     throw new Error("Esta operación requiere rol SUPER_ADMIN o ADMIN_RRHH.");
   }
+  await enforceWorkforceActionRateLimit(await createClient(), "workforce.schedules.manage");
   return profile;
 }
 

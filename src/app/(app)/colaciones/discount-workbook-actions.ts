@@ -5,6 +5,7 @@ import { getCurrentProfile } from "../../../lib/auth/session";
 import { createClient } from "../../../lib/supabase/server";
 import { isPrivilegedAdmin } from "../../../lib/supabase/authorize";
 import { updateActiveDiscountWorkbook } from "../../../lib/colaciones/discount-workbook-storage";
+import { enforceWorkforceActionRateLimit } from "../../../lib/decisions/workforce-action-rate-limit";
 
 /**
  * Reemplazo del Excel de descuentos de Colaciones. Privilegiado (mismo
@@ -28,6 +29,11 @@ export async function updateDiscountWorkbookAction(
   const profile = await getCurrentProfile();
   if (!profile?.role || !isPrivilegedAdmin(profile.role)) {
     return { status: "error", message: "No tienes permiso para actualizar el archivo de descuentos." };
+  }
+  try {
+    await enforceWorkforceActionRateLimit(await createClient(), "workforce.meals.manage");
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "Acción bloqueada por seguridad." };
   }
 
   const file = formData.get("file") as File | null;

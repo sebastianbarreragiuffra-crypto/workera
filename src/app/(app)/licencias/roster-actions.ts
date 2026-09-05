@@ -9,6 +9,7 @@ import { getWorkeraConfig } from "../../../lib/workera/config";
 import { WorkeraConfigurationError } from "../../../lib/workera/errors";
 import { HttpWorkeraClient } from "../../../lib/workera/http-client";
 import { bootstrapEmployeesFromRoster, type BootstrapRosterResult } from "../../../lib/business-rules/employee-roster-reconciliation";
+import { enforceWorkforceActionRateLimit } from "../../../lib/decisions/workforce-action-rate-limit";
 
 /**
  * Server Actions del bootstrap/actualización de roster administrativo
@@ -25,6 +26,7 @@ async function requireRosterAdmin() {
   if (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH") {
     throw new Error("Esta operación requiere rol SUPER_ADMIN o ADMIN_RRHH.");
   }
+  await enforceWorkforceActionRateLimit(await createClient(), "workforce.roster.manage");
   return profile;
 }
 

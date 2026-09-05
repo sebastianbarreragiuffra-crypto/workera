@@ -8,6 +8,11 @@ import {
   RerunRangeError,
 } from "@/lib/sync/scheduler";
 import { runRuleEngineWithServiceRole } from "@/lib/rule-engine/service";
+import { createClient } from "@/lib/supabase/server";
+import { enforceWorkforceActionRateLimit } from "@/lib/decisions/workforce-action-rate-limit";
+import { ApplicationActionLimitError } from "@/lib/shared/action-rate-limit";
+
+export const MAX_MANUAL_RERUN_BODY_BYTES = 1024;
 
 /**
  * Route Handler server-only del scheduler (Fase 6B). Dos métodos HTTP, dos
@@ -60,6 +65,39 @@ export function datesReadyForRuleEngine(results: Record<string, { status: string
   return Object.entries(results)
     .filter(([, r]) => r.status === "SUCCEEDED")
     .map(([date]) => date);
+}
+
+export async function readManualRerunBody(request: Request): Promise<unknown> {
+  const declared = request.headers.get("content-length");
+  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > MAX_MANUAL_RERUN_BODY_BYTES)) {
+    throw new RangeError("request_too_large");
+  }
+  if (!request.body) throw new SyntaxError("empty_body");
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_MANUAL_RERUN_BODY_BYTES) {
+        await reader.cancel("manual-rerun-body-too-large");
+        throw new RangeError("request_too_large");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
 }
 
 /**
@@ -144,10 +182,31 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  try {
+    await enforceWorkforceActionRateLimit(await createClient(), "workforce.sync.rerun");
+  } catch (error) {
+    if (error instanceof ApplicationActionLimitError) {
+      if (error.decision.status === "RATE_LIMITED") {
+        return NextResponse.json(
+          { error: "Demasiadas solicitudes. Intenta nuevamente más tarde." },
+          { status: 429, headers: { "Retry-After": String(error.decision.retryAfterSeconds) } },
+        );
+      }
+      return NextResponse.json(
+        { error: error.decision.status === "DENIED" ? "No autorizado." : "Control de seguridad no disponible." },
+        { status: error.decision.status === "DENIED" ? 403 : 503 },
+      );
+    }
+    return NextResponse.json({ error: "Control de seguridad no disponible." }, { status: 503 });
+  }
+
   let body: { startDate?: string; endDate?: string };
   try {
-    body = await request.json();
-  } catch {
+    body = await readManualRerunBody(request) as { startDate?: string; endDate?: string };
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return NextResponse.json({ error: "El cuerpo supera el máximo permitido." }, { status: 413 });
+    }
     return NextResponse.json({ error: "Cuerpo de la request inválido -- se espera JSON." }, { status: 400 });
   }
 

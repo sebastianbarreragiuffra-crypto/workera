@@ -55,9 +55,9 @@ Fronteras:
   exportaciones o acciones admin consumen recursos o revelan cuentas/datos.
 - Evidencia: Rendiciones financieras, uploads laborales, documentos y las tres
   exportaciones laborales ya tienen cuotas distribuidas. Las ocho mutaciones
-  del control plane también consumen una cuota PostgreSQL con rol, AAL2 y
-  recurso revalidados; persisten login, borde público y decisiones laborales,
-  y nada fue comprobado hospedado.
+  del control plane, el workflow de Rendiciones y las mutaciones laborales
+  también consumen cuotas PostgreSQL con empresa, rol, AAL2 y scope revalidados;
+  persisten login y borde público, y nada fue comprobado hospedado.
 - Estado: `BLOCKED`.
 - Control requerido: límites por identidad/IP/empresa, protección adaptativa o
   CAPTCHA cuando proceda, respuestas no enumerables, alerta y política explícita
@@ -234,12 +234,13 @@ Fronteras:
 - Evidencia: capacidades server-side, aprobación humana y algunos logs.
   Rendiciones limita y audita en base sus cuatro entregas financieras por
   empresa+actor; documentos y exportaciones laborales poseen guardas propias, y
-  el control plane limita sus ocho mutaciones. No hay todavía cobertura de las
-  decisiones laborales, recertificación periódica ni detección hospedada.
+  el control plane limita sus ocho mutaciones. Las decisiones y configuraciones
+  laborales también tienen scopes separados, pero no hay todavía recertificación
+  periódica ni detección hospedada.
 - Estado: `UNVERIFIED` / `BLOCKED` para staging con PII y piloto.
 - Control requerido: matriz de segregación y conflictos, doble control para
-  pagos/contabilidad, recertificación y caducidad de accesos, extender límites a
-  laboral, alertas por descarga/exportación, detección de volumen anómalo y
+  pagos/contabilidad, recertificación y caducidad de accesos, calibrar límites
+  laborales, alertas por descarga/exportación, detección de volumen anómalo y
   revisión de un sink tamper-evident independiente.
 - Owner requerido: Security/Finance/Privacy. Residual: no aceptado.
 

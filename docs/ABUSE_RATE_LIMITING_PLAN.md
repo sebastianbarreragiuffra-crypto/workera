@@ -1,11 +1,12 @@
 # Rate Limiting y Protección contra Abuso
 
-Estado: `PARTIALLY_IMPLEMENTED`. Rendiciones ya posee cuotas durables para
-ingreso bancario y conectores, además de autorización + rate limit + auditoría
-atómica para sus cuatro entregas financieras. La carga/descarga de documentos
-y las tres exportaciones laborales están cubiertas; login, Server Actions
-laborales de decisión y el borde público conservan brechas explícitas. Las
-ocho mutaciones del control plane ya usan cuota PostgreSQL fail-closed.
+Estado: `PARTIALLY_IMPLEMENTED`. Rendiciones ya posee cuotas durables para su
+workflow completo, ingreso bancario, conectores y cuatro entregas financieras.
+La carga/descarga de documentos, las tres exportaciones laborales, el rerun
+manual de Workera, las decisiones/configuraciones laborales y las ocho
+mutaciones del control plane también están cubiertas por PostgreSQL fail-closed.
+Las brechas vigentes son login/recuperación y el borde público; los límites
+implementados aún requieren calibración y evidencia hospedada.
 Los valores marcados `TBD`/`PROPOSED` siguen sin ser decisiones finales.
 
 Fuentes oficiales consultadas: [Supabase Auth Rate Limits](https://supabase.com/docs/guides/auth/rate-limits) (documentación oficial, consultada en este gate), [OWASP API Security Top 10 — API4:2023 Unrestricted Resource Consumption](https://owasp.org/API-Security/editions/2023/en/0x11-t10/) (verificado contra el documento oficial en este gate de hardening), RFC 6585 (`429 Too Many Requests`), RFC 9110 §10.2.3 (`Retry-After`).
@@ -88,7 +89,8 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
 
 ### 2.3 Otras APIs y Route Handlers
 - **Clave**: inventariada por ruta en `src/lib/architecture/request-surfaces.ts`;
-  falta cerrar las superficies que aún figuran con `MISSING`.
+  ninguna superficie existente figura hoy con `MISSING`. El gate impide que
+  una ruta futura o modificada oculte esa deuda.
 - **Ventana**: `TBD` por endpoint, a definir junto con cada ruta nueva siguiendo `docs/API_SECURITY_STANDARD.md`.
 - **Límite propuesto**: `TBD` para cada superficie que el inventario marca pendiente; calibrar con volumen sintético y marcha blanca.
 - **Justificación**: mitigar abuso de recursos (OWASP API4:2023) en endpoints existentes y futuros.
@@ -96,12 +98,18 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
 - **Auditoría/alertas**: `TBD`, depende de la observabilidad elegida.
 - **Anti-bypass**: rate limiting debe aplicarse server-side, nunca solo en el cliente.
 
-### 2.4 Acciones de aprobación (overtime, atrasos, ausencias)
-- **Clave**: usuario (`sub`) que aprueba.
-- **Ventana**: `TBD` — probablemente más laxa que login (son acciones legítimas frecuentes de un supervisor durante su jornada), pero con un límite superior razonable para detectar automatización anómala.
-- **Límite propuesto**: `TBD` — requiere entender el volumen operacional real (cuántos trabajadores por supervisor) antes de proponer un número, para no bloquear uso legítimo.
-- **Justificación**: detectar un script automatizando aprobaciones masivas fuera del patrón humano esperado (T-25, insider threat).
-- **Auditoría**: cada aprobación ya debe quedar en `audit_log` (regla de `ARCHITECTURE.md`) — el rate limit es una capa adicional de detección, no el mecanismo de auditoría en sí.
+### 2.4 Acciones de aprobación (`IMPLEMENTED_LOCAL`)
+- **Clave**: ARCOTEX derivada en base + usuario (`auth.uid()`) + scope; el
+  navegador no puede elegir empresa mientras el dominio laboral sea legacy.
+- **Ventana/límite inicial**: 240 decisiones de revisión por actor/hora. Incluye
+  atrasos, horas extra, ausencias y correcciones; el permiso fino por trabajador
+  y área se vuelve a comprobar en el flujo de negocio.
+- **Licencias médicas**: 60 decisiones por actor/hora, solo después de comprobar
+  rol privilegiado; el RPC maker-checker conserva la autoridad final.
+- **Justificación**: detectar automatización anómala sin bloquear una revisión
+  humana normal. Los valores deben calibrarse con datos sintéticos y marcha blanca.
+- **Auditoría**: cada decisión conserva su ledger de negocio; el primer exceso
+  de la ventana agrega una señal mínima en `audit_log`.
 
 ### 2.5 Exportaciones laborales legacy (`IMPLEMENTED_LOCAL`)
 - **Clave**: `company_id + actor_id + scope`, con ARCOTEX derivada en DB; el
@@ -143,8 +151,12 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
 - **Pendiente**: calibrar el valor y conectar alertas/telemetría hospedada.
 
 ### 2.8 Sincronización con Workera (implementada pero apagada)
-- **Clave**: N/A (proceso server-to-server, no un usuario final) — control por diseño del cron/job, no por rate limit de usuario.
-- **Ventana/límite**: `TBD` — depende enteramente de los rate limits que la propia Workera imponga, que hoy son desconocidos (sin documentación oficial). El intento manual previo que recibió `HTTP 429` de Workera confirma que Workera **sí aplica rate limiting del lado servidor**, pero no revela su umbral exacto ni su ventana.
+- **Cron**: proceso server-to-server protegido por secreto, lease/fencing y
+  reconciliación; no usa una cuota de usuario.
+- **Rerun manual**: 10 solicitudes por administrador/hora, con ARCOTEX derivada,
+  MFA aplicable, cuerpo máximo de 1 KiB y `429 + Retry-After`.
+- **Proveedor**: su umbral sigue sin confirmarse. El cliente debe respetar
+  `Retry-After` y conservar reintentos acotados cuando se active el adaptador real.
 - **Justificación**: evitar que un reintento mal configurado sature la API de Workera y active sus propios límites o bloqueos.
 - **Anti-bypass**: respetar cualquier header `Retry-After` que Workera devuelva (ya contemplado conceptualmente en `WorkeraRateLimitError.retryAfterMs` en `errors.ts`, aunque sin cliente HTTP real que lo dispare todavía).
 
@@ -163,31 +175,33 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
   escribe en `platform_audit_log`; no se guardan formularios, emails ni payloads.
 - **Pendiente**: calibrar límites y conectar el ledger a alertas hospedadas.
 
-### 2.10 Acciones laborales de decisión (`PLANNED`)
-- **Clave**: empresa + usuario que decide.
-- **Ventana/límite**: `TBD`; debe medirse el volumen real por supervisor para no
-  bloquear una revisión legítima de jornada.
-- **Cobertura pendiente**: atrasos, horas extra, ausencias, correcciones,
-  licencias, períodos y configuraciones heredadas de ARCOTEX.
-- **Justificación**: una cuenta comprometida no debe automatizar decisiones
-  laborales masivas fuera de un patrón humano esperado.
-- **Auditoría**: cada decisión conserva su ledger de negocio; la cuota será una
-  capa de detección adicional, nunca el mecanismo de autorización.
+### 2.10 Mutaciones de aplicación (`IMPLEMENTED_LOCAL`)
+- **Primitiva compartida**: `consume_application_action_rate_limit()` usa una
+  fila por actor+empresa+scope y UPSERT atómico. La misma tabla sostiene el
+  control plane sin mezclar sus contadores.
+- **Rendiciones**: 240 mutaciones del workflow por miembro/empresa/hora; exige
+  empresa activa, membresía activa y módulo `PILOT`/`ENABLED` antes de consumir.
+- **Laboral**: revisión 240; licencias y horarios 60; períodos y nómina 30;
+  roster y colaciones 20; motor de reglas y rerun Workera 10 por actor/hora.
+- **Defensa**: MFA para roles privilegiados, scope cerrado, empresa laboral
+  derivada, saturación en límite+2 y una sola señal de bloqueo por ventana.
+- **Pendiente**: calibrar valores, alertar desde un sink hospedado y migrar
+  ARCOTEX a tenant explícito antes de habilitar otro workspace laboral.
 
 ## 3. Consideraciones transversales
 
 - **Almacenamiento distribuido**: Rendiciones usa Postgres compartido y no
   requiere afinidad de instancia. Login/borde puede necesitar un store dedicado
   según el hosting y la latencia que se midan.
-- **Comportamiento ante caída del rate limiter**: las entregas financieras de
-  Rendiciones, las descargas/exportaciones laborales y el control plane ya son
-  fail-closed. Falta decidirlo para login, borde y decisiones laborales.
+- **Comportamiento ante caída del rate limiter**: las entregas y mutaciones de
+  Rendiciones, las descargas/exportaciones/mutaciones laborales y el control
+  plane ya son fail-closed. Falta decidirlo para login y borde.
 - **Protección contra bypass**: el rate limiting nunca debe ser la única defensa (ver capas ya implementadas: RLS, guard de sesión, validación de contraseña de Supabase Auth); nunca confiar en un header de IP sin verificar la cadena de confianza del proxy que lo generó.
 - **Encabezados confiables**: cualquier IP usada para limitar debe venir de una fuente verificada por la plataforma de hosting (no aceptar `X-Forwarded-For` arbitrario de un cliente no confiable) — mismo principio que Supabase exige para habilitar `Sb-Forwarded-For`.
 
 ## 4. Qué todavía NO está implementado
 
-No hay aún control propio para login/recuperación, rate limit de borde para
-webhooks ni protección de volumen para decisiones laborales heredadas. Los defaults de Auth local no deben
-asumirse válidos en producción: deben confirmarse y ensayarse en el proyecto
-hospedado.
+No hay aún control propio para login/recuperación ni rate limit de borde para
+webhooks. Los defaults de Auth local no deben asumirse válidos en producción:
+deben confirmarse y ensayarse en el proyecto hospedado. Todas las cuotas de
+aplicación siguen sujetas a calibración con carga y operación real.

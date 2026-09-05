@@ -84,9 +84,9 @@ test("webhooks mutables tienen firma, límite, replay ledger, cuota y flag fail-
 });
 
 test("toda brecha de rate limit queda marcada como bloqueo y no puede esconderse", () => {
-  for (const surface of REQUEST_SURFACES.filter((item) => item.abuseControl === "MISSING")) {
+  for (const surface of REQUEST_SURFACES.filter((item) => (item.abuseControl as string) === "MISSING")) {
     assert.ok(
-      surface.blockers.includes("APPLICATION_RATE_LIMIT"),
+      (surface.blockers as readonly string[]).includes("APPLICATION_RATE_LIMIT"),
       `${requestSurfaceKey(surface)} declara rate limit ausente sin bloquear el piloto`
     );
   }
@@ -99,10 +99,13 @@ test("los limites de aplicacion declarados tienen evidencia directa en el handle
     const evidence = [source, ...localSourceClosure(sourcePath, source)].join("\n");
     assert.match(
       evidence,
-      /authorize(?:ExpenseDataAccess|SupportingDocumentDownload|WorkforceDataAccess)/,
+      /authorize(?:ExpenseDataAccess|SupportingDocumentDownload|WorkforceDataAccess)|enforceWorkforceActionRateLimit/,
       `${requestSurfaceKey(surface)} no consume el limite`,
     );
-    assert.equal(surface.auditControl, "DATA_ACCESS_LEDGER", `${requestSurfaceKey(surface)} debe auditar el acceso`);
+    assert.ok(
+      surface.auditControl === "DATA_ACCESS_LEDGER" || surface.auditControl === "JOB_LEDGER",
+      `${requestSurfaceKey(surface)} debe auditar el acceso o la ejecución`,
+    );
     assert.ok(
       !(surface.blockers as readonly string[]).includes("APPLICATION_RATE_LIMIT")
         && !(surface.blockers as readonly string[]).includes("EXPORT_AUDIT"),

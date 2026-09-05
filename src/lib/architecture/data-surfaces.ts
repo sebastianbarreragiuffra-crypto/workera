@@ -3,7 +3,7 @@
  * inventarios HTTP/Server Actions: una llamada nueva debe declarar identidad,
  * tenant, autorización, auditoría y deuda antes de entrar al producto.
  */
-export type DataSurfaceDomain = "identity" | "platform" | "workforce" | "expenses";
+export type DataSurfaceDomain = "identity" | "platform" | "workforce" | "expenses" | "shared";
 export type DataExecutionIdentity = "SESSION" | "SERVICE_ROLE_CAPABILITY";
 export type DataTenantScope =
   | "NONE"
@@ -12,7 +12,8 @@ export type DataTenantScope =
   | "RESOURCE_COMPANY"
   | "LEGACY_ARCOTEX"
   | "ROW_SCOPED_JOB"
-  | "GLOBAL_MINIMIZED";
+  | "GLOBAL_MINIMIZED"
+  | "SCOPE_DERIVED_COMPANY";
 export type DataAuditControl =
   | "AUTH_PROVIDER"
   | "BUSINESS_LEDGER"
@@ -60,7 +61,7 @@ export const RPC_CONSUMER_SURFACES = [
     ],
     dynamicRpcs: ["ensure_expense_receipt_email_alias", "rotate_expense_receipt_email_alias"],
     authorization: "Contexto de empresa y permiso por acción; cada RPC revalida actor/tenant.",
-    auditControl: "BUSINESS_LEDGER", dataClass: "FINANCIAL", blockers: ["APPLICATION_RATE_LIMIT"],
+    auditControl: "BUSINESS_LEDGER", dataClass: "FINANCIAL", blockers: [],
   },
   {
     source: "src/app/(platform)/plataforma/actions.ts",
@@ -96,7 +97,7 @@ export const RPC_CONSUMER_SURFACES = [
     literalRpcs: ["activate_colaciones_discount_workbook"], dynamicRpcs: [],
     authorization: "Acción RRHH privilegiada; RPC valida actor y activa una sola versión.",
     auditControl: "PARTIAL", dataClass: "FINANCIAL",
-    blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT"],
+    blockers: ["LABOR_MULTI_TENANCY"],
   },
   {
     source: "src/lib/decisions/document-download.ts",
@@ -118,7 +119,7 @@ export const RPC_CONSUMER_SURFACES = [
     literalRpcs: ["approve_medical_license", "create_pending_medical_license", "reject_medical_license"], dynamicRpcs: [],
     authorization: "Carga atómica y transiciones maker-checker con aprobador dedicado.",
     auditControl: "BUSINESS_LEDGER", dataClass: "SENSITIVE_HR",
-    blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT"],
+    blockers: ["LABOR_MULTI_TENANCY"],
   },
   {
     source: "src/lib/decisions/workforce-data-access.ts",
@@ -132,7 +133,7 @@ export const RPC_CONSUMER_SURFACES = [
     domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "LEGACY_ARCOTEX",
     literalRpcs: ["apply_personnel_roster_import"], dynamicRpcs: [],
     authorization: "Acción RRHH y RPC de aplicación transaccional.", auditControl: "PARTIAL",
-    dataClass: "SENSITIVE_HR", blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT", "HOSTED_OBSERVABILITY"],
+    dataClass: "SENSITIVE_HR", blockers: ["LABOR_MULTI_TENANCY", "HOSTED_OBSERVABILITY"],
   },
   {
     source: "src/lib/expense-accounting/repository.ts",
@@ -245,7 +246,7 @@ export const RPC_CONSUMER_SURFACES = [
     literalRpcs: ["apply_supplier_master_import"], dynamicRpcs: [],
     authorization: "Acción privilegiada y RPC transaccional; Storage privado.",
     auditControl: "BUSINESS_LEDGER", dataClass: "FINANCIAL",
-    blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT"],
+    blockers: ["LABOR_MULTI_TENANCY"],
   },
   {
     source: "src/lib/platform/action-rate-limit.ts",
@@ -277,7 +278,14 @@ export const RPC_CONSUMER_SURFACES = [
     ],
     dynamicRpcs: [], authorization: "Acción RRHH; RPCs revalidan rol y precondiciones.",
     auditControl: "BUSINESS_LEDGER", dataClass: "SENSITIVE_HR",
-    blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT"],
+    blockers: ["LABOR_MULTI_TENANCY"],
+  },
+  {
+    source: "src/lib/shared/action-rate-limit.ts",
+    domain: "shared", executionIdentity: "SESSION", capability: null, tenantScope: "SCOPE_DERIVED_COMPANY",
+    literalRpcs: ["consume_application_action_rate_limit"], dynamicRpcs: [],
+    authorization: "RPC deriva ARCOTEX para workforce o valida empresa+módulo para expenses; exige actor, membresía, rol y MFA aplicable.",
+    auditControl: "BUSINESS_LEDGER", dataClass: "INTERNAL", blockers: [],
   },
   {
     source: "src/lib/supabase/middleware.ts",
@@ -338,13 +346,13 @@ export const STORAGE_CONSUMER_SURFACES = [
     source: "src/lib/colaciones/discount-workbook-storage.ts", bucket: "colaciones-config-files", operation: "download", occurrences: 1,
     domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
     authorization: "RLS RRHH sobre dataset interno activo.", securityState: "TRUSTED_INTERNAL_SOURCE",
-    blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT"],
+    blockers: ["LABOR_MULTI_TENANCY"],
   },
   {
     source: "src/lib/colaciones/discount-workbook-storage.ts", bucket: "colaciones-config-files", operation: "upload", occurrences: 1,
     domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
     authorization: "Acción RRHH, validación XLSX y policy privada.", securityState: "TRUSTED_INTERNAL_SOURCE",
-    blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT"],
+    blockers: ["LABOR_MULTI_TENANCY"],
   },
   {
     source: "src/lib/decisions/documents.ts", bucket: "supporting-documents", operation: "upload", occurrences: 1,
@@ -380,7 +388,7 @@ export const STORAGE_CONSUMER_SURFACES = [
     source: "src/lib/payroll/supplier-master.ts", bucket: "supplier-master-files", operation: "upload", occurrences: 1,
     domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
     authorization: "Acción RRHH, parser XLSX y policy privada.", securityState: "TRUSTED_INTERNAL_SOURCE",
-    blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT"],
+    blockers: ["LABOR_MULTI_TENANCY"],
   },
 ] as const satisfies readonly StorageConsumerSurface[];
 

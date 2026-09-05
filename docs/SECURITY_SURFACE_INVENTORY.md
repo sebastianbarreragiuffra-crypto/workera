@@ -25,7 +25,7 @@ también impide autorizar con roles/usuarios recibidos por `FormData`, exige que
 la autorización preceda al parseo de bytes y evita que aparezca una familia de
 uploads sin un máximo explícito de hasta 10 MiB.
 
-El inventario de datos cubre exactamente 28 archivos consumidores, 87 nombres
+El inventario de datos cubre exactamente 29 archivos consumidores, 88 nombres
 RPC permitidos y 13 operaciones Storage agrupadas en 12 perfiles. Declara la
 identidad de ejecución (sesión o capability `service_role`), alcance tenant,
 autorización, auditoría, clase de datos, bucket y estado de cuarentena. Los RPC
@@ -56,10 +56,16 @@ nuevo o una operación no registrada rompe CI.
   cuota horaria PostgreSQL por actor, empresa opcional y scope cerrado. La base
   revalida OWNER/ADMIN, AAL2 y coherencia empresa/recurso; un fallo bloquea la
   acción y el primer exceso de cada ventana queda en la bitácora sin PII.
+- Las 24 mutaciones de Rendiciones comparten una cuota tenant-aware; además,
+  revisión diaria, licencias, horarios, períodos, nómina, roster, colaciones,
+  motor de reglas y rerun Workera consumen scopes separados. La base deriva
+  ARCOTEX en laboral, valida empresa+módulo en gastos y falla cerrada si el
+  contador no responde.
 - El reintento de Google Forms de colaciones ya no acepta payload/menú/nómina
   serializados por el navegador. Usa un token AES-256-GCM opaco, autenticado y
   con 30 minutos de vigencia; cualquier cambio o vencimiento obliga a volver a
-  subir el documento. La acción sigue con deuda de rate limit y multiempresa.
+  subir el documento. La acción conserva deuda multiempresa, pero ya consume
+  la cuota durable de colaciones.
 - Los uploads laborales ahora requieren una reserva PostgreSQL por actor y
   trabajador, magic bytes, límite doble de 10 MiB y cuota distribuida de 30
   objetos/100 MiB por hora. Metadata y licencias se confirman por RPC atómico;

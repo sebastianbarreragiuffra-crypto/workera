@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
-import { isValidCronSecret, worstHttpStatus, datesReadyForRuleEngine } from "./route";
+import {
+  isValidCronSecret,
+  worstHttpStatus,
+  datesReadyForRuleEngine,
+  MAX_MANUAL_RERUN_BODY_BYTES,
+  readManualRerunBody,
+} from "./route";
 
 const LONG_CRON_SECRET = "test-secret-fake-000000000000000000000000";
 
@@ -136,4 +142,32 @@ test("datesReadyForRuleEngine: un sync bloqueado nunca dispara el motor de regla
     }),
     []
   );
+});
+
+test("el body del rerun manual acepta solo JSON pequeño", async () => {
+  const request = new Request("https://gestora.example/api/sync/workera", {
+    method: "POST",
+    body: JSON.stringify({ startDate: "2026-09-01", endDate: "2026-09-02" }),
+  });
+  assert.deepEqual(await readManualRerunBody(request), {
+    startDate: "2026-09-01",
+    endDate: "2026-09-02",
+  });
+  assert.equal(MAX_MANUAL_RERUN_BODY_BYTES, 1024);
+});
+
+test("el body chunked se corta al superar 1 KiB", async () => {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(700));
+      controller.enqueue(new Uint8Array(700));
+      controller.close();
+    },
+  });
+  const request = new Request("https://gestora.example/api/sync/workera", {
+    method: "POST",
+    body: stream,
+    duplex: "half",
+  } as RequestInit & { duplex: "half" });
+  await assert.rejects(readManualRerunBody(request), RangeError);
 });

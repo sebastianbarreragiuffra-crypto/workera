@@ -106,10 +106,10 @@ export const REQUEST_SURFACES = [
   {
     source: "src/app/api/sync/workera/route.ts", route: "/api/sync/workera", method: "POST", kind: "USER_API",
     domain: "workforce", authentication: "SESSION_PRIVILEGED_ROLE", tenantScope: "LEGACY_ARCOTEX",
-    authorization: "rerunWorkeraSync exige SUPER_ADMIN o ADMIN_RRHH y acota el rango.",
-    mutates: true, maxBodyBytes: null, idempotency: "LEASE_AND_FENCING", abuseControl: "MISSING",
+    authorization: "Cuota deriva ARCOTEX y exige rol/MFA; rerunWorkeraSync repite rol y acota el rango.",
+    mutates: true, maxBodyBytes: 1024, idempotency: "LEASE_AND_FENCING", abuseControl: "DATABASE_RATE_LIMIT",
     auditControl: "JOB_LEDGER", featureFlag: null, dataClass: "SENSITIVE_HR",
-    blockers: ["APPLICATION_RATE_LIMIT", "LABOR_MULTI_TENANCY"],
+    blockers: ["LABOR_MULTI_TENANCY"],
   },
   {
     source: "src/app/api/jobs/expense-ocr/route.ts", route: "/api/jobs/expense-ocr", method: "GET", kind: "CRON_JOB",

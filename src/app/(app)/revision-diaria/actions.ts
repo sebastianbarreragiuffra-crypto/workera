@@ -18,6 +18,7 @@ import { reprocessEmployeeDay } from "../../../lib/rule-engine/service";
 import { uploadSupportingDocument, MAX_SUPPORTING_DOCUMENT_SIZE_BYTES, type SupportingDocumentType, type SupportingDocumentRelation } from "../../../lib/decisions/documents";
 import { getDailyReviewBoard, sortPendingCards, findNextPendingEmployeeId } from "../../../lib/view-models/daily-review-view";
 import { assertEmployeeAccessAllowed, type AreaCode, type CallerRole } from "../../../lib/access/scope";
+import { enforceWorkforceActionRateLimit } from "../../../lib/decisions/workforce-action-rate-limit";
 
 /**
  * Server Actions de Fase 8, ampliadas en Fase 8B.2 (PASO 23/24: feedback +
@@ -36,6 +37,7 @@ import { assertEmployeeAccessAllowed, type AreaCode, type CallerRole } from "../
 async function requireActiveProfile() {
   const profile = await getCurrentProfile();
   if (!profile?.role) redirect("/login");
+  await enforceWorkforceActionRateLimit(await createClient(), "workforce.review.mutate");
   return profile;
 }
 
