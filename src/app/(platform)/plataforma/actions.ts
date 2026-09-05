@@ -18,13 +18,14 @@ import {
   resetUserMfa,
 } from "@/lib/admin/mfa-reset";
 import { publicAppUrl } from "@/lib/auth/public-origin";
+import { postgresUuid } from "@/lib/shared/postgres-uuid";
 
 export interface PlatformActionState {
   status: "idle" | "success" | "warning" | "error";
   message: string;
 }
 
-const uuid = z.string().uuid();
+const uuid = postgresUuid;
 const optionalText = (max: number) => z.string().trim().max(max).transform((value) => value || null);
 const managementRoleInput = z.object({
   companyId: uuid,

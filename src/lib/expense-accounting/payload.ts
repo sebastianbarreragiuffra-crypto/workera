@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Json } from "@/lib/supabase/database.types";
+import { postgresUuid } from "@/lib/shared/postgres-uuid";
 
 const money = z.union([z.number(), z.string().regex(/^\d{1,12}(?:\.\d{1,2})?$/)]).transform(Number)
   .refine((value) => Number.isFinite(value) && value >= 0 && value <= 999_999_999_999.99);
@@ -8,7 +9,7 @@ const safeText = z.string().min(1).max(240);
 const accountingPayloadSchema = z.object({
   schemaVersion: z.literal(1),
   provider: z.literal("LEDGER_CSV_V1"),
-  company: z.object({ id: z.string().uuid(), name: safeText }).strict(),
+  company: z.object({ id: postgresUuid, name: safeText }).strict(),
   report: z.object({
     id: z.string().uuid(),
     referenceNumber: safeText,

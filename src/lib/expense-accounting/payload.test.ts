@@ -9,6 +9,13 @@ test("acepta el snapshot contable v1 consistente", () => {
   assert.equal(payload.lines.length, 1);
 });
 
+test("acepta el UUID histórico de ARCOTEX en el snapshot contable", () => {
+  const payload = structuredClone(validAccountingPayload);
+  payload.company.id = "0a4c0000-0000-0000-0000-000000000001";
+
+  assert.equal(parseExpenseAccountingPayload(payload).company.id, payload.company.id);
+});
+
 test("rechaza moneda mezclada y totales de línea manipulados", () => {
   const currency = structuredClone(validAccountingPayload);
   currency.lines[0].currency = "USD";
