@@ -227,6 +227,7 @@ export const RPC_CONSUMER_SURFACES = [
       "claim_expired_supporting_document_uploads",
       "complete_supporting_document_orphan_cleanup",
       "fail_supporting_document_orphan_cleanup",
+      "get_supporting_document_cleanup_health",
       "reclaim_stale_supporting_document_cleanups",
     ],
     dynamicRpcs: [],

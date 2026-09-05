@@ -6087,6 +6087,17 @@ export type Database = {
         Args: { p_company_id: string; p_window_days?: number }
         Returns: Json
       }
+      get_supporting_document_cleanup_health: {
+        Args: { p_stale_after_seconds?: number }
+        Returns: {
+          failed_count: number
+          locked_count: number
+          oldest_pending_expires_at: string | null
+          pending_ready_count: number
+          requires_attention: boolean
+          stale_pending_count: number
+        }[]
+      }
       grant_expense_advance: {
         Args: {
           p_amount: number

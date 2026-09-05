@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { NextRequest } from "next/server";
-import { GET, isAuthorizedSupportingDocumentCleanupCron } from "./route";
+import {
+  GET,
+  handleSupportingDocumentCleanup,
+  isAuthorizedSupportingDocumentCleanupCron,
+  supportingDocumentCleanupHttpStatus,
+} from "./route";
 
 function request(header?: string): NextRequest {
   return new NextRequest("http://localhost/api/jobs/supporting-document-cleanup", {
@@ -32,6 +37,50 @@ test("una invocacion autorizada permanece inerte con el barrido apagado", async 
       enabled: false,
       reason: "SUPPORTING_DOCUMENT_CLEANUP_ENABLED is not true",
     });
+  } finally {
+    if (previousSecret === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = previousSecret;
+    if (previousEnabled === undefined) delete process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED;
+    else process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED = previousEnabled;
+  }
+});
+
+const baseResult = {
+  summary: { reclaimed: 0, claimed: 0, cleaned: 0, failed: 0, retried: 0 },
+  health: {
+    pendingReadyCount: 0,
+    lockedCount: 0,
+    failedCount: 0,
+    stalePendingCount: 0,
+    oldestPendingExpiresAt: null,
+    requiresAttention: false,
+  },
+};
+
+test("el estado HTTP permite que monitoreo distinga salud de backlog", () => {
+  assert.equal(supportingDocumentCleanupHttpStatus(baseResult), 200);
+  assert.equal(supportingDocumentCleanupHttpStatus({
+    ...baseResult,
+    health: { ...baseResult.health, failedCount: 1, requiresAttention: true },
+  }), 503);
+});
+
+test("el cron habilitado devuelve snapshot minimo y 503 ante deuda accionable", async () => {
+  const previousSecret = process.env.CRON_SECRET;
+  const previousEnabled = process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED;
+  process.env.CRON_SECRET = "fake-cron-secret-for-tests-000000000000";
+  process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED = "true";
+  const unhealthy = {
+    ...baseResult,
+    health: { ...baseResult.health, stalePendingCount: 1, requiresAttention: true },
+  };
+  try {
+    const response = await handleSupportingDocumentCleanup(
+      request("Bearer fake-cron-secret-for-tests-000000000000"),
+      async () => unhealthy,
+    );
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { enabled: true, ...unhealthy });
   } finally {
     if (previousSecret === undefined) delete process.env.CRON_SECRET;
     else process.env.CRON_SECRET = previousSecret;

@@ -25,6 +25,9 @@ dominio laboral. No activa proveedores ni cambia datos hospedados.
    vencidas con 5 minutos de gracia, `SKIP LOCKED` y fencing. PostgreSQL excluye
    cualquier ruta registrada antes de entregarla al worker; el borrado se
    reintenta como máximo tres veces y termina en auditoría sin guardar la ruta.
+9. Cada ejecución devuelve un snapshot agregado sin PII. Un fallo terminal o
+   un backlog mayor al umbral responde HTTP 503 para que el monitor del cron
+   pueda alertar; el umbral conservador es 26 horas.
 
 ## Entrega vigente
 
@@ -59,8 +62,8 @@ instancias de Next.js.
   `src/lib/supporting-document-cleanup/` y
   `src/app/api/jobs/supporting-document-cleanup/`.
 - Recolección de huérfanos: migración
-  `20260905170000_supporting_document_orphan_sweeper.sql` y pgTAP
-  `079_supporting_document_orphan_sweeper.sql`.
+  `20260905170000_supporting_document_orphan_sweeper.sql`, salud agregada en
+  `20260905180000_supporting_document_cleanup_health.sql` y pgTAP 079–080.
 - Inventario: `src/lib/architecture/server-action-surfaces.ts`.
 
 ## Límites que siguen abiertos

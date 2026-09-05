@@ -10,6 +10,15 @@ export interface ClaimedSupportingDocumentCleanup {
   attempt: number;
 }
 
+export interface SupportingDocumentCleanupHealth {
+  pendingReadyCount: number;
+  lockedCount: number;
+  failedCount: number;
+  stalePendingCount: number;
+  oldestPendingExpiresAt: string | null;
+  requiresAttention: boolean;
+}
+
 export interface SupportingDocumentCleanupRepository {
   reclaim(staleAfterSeconds: number): Promise<number>;
   claim(
@@ -20,6 +29,7 @@ export interface SupportingDocumentCleanupRepository {
   remove(storagePath: string): Promise<void>;
   complete(intentId: string, workerId: string): Promise<void>;
   fail(intentId: string, workerId: string, errorCode: string, retryable: boolean): Promise<boolean>;
+  getHealth(staleAfterSeconds: number): Promise<SupportingDocumentCleanupHealth>;
 }
 
 export class SupportingDocumentCleanupError extends Error {
@@ -107,5 +117,24 @@ implements SupportingDocumentCleanupRepository {
     );
     assertRpc(error, "No se pudo registrar el fallo de limpieza laboral.");
     return Boolean(data);
+  }
+
+  async getHealth(staleAfterSeconds: number): Promise<SupportingDocumentCleanupHealth> {
+    const { data, error } = await this.supabase.rpc(
+      "get_supporting_document_cleanup_health",
+      { p_stale_after_seconds: staleAfterSeconds },
+    );
+    if (error || !data || data.length !== 1) {
+      throw new Error("No se pudo consultar la salud de la limpieza laboral.");
+    }
+    const health = data[0];
+    return {
+      pendingReadyCount: Number(health.pending_ready_count),
+      lockedCount: Number(health.locked_count),
+      failedCount: Number(health.failed_count),
+      stalePendingCount: Number(health.stale_pending_count),
+      oldestPendingExpiresAt: health.oldest_pending_expires_at,
+      requiresAttention: health.requires_attention,
+    };
   }
 }

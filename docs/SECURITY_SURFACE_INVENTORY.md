@@ -25,7 +25,7 @@ también impide autorizar con roles/usuarios recibidos por `FormData`, exige que
 la autorización preceda al parseo de bytes y evita que aparezca una familia de
 uploads sin un máximo explícito de hasta 10 MiB.
 
-El inventario de datos cubre exactamente 31 archivos consumidores, 96 nombres
+El inventario de datos cubre exactamente 31 archivos consumidores, 97 nombres
 RPC permitidos y 15 operaciones Storage agrupadas en 14 perfiles. Declara la
 identidad de ejecución (sesión o capability `service_role`), alcance tenant,
 autorización, auditoría, clase de datos, bucket y estado de cuarentena. Los RPC

@@ -33,6 +33,16 @@ class MemoryRepository implements SupportingDocumentCleanupRepository {
     this.failures.push({ id: intentId, code: errorCode, retryable });
     return retryable;
   }
+  async getHealth() {
+    return {
+      pendingReadyCount: 0,
+      lockedCount: 0,
+      failedCount: 0,
+      stalePendingCount: 0,
+      oldestPendingExpiresAt: null,
+      requiresAttention: false,
+    };
+  }
 }
 
 function job(id: string): ClaimedSupportingDocumentCleanup {
