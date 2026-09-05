@@ -27,7 +27,7 @@ export interface MfaEnrollment {
 export interface MfaEnrollmentState {
   status: "idle" | "enrolling" | "error" | "done";
   message: string;
-  /** Se conserva ante un código equivocado: el QR no debe desaparecer. */
+  /** Solo la acción inicial lo devuelve; el navegador nunca lo reenvía. */
   enrollment: MfaEnrollment | null;
 }
 
@@ -53,8 +53,8 @@ function entries(formData: FormData): Record<string, FormDataEntryValue> {
   return Object.fromEntries(formData.entries());
 }
 
-function error(message: string, enrollment: MfaEnrollment | null = null): MfaEnrollmentState {
-  return { status: "error", message, enrollment };
+function error(message: string): MfaEnrollmentState {
+  return { status: "error", message, enrollment: null };
 }
 
 const CHALLENGE_FIRST_MESSAGE =
@@ -98,7 +98,6 @@ async function mustChallengeBeforeChangingFactors(supabase: SessionClient): Prom
  * igual de expuesta que antes.
  */
 export async function startMfaEnrollmentAction(
-  _prevState: MfaEnrollmentState,
   formData: FormData
 ): Promise<MfaEnrollmentState> {
   const supabase = await createClient();
@@ -162,39 +161,35 @@ export async function startMfaEnrollmentAction(
  * la sesión que hace la llamada. Un id ajeno falla ahí, no acá.
  */
 export async function confirmMfaEnrollmentAction(
-  prevState: MfaEnrollmentState,
   formData: FormData
 ): Promise<MfaEnrollmentState> {
-  const pending = prevState.enrollment;
-  if (!pending) return error("Empieza la inscripción de nuevo para obtener un código QR.");
-
   const supabase = await createClient();
   const account = await getMfaAccountState(supabase);
   if (!account) return error("Tu sesión expiró. Vuelve a iniciar sesión.");
 
-  const parsed = confirmInput.safeParse(entries(formData));
-  if (!parsed.success) return error("El código son 6 dígitos, sin espacios.", pending);
+  const parsed = confirmInput.merge(factorInput).safeParse(entries(formData));
+  if (!parsed.success) return error("El código son 6 dígitos, sin espacios.");
 
   const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({
-    factorId: pending.factorId,
+    factorId: parsed.data.factorId,
   });
   if (challengeError || !challenge) {
-    return error("No pudimos verificar el código en este momento. Intenta otra vez.", pending);
+    return error("No pudimos verificar el código en este momento. Intenta otra vez.");
   }
 
   const { error: verifyError } = await supabase.auth.mfa.verify({
-    factorId: pending.factorId,
+    factorId: parsed.data.factorId,
     challengeId: challenge.id,
     code: parsed.data.code,
   });
   if (verifyError) {
-    return error(INVALID_CODE_MESSAGE, pending);
+    return error(INVALID_CODE_MESSAGE);
   }
 
   const recorded = await recordMfaEvent({
     userId: account.userId,
     eventType: "ENROLLED",
-    factorId: pending.factorId,
+    factorId: parsed.data.factorId,
   });
 
   revalidatePath("/seguridad/mfa");
@@ -214,7 +209,6 @@ export async function confirmMfaEnrollmentAction(
  * ya no se usa.
  */
 export async function discardMfaFactorAction(
-  _prevState: MfaEnrollmentState,
   formData: FormData
 ): Promise<MfaEnrollmentState> {
   const supabase = await createClient();
@@ -244,26 +238,4 @@ export async function discardMfaFactorAction(
   revalidatePath("/seguridad/mfa");
 
   return { status: "done", message: "Dispositivo dado de baja.", enrollment: null };
-}
-
-/**
- * Punto de entrada único de la pantalla. Las tres operaciones comparten un
- * solo `useActionState` porque comparten estado: si "confirmar" tuviera su
- * propio estado, un código equivocado borraría el QR que la persona todavía
- * necesita tener a la vista.
- */
-export async function mfaEnrollmentAction(
-  prevState: MfaEnrollmentState,
-  formData: FormData
-): Promise<MfaEnrollmentState> {
-  switch (formData.get("intent")) {
-    case "start":
-      return startMfaEnrollmentAction(prevState, formData);
-    case "confirm":
-      return confirmMfaEnrollmentAction(prevState, formData);
-    case "discard":
-      return discardMfaFactorAction(prevState, formData);
-    default:
-      return error("No reconocimos esa acción.", prevState.enrollment);
-  }
 }

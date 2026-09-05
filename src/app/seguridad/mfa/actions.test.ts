@@ -10,6 +10,7 @@ import path from "node:path";
  * en una edición futura.
  */
 const ACTIONS_PATH = path.join(import.meta.dirname, "actions.ts");
+const COMPONENT_PATH = path.join(import.meta.dirname, "MfaEnrollment.tsx");
 
 function readSource(): string {
   return readFileSync(ACTIONS_PATH, "utf8");
@@ -84,9 +85,18 @@ test("la confirmación encadena challenge y luego verify, y solo registra ENROLL
   assert.ok(recordIdx > verifyErrorIdx, "ENROLLED solo se registra tras descartar el error de verify");
 });
 
-test("un código equivocado conserva la inscripción en curso para no borrar el QR de la pantalla", () => {
-  const body = bodyOf(readSource(), "confirmMfaEnrollmentAction");
-  assert.match(body, /return error\(INVALID_CODE_MESSAGE, pending\)/);
+test("el secreto TOTP nunca vuelve al servidor como estado previo de otra acción", () => {
+  const actions = readSource();
+  const component = readFileSync(COMPONENT_PATH, "utf8");
+
+  for (const fnName of MFA_ACTIONS) {
+    const body = bodyOf(actions, fnName);
+    assert.doesNotMatch(body, /prevState/, `${fnName} no debe recibir estado serializado del navegador`);
+  }
+  assert.doesNotMatch(actions, /mfaEnrollmentAction/);
+  assert.doesNotMatch(component, /useActionState/);
+  assert.match(component, /name="factorId" value=\{enrollment\.factorId\}/);
+  assert.match(component, /if \(result\.status === "done"\) setEnrollment\(null\)/);
 });
 
 test("el mensaje de código inválido menciona el reloj del teléfono", () => {

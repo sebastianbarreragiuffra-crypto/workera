@@ -226,9 +226,13 @@ Eso revierte las dos capas que corren en la aplicación (el gate del middleware 
 la guarda de nómina), pero no la guarda de los ocho RPC. Antes de cualquier corte
 que incluya `20260904120000` debe existir una migración de emergencia revisada,
 conservada **fuera** de
-`supabase/migrations` para que nunca se aplique automáticamente. El rollback es
-hacia adelante: redefine temporalmente el helper compartido, sin reescribir los
-ocho RPC ni perder la lógica `tenant_isolated`:
+`supabase/migrations` para que nunca se aplique automáticamente. Los artefactos
+manuales revisados están en
+[`ops/break-glass/disable-mfa-rpc-enforcement.sql`](../ops/break-glass/disable-mfa-rpc-enforcement.sql)
+y
+[`ops/break-glass/restore-mfa-rpc-enforcement.sql`](../ops/break-glass/restore-mfa-rpc-enforcement.sql).
+El rollback es hacia adelante: redefine temporalmente el helper compartido, sin
+reescribir los ocho RPC ni perder la lógica `tenant_isolated`:
 
 ```sql
 create or replace function public.enforce_mfa_for_privileged()

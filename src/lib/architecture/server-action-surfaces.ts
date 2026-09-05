@@ -67,7 +67,7 @@ export const SERVER_ACTION_SURFACES = [
   },
   {
     source: "src/app/seguridad/mfa/actions.ts",
-    actions: ["startMfaEnrollmentAction", "confirmMfaEnrollmentAction", "discardMfaFactorAction", "mfaEnrollmentAction"],
+    actions: ["startMfaEnrollmentAction", "confirmMfaEnrollmentAction", "discardMfaFactorAction"],
     domain: "identity", tenantScope: "NONE", authentication: "SESSION_MFA",
     authorizationEvidence: ["getMfaAccountState", "mustChallengeBeforeChangingFactors"],
     validation: "ZOD", uploadMaxBytes: null, abuseControl: "AUTH_PROVIDER_UNVERIFIED",

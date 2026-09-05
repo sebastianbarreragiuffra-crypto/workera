@@ -1,9 +1,12 @@
 "use client";
 
-import { useActionState } from "react";
+import { useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
-  mfaEnrollmentAction,
+  confirmMfaEnrollmentAction,
+  discardMfaFactorAction,
+  startMfaEnrollmentAction,
+  type MfaEnrollment as MfaEnrollmentData,
   type MfaEnrollmentState,
 } from "./actions";
 
@@ -72,7 +75,25 @@ export function MfaEnrollment({
   requiresMfa,
   isPlatformOwner,
 }: MfaEnrollmentProps) {
-  const [state, formAction] = useActionState(mfaEnrollmentAction, MFA_ENROLLMENT_INITIAL_STATE);
+  const [enrollment, setEnrollment] = useState<MfaEnrollmentData | null>(null);
+  const [feedback, setFeedback] = useState<MfaEnrollmentState>(MFA_ENROLLMENT_INITIAL_STATE);
+
+  async function startEnrollment(formData: FormData) {
+    const result = await startMfaEnrollmentAction(formData);
+    setFeedback(result);
+    setEnrollment(result.enrollment);
+  }
+
+  async function confirmEnrollment(formData: FormData) {
+    const result = await confirmMfaEnrollmentAction(formData);
+    setFeedback(result);
+    if (result.status === "done") setEnrollment(null);
+  }
+
+  async function discardFactor(formData: FormData) {
+    const result = await discardMfaFactorAction(formData);
+    setFeedback(result);
+  }
 
   const hasSecondFactor = verifiedFactors.length > 0;
   const ownerNeedsBackupFactor = isPlatformOwner && verifiedFactors.length < 2;
@@ -95,8 +116,7 @@ export function MfaEnrollment({
                   <span className="font-medium">{factor.friendlyName}</span>
                   <span className="ml-2 text-xs text-slate-500">verificado el {formatDate(factor.createdAt)}</span>
                 </span>
-                <form action={formAction}>
-                  <input type="hidden" name="intent" value="discard" />
+                <form action={discardFactor}>
                   <input type="hidden" name="factorId" value={factor.id} />
                   <SubmitButton variant="quiet">Dar de baja</SubmitButton>
                 </form>
@@ -134,8 +154,7 @@ export function MfaEnrollment({
               {unverifiedFactors.map((factor) => (
                 <li key={factor.id} className="flex flex-wrap items-center justify-between gap-3">
                   <span className="text-sm text-slate-600">{factor.friendlyName}</span>
-                  <form action={formAction}>
-                    <input type="hidden" name="intent" value="discard" />
+                  <form action={discardFactor}>
                     <input type="hidden" name="factorId" value={factor.id} />
                     <SubmitButton variant="quiet">Descartar</SubmitButton>
                   </form>
@@ -145,10 +164,10 @@ export function MfaEnrollment({
           </div>
         ) : null}
 
-        <Feedback state={state} />
+        <Feedback state={feedback} />
       </section>
 
-      {state.enrollment ? (
+      {enrollment ? (
         <section className="rounded-xl border border-slate-200 bg-card p-6 shadow-sm">
           <h2 className="text-base font-semibold text-foreground">Escanea el código</h2>
           <p className="mt-1 text-sm text-slate-600">
@@ -159,7 +178,7 @@ export function MfaEnrollment({
           <div className="mt-4 flex flex-wrap items-start gap-6">
             {/* eslint-disable-next-line @next/next/no-img-element -- el QR es un SVG en data URI que devuelve Supabase Auth; next/image no aporta nada sobre un recurso ya embebido y exigiría `unoptimized`. */}
             <img
-              src={state.enrollment.qrCodeDataUri}
+              src={enrollment.qrCodeDataUri}
               alt="Código QR para inscribir tu aplicación de autenticación"
               width={200}
               height={200}
@@ -169,11 +188,11 @@ export function MfaEnrollment({
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-slate-700">¿No puedes escanear? Escribe este secreto:</p>
               <code className="mt-1 block break-all rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-800">
-                {state.enrollment.secret}
+                {enrollment.secret}
               </code>
 
-              <form action={formAction} className="mt-4">
-                <input type="hidden" name="intent" value="confirm" />
+              <form action={confirmEnrollment} className="mt-4">
+                <input type="hidden" name="factorId" value={enrollment.factorId} />
                 <label htmlFor="mfa-code" className="text-xs font-medium text-slate-700">
                   Código de 6 dígitos
                 </label>
@@ -200,8 +219,7 @@ export function MfaEnrollment({
           <h2 className="text-base font-semibold text-foreground">
             {hasSecondFactor ? "Inscribir otro autenticador" : "Inscribir tu autenticador"}
           </h2>
-          <form action={formAction} className="mt-4 max-w-sm">
-            <input type="hidden" name="intent" value="start" />
+          <form action={startEnrollment} className="mt-4 max-w-sm">
             <label htmlFor="friendlyName" className="text-xs font-medium text-slate-700">
               Nombre para reconocerlo
             </label>
