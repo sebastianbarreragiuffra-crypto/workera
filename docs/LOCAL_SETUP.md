@@ -71,6 +71,11 @@ ls supabase/migrations | tail -5
 Si no coinciden, la base es de otra rama y el resultado de los tests no
 significa nada.
 
+CI además compara cada migración agregada con el último timestamp de la rama
+base. Una versión tardía, duplicada o sin nombre canónico se rechaza antes de
+levantar Supabase; este control complementa, pero no reemplaza, revisar los tres
+últimos archivos antes de crear una migración.
+
 **Cómo aislar un worktree.** En su `supabase/config.toml`, darle un
 `project_id` propio y desplazar todo el rango de puertos:
 
