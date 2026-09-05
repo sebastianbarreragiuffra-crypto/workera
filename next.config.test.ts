@@ -34,3 +34,8 @@ test("next.config.ts: bodySizeLimit cubre con margen el tope más grande que la 
     "bodySizeLimit debe ser mayor al tope de la app -- si no, Next.js seguiría rechazando el archivo antes de que la app pueda devolver su propio mensaje de error"
   );
 });
+
+test("los túneles de desarrollo se autorizan por hostname exacto, nunca con un wildcard público versionado", () => {
+  assert.deepEqual(nextConfig.allowedDevOrigins, ["127.0.0.1"]);
+  assert.ok(nextConfig.allowedDevOrigins?.every((origin) => !origin.includes("*")));
+});
