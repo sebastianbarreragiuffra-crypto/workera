@@ -25,7 +25,7 @@ function safeErrorCode(error: { code?: string }): string {
  */
 export async function deliverCompanyInvitation(email: string, redirectTo: string): Promise<InvitationDeliveryResult> {
   try {
-    const admin = createAdminClient();
+    const admin = createAdminClient("company-invitation-delivery");
     const { error } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo });
     if (!error) return { status: "SENT" };
     if (isExistingAccountError(error)) return { status: "ACCOUNT_EXISTS" };

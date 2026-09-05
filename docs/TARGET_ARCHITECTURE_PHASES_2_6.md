@@ -440,8 +440,9 @@ Para desarrollo asistido:
 - Contratar/verificar backups y PITR; ejecutar una restauración aislada con datos
   y Storage, checksums/copia independiente, reconfigurar Auth/keys/Realtime/jobs,
   medir RPO/RTO, cutover/rollback y conservar evidencia.
-- Inventariar `service_role`, restringir grants cloud y separar secretos/jobs;
-  elegir gestor, RBAC, owner, rotación, revocación y break-glass auditado.
+- Mantener el inventario tipado de `service_role` ya implementado; restringir
+  grants cloud y separar secretos/jobs; elegir gestor, RBAC, owner, rotación,
+  revocación y break-glass auditado. El inventario no sustituye esas fronteras.
 - Demostrar segregación maker-checker, recertificación/caducidad de accesos,
   límites de descarga/exportación y alertas por uso anómalo para mitigar abuso
   de usuarios legítimamente autorizados.

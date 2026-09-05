@@ -27,7 +27,7 @@ export async function runExpenseAccountingOperationsWithServiceRole(
   const config = readExpenseAccountingConfig();
   if (!config.enabled) return { enabled: false, provider: "disabled" };
   const result = await runExpenseAccountingCatchUp(
-    new SupabaseExpenseAccountingRepository(createAdminClient()),
+    new SupabaseExpenseAccountingRepository(createAdminClient("expense-accounting-worker")),
     new DryRunLedgerAdapter(),
     trigger,
     config
@@ -41,7 +41,7 @@ export type ExpenseAccountingHealthResult =
 
 export async function getExpenseAccountingHealthWithServiceRole(): Promise<ExpenseAccountingHealthResult> {
   const config = readExpenseAccountingConfig();
-  const snapshot = await new SupabaseExpenseAccountingRepository(createAdminClient())
+  const snapshot = await new SupabaseExpenseAccountingRepository(createAdminClient("expense-accounting-worker"))
     .getHealth(readExpenseAccountingWatchdogStaleSeconds());
   const health = classifyExpenseAccountingHealth(snapshot);
   return config.enabled

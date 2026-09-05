@@ -95,7 +95,7 @@ export function isTrustedWhatsappMediaUrl(url: string, config: ExpenseWhatsappPr
 }
 
 async function claimPairing(tokenHash: string, waIdHash: string): Promise<boolean> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-whatsapp-ingestion");
   const { data, error } = await admin.rpc("claim_expense_receipt_whatsapp_pairing", {
     p_token_hash: tokenHash,
     p_wa_id_hash: waIdHash,
@@ -105,7 +105,7 @@ async function claimPairing(tokenHash: string, waIdHash: string): Promise<boolea
 }
 
 async function resolveSender(waIdHash: string): Promise<{ companyId: string; userId: string } | null> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-whatsapp-ingestion");
   const { data, error } = await admin.rpc("resolve_expense_receipt_whatsapp_sender", { p_wa_id_hash: waIdHash });
   if (error) throw new Error("No se pudo resolver el remitente.");
   const sender = data?.[0];
@@ -117,7 +117,7 @@ async function claimEvent(input: {
   companyId: string;
   providerMessageHash: string;
 }): Promise<{ result: ClaimResult; claimToken: string | null }> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-whatsapp-ingestion");
   const { data, error } = await admin.rpc("claim_expense_receipt_whatsapp_event", {
     p_actor_id: input.actorId,
     p_company_id: input.companyId,
@@ -137,7 +137,7 @@ async function reserveBytes(input: {
   claimToken: string;
   size: number;
 }): Promise<boolean> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-whatsapp-ingestion");
   const { data, error } = await admin.rpc("reserve_expense_receipt_whatsapp_bytes", {
     p_actor_id: input.actorId,
     p_company_id: input.companyId,
@@ -156,7 +156,7 @@ async function finishEvent(input: {
   claimToken: string;
   success: boolean;
 }): Promise<void> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-whatsapp-ingestion");
   const rpc = input.success
     ? "complete_expense_receipt_whatsapp_event"
     : "release_expense_receipt_whatsapp_event";

@@ -75,9 +75,10 @@ Fronteras:
 
 - Riesgo: la clave bypassea RLS y una filtración o ruta mal autorizada afecta toda
   la base; los grants cloud son más amplios que en local.
-- Evidencia: cliente `server-only`, consumidores acotados por módulos y tests que
-  impiden uso directo desde rutas/actions; no existe identidad mínima por job ni
-  verificación completa de grants hospedados.
+- Evidencia: cliente `server-only`, inventario tipado por capacidad/consumidor y
+  tests que impiden uso directo desde rutas/actions o capacidades no declaradas;
+  no existe identidad mínima por job ni verificación completa de grants
+  hospedados. Ver `docs/SERVICE_ROLE_INVENTORY.md`.
 - Estado: límite de código `TESTED_LOCAL`; blast radius `BLOCKED`.
 - Control requerido: inventario por consumidor, autorización antes del cliente
   admin, RPC allowlisted, secretos separados cuando sea posible, grants cloud

@@ -8,7 +8,7 @@ import { runExpenseOcrWorker, type ExpenseOcrWorkerSummary } from "./worker";
 export async function runExpenseOcrWorkerWithServiceRole(): Promise<ExpenseOcrWorkerSummary> {
   const config = readExpenseOcrConfig();
   if (!config.enabled) return { reclaimed: 0, claimed: 0, completed: 0, deferred: 0, failed: 0, retried: 0 };
-  const repository = new SupabaseExpenseOcrRepository(createAdminClient());
+  const repository = new SupabaseExpenseOcrRepository(createAdminClient("expense-ocr-worker"));
   const provider = new AzureDocumentIntelligenceClient(config);
   return runExpenseOcrWorker(repository, provider);
 }

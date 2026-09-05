@@ -327,6 +327,25 @@ No se aplicó nada a staging. Su historial remoto ya contiene las migraciones
 desde esta rama antes de inscribir las cuentas privilegiadas: aplicaría también
 la migración AAL2 no inerte. Seguir `docs/PLATFORM_OWNER_RUNBOOK.md`, sección 7.
 
+## Gate P0 — inventario de `service_role` (5 de septiembre de 2026)
+
+Se cerró la parte local del inventario de consumidores privilegiados. Las 13
+capacidades actuales están registradas en
+`src/lib/supabase/service-role-capabilities.ts`; cada llamada a
+`createAdminClient()` debe declarar un identificador literal y una prueba exige
+que solo aparezca en sus archivos autorizados. Route Handlers y Server Actions
+siguen sin acceso directo al cliente administrativo.
+
+Esto no cierra el blast radius completo: las capacidades todavía comparten una
+llave. Quedan pendientes la verificación de grants en Supabase hosted, rotación,
+custodia y separación de secretos/identidades por job donde sea posible. El
+detalle y la regla de extensión están en `docs/SERVICE_ROLE_INVENTORY.md`.
+
+Validación de aplicación: 987 pruebas (985 aprobadas y 2 opt-in omitidas),
+TypeScript, ESLint y build de producción en verde. No se ejecutó pgTAP porque
+este bloque no modifica base de datos y la instancia local es compartida entre
+worktrees. MFA, correo, WhatsApp, OCR, Workera y ERP conservaron sus flags.
+
 ## Otros hallazgos ya cerrados (no rehacer)
 
 - ✅ Link faltante `(platform)` → Rendiciones — hecho (`a638eb5`).

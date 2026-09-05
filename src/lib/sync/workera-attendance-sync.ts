@@ -163,7 +163,7 @@ export async function syncWorkeraAttendance(
       });
     })();
 
-  const supabaseAdmin = deps.supabaseAdmin ?? createAdminClient();
+  const supabaseAdmin = deps.supabaseAdmin ?? createAdminClient("workera-attendance-sync");
 
   // 1) Fetch completo (todas las páginas).
   let events: NormalizedWorkeraAttendanceEvent[];

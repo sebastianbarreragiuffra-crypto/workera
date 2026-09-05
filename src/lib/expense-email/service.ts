@@ -36,7 +36,7 @@ export interface ExpenseEmailProcessSummary {
 }
 
 async function resolveAlias(aliasToken: string): Promise<{ companyId: string; userId: string } | null> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-email-ingestion");
   const { data, error } = await admin.rpc("resolve_expense_receipt_email_alias", {
     p_alias_token: aliasToken,
   });
@@ -52,7 +52,7 @@ async function claimExpenseEmailEvent(input: {
   providerEmailId: string;
   reservedSlots: number;
 }): Promise<{ result: ExpenseEmailEventClaim; claimToken: string | null }> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-email-ingestion");
   const { data, error } = await admin.rpc("claim_expense_receipt_email_event", {
     p_actor_id: input.actorId,
     p_company_id: input.companyId,
@@ -75,7 +75,7 @@ async function reserveExpenseEmailBytes(input: {
   claimToken: string;
   reservedBytes: number;
 }): Promise<boolean> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-email-ingestion");
   const { data, error } = await admin.rpc("reserve_expense_receipt_email_bytes", {
     p_actor_id: input.actorId,
     p_company_id: input.companyId,
@@ -93,7 +93,7 @@ async function completeExpenseEmailEvent(
   providerEmailId: string,
   claimToken: string
 ): Promise<void> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-email-ingestion");
   const { error } = await admin.rpc("complete_expense_receipt_email_event", {
     p_actor_id: actorId,
     p_company_id: companyId,
@@ -109,7 +109,7 @@ async function releaseExpenseEmailEvent(
   providerEmailId: string,
   claimToken: string
 ): Promise<void> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-email-ingestion");
   const { error } = await admin.rpc("release_expense_receipt_email_event", {
     p_actor_id: actorId,
     p_company_id: companyId,

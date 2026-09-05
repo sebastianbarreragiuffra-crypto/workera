@@ -84,7 +84,7 @@ export interface CreateAppUserInput {
 export async function createAppUser(input: CreateAppUserInput): Promise<{ userId: string }> {
   await requireAppAdmin();
 
-  const admin = createAdminClient();
+  const admin = createAdminClient("auth-user-provisioning");
   const { data, error } = await admin.auth.admin.createUser({
     email: input.email,
     password: input.temporaryPassword,

@@ -2,6 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import {
+  assertServiceRoleCapability,
+  SERVICE_ROLE_CAPABILITIES,
+} from "../supabase/service-role-capabilities";
 
 /**
  * Tests de seguridad de Fase 5D (PASO 10/20 del encargo): SUPABASE_SERVICE_ROLE_KEY
@@ -117,6 +121,57 @@ test("createAdminClient nunca se importa fuera de los límites server-only audit
     offenders,
     [],
     `createAdminClient (service_role) referenciado fuera de los límites auditados en: ${offenders.join(", ")}`
+  );
+});
+
+test("cada creación del cliente admin declara una capacidad inventariada y un consumidor exacto", () => {
+  const repoRoot = path.resolve(SRC_ROOT, "..");
+  const adminClientPath = path.join(SRC_ROOT, "lib", "supabase", "admin-client.ts");
+  const uses = new Map<string, Set<string>>();
+  const nonLiteralCalls: string[] = [];
+
+  for (const file of listFilesRecursively(SRC_ROOT)) {
+    if (file === adminClientPath) continue;
+    const content = readFileSync(file, "utf8");
+    const allCalls = [...content.matchAll(/createAdminClient\(\s*([^)]*)\)/g)];
+    const literalCalls = [...content.matchAll(/createAdminClient\(\s*["']([^"']+)["']\s*\)/g)];
+    if (allCalls.length !== literalCalls.length) {
+      nonLiteralCalls.push(path.relative(repoRoot, file).split(path.sep).join("/"));
+      continue;
+    }
+
+    const consumer = path.relative(repoRoot, file).split(path.sep).join("/");
+    for (const match of literalCalls) {
+      const capability = match[1];
+      const capabilityUses = uses.get(capability) ?? new Set<string>();
+      capabilityUses.add(consumer);
+      uses.set(capability, capabilityUses);
+    }
+  }
+
+  assert.deepEqual(nonLiteralCalls, [], "createAdminClient exige un identificador literal y auditable");
+  assert.deepEqual(
+    [...uses.keys()].filter((capability) => !(capability in SERVICE_ROLE_CAPABILITIES)),
+    [],
+    "se encontró una capacidad service_role no registrada"
+  );
+
+  for (const [capability, definition] of Object.entries(SERVICE_ROLE_CAPABILITIES)) {
+    assert.deepEqual(
+      [...(uses.get(capability) ?? [])].sort(),
+      [...definition.consumers].sort(),
+      `${capability} debe usarse exactamente desde sus consumidores declarados`
+    );
+    assert.ok(definition.authorization.length > 0, `${capability} debe documentar su autorización previa`);
+    assert.ok(definition.resources.length > 0, `${capability} debe inventariar sus recursos privilegiados`);
+  }
+});
+
+test("una capacidad desconocida falla cerrada también en runtime", () => {
+  assert.doesNotThrow(() => assertServiceRoleCapability("expense-ocr-worker"));
+  assert.throws(
+    () => assertServiceRoleCapability("capacidad-inventada"),
+    /Capacidad service_role no registrada/
   );
 });
 

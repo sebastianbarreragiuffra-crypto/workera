@@ -26,7 +26,7 @@ interface ExpenseFileInput {
 }
 
 async function cleanupIfUnregistered(storagePath: string): Promise<void> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-receipt-storage");
   const [receipt, capture] = await Promise.all([
     admin.from("expense_receipts").select("id").eq("storage_path", storagePath).maybeSingle(),
     admin.from("expense_receipt_captures").select("id").eq("storage_path", storagePath).maybeSingle(),
@@ -39,7 +39,7 @@ async function cleanupIfUnregistered(storagePath: string): Promise<void> {
 }
 
 async function uploadPrivateObject(storagePath: string, input: ExpenseFileInput): Promise<boolean> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-receipt-storage");
   const { error } = await admin.storage.from("expense-receipts").upload(storagePath, input.bytes, {
     contentType: input.mimeType,
     cacheControl: "3600",
@@ -59,7 +59,7 @@ export async function storeExpenseCapture(
   const storagePath = `${input.companyId}/${input.actorId}/inbox/${objectId}.${input.extension}`;
   if (!await uploadPrivateObject(storagePath, input)) return { ok: false, reason: "STORAGE" };
 
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-receipt-storage");
   const { error } = await admin.rpc("register_expense_receipt_capture", {
     p_actor_id: input.actorId,
     p_company_id: input.companyId,
@@ -85,7 +85,7 @@ export async function storeInboundExpenseCapture(
     claimToken: string;
   }
 ): Promise<InboundExpenseFileStoreResult> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-receipt-storage");
   const { data: existing, error: existingError } = await admin
     .from("expense_receipt_captures")
     .select("id")
@@ -139,7 +139,7 @@ export async function storeWhatsappExpenseCapture(
     claimToken: string;
   }
 ): Promise<InboundExpenseFileStoreResult> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-receipt-storage");
   const { data: existing, error: existingError } = await admin
     .from("expense_receipt_captures")
     .select("id")
@@ -191,7 +191,7 @@ export async function storeExpenseReceipt(
   const storagePath = `${input.companyId}/${input.actorId}/${input.reportId}/${input.itemId}/${objectId}.${input.extension}`;
   if (!await uploadPrivateObject(storagePath, input)) return { ok: false, reason: "STORAGE" };
 
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-receipt-storage");
   const { error } = await admin.rpc("register_expense_receipt_trusted", {
     p_actor_id: input.actorId,
     p_company_id: input.companyId,
@@ -214,7 +214,7 @@ export async function discardExpenseCapture(input: {
   companyId: string;
   captureId: string;
 }): Promise<boolean> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-receipt-storage");
   const { data: storagePath, error } = await admin.rpc("discard_expense_receipt_capture", {
     p_actor_id: input.actorId,
     p_company_id: input.companyId,

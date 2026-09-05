@@ -76,7 +76,7 @@ export async function resetUserMfa(targetUserId: string): Promise<MfaResetResult
     );
   }
 
-  const admin = createAdminClient();
+  const admin = createAdminClient("mfa-factor-administration");
   const { data: factorData, error: listError } = await admin.auth.admin.mfa.listFactors({
     userId: targetUserId,
   });

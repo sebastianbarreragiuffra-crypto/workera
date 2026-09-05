@@ -94,7 +94,7 @@ export async function runWorkeraSyncForDate(
   date: string,
   opts: { triggeredBy: "CRON" | "MANUAL"; deps?: SyncDeps; sleep?: (ms: number) => Promise<void> }
 ): Promise<RunForDateResult> {
-  const supabaseAdmin = opts.deps?.supabaseAdmin ?? createAdminClient();
+  const supabaseAdmin = opts.deps?.supabaseAdmin ?? createAdminClient("workera-attendance-sync");
   const sleep = opts.sleep ?? defaultSleep;
 
   // Libera locks huérfanos de procesos caídos ANTES de competir por el
@@ -271,7 +271,7 @@ export async function getWorkeraSyncHealth(
   deps: { supabaseAdmin?: SupabaseClient<Database> } = {},
   staleAfterHours = 30
 ): Promise<WorkeraSyncHealth> {
-  const supabaseAdmin = deps.supabaseAdmin ?? createAdminClient();
+  const supabaseAdmin = deps.supabaseAdmin ?? createAdminClient("workera-attendance-sync");
 
   const [{ data: successRows }, { data: failureRows }, { data: runningRows }] = await Promise.all([
     supabaseAdmin

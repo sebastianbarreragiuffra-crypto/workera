@@ -20,7 +20,7 @@ export async function claimExpenseBankUploadWithServiceRole(input: {
   companyId: string;
   declaredBytes: number;
 }): Promise<ExpenseBankUploadClaimResult> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-bank-import");
   const { error } = await admin.rpc("claim_expense_bank_upload", {
     p_actor_id: input.actorId,
     p_company_id: input.companyId,
@@ -41,7 +41,7 @@ export async function importExpenseBankStatementWithServiceRole(input: {
   sourceChannel: "WEB_CSV" | "BANK_API";
   rows: Json;
 }): Promise<ExpenseBankImportServiceResult> {
-  const admin = createAdminClient();
+  const admin = createAdminClient("expense-bank-import");
   const { data, error } = await admin.rpc("import_expense_bank_statement", {
     p_actor_id: input.actorId,
     p_company_id: input.companyId,

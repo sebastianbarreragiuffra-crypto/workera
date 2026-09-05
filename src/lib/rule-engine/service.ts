@@ -35,7 +35,7 @@ export async function runRuleEngineWithServiceRole(
     options?: ProcessAttendanceDayOptions;
   }
 ): Promise<RuleEngineRunOutcome> {
-  const supabase = createAdminClient();
+  const supabase = createAdminClient("attendance-rule-engine");
   return runRuleEngineForDate(supabase, date, params);
 }
 
@@ -56,6 +56,6 @@ export async function runRuleEngineWithServiceRole(
  * corrección que motiva esta llamada.
  */
 export async function reprocessEmployeeDay(employeeId: string, date: string): Promise<ProcessAttendanceDayResult> {
-  const supabase = createAdminClient();
+  const supabase = createAdminClient("attendance-rule-engine");
   return processAttendanceDay(supabase, date, { employeeIds: [employeeId] });
 }

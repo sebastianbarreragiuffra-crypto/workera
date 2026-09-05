@@ -39,7 +39,7 @@ export async function recordMfaEvent(
   input: MfaEventInput,
   dependencies: MfaAuditDependencies = {}
 ): Promise<boolean> {
-  const supabaseAdmin = dependencies.supabaseAdmin ?? createAdminClient();
+  const supabaseAdmin = dependencies.supabaseAdmin ?? createAdminClient("mfa-audit-log");
   const { error } = await supabaseAdmin.from("mfa_events").insert({
     user_id: input.userId,
     event_type: input.eventType,

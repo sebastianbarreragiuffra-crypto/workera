@@ -24,7 +24,7 @@ test("la autorización se decide antes de tocar el cliente admin", () => {
   const sessionIdx = source.indexOf("getMfaAccountState(supabase)");
   const aalIdx = source.indexOf("getAuthenticatorAssuranceLevel()");
   const canResetIdx = source.indexOf('supabase.rpc("can_reset_mfa_for"');
-  const adminIdx = source.indexOf("createAdminClient()");
+  const adminIdx = source.indexOf('createAdminClient("mfa-factor-administration")');
 
   assert.ok(sessionIdx > 0 && aalIdx > sessionIdx, "primero la sesión, después su nivel");
   assert.ok(canResetIdx > aalIdx, "el permiso se consulta después de exigir aal2 al llamador");
