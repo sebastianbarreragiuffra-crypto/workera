@@ -51,4 +51,3 @@ el worker permanecen fail-closed.
 - respuestas 401/429/5xx del proveedor;
 - gasto mensual por empresa y tasa de revisión humana;
 - invocaciones 401 repetidas al endpoint de cron (WAF/rate limit externo).
-
