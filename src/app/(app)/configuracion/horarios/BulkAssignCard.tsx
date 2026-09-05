@@ -3,7 +3,9 @@
 import { useActionState } from "react";
 import { SectionCard } from "../../../../components/shell/SectionCard";
 import type { WorkScheduleSummary } from "../../../../lib/schedules/schedule-administration";
-import { assignScheduleToUnassignedAction, SCHEDULE_ACTION_INITIAL } from "./actions";
+import { assignScheduleToUnassignedAction, type ScheduleActionState } from "./actions";
+
+const SCHEDULE_ACTION_INITIAL: ScheduleActionState = { status: "idle", message: "" };
 
 /**
  * Acción masiva: el camino rápido para dejar operativa la marcha blanca. Nunca

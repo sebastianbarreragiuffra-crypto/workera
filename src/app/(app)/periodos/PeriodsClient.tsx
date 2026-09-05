@@ -9,7 +9,9 @@ import {
   type ReportingPeriod,
   type ReportingPeriodStatus,
 } from "../../../lib/periods/reporting-period-status";
-import { createPeriodAction, transitionPeriodAction, PERIOD_ACTION_INITIAL } from "./actions";
+import { createPeriodAction, transitionPeriodAction, type PeriodActionState } from "./actions";
+
+const PERIOD_ACTION_INITIAL: PeriodActionState = { status: "idle", message: "" };
 
 const STATUS_TONE: Record<ReportingPeriodStatus, BadgeTone> = {
   OPEN: "info",

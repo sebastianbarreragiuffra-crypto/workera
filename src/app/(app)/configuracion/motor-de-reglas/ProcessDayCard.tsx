@@ -2,7 +2,9 @@
 
 import { useActionState } from "react";
 import { SectionCard } from "../../../../components/shell/SectionCard";
-import { processAttendanceDayAction, PROCESS_DAY_INITIAL } from "./actions";
+import { processAttendanceDayAction, type ProcessDayActionState } from "./actions";
+
+const PROCESS_DAY_INITIAL: ProcessDayActionState = { status: "idle", message: "" };
 
 const TONE_CLASS = {
   success: "border-success-border bg-success-bg text-success",

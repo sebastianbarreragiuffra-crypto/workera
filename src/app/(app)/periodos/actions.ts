@@ -23,8 +23,6 @@ export interface PeriodActionState {
   message: string;
 }
 
-export const PERIOD_ACTION_INITIAL: PeriodActionState = { status: "idle", message: "" };
-
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const VALID_STATUSES: ReportingPeriodStatus[] = ["OPEN", "IN_REVIEW", "READY_TO_CLOSE", "CLOSED", "REOPENED"];
 

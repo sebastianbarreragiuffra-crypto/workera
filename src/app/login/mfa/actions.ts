@@ -21,8 +21,6 @@ export interface MfaChallengeState {
   message: string;
 }
 
-export const MFA_CHALLENGE_INITIAL_STATE: MfaChallengeState = { status: "idle", message: "" };
-
 const INVALID_CODE_MESSAGE =
   "El código no es válido. Revisá que la hora de tu teléfono esté en automático y probá con el código actual.";
 

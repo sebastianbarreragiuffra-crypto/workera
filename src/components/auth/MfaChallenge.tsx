@@ -3,9 +3,11 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import {
-  MFA_CHALLENGE_INITIAL_STATE,
   verifyMfaChallengeAction,
+  type MfaChallengeState,
 } from "@/app/login/mfa/actions";
+
+const MFA_CHALLENGE_INITIAL_STATE: MfaChallengeState = { status: "idle", message: "" };
 
 export interface MfaChallengeFactor {
   id: string;

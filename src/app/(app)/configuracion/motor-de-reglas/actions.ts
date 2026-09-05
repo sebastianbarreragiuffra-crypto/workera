@@ -22,8 +22,6 @@ export interface ProcessDayActionState {
   message: string;
 }
 
-export const PROCESS_DAY_INITIAL: ProcessDayActionState = { status: "idle", message: "" };
-
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function processAttendanceDayAction(

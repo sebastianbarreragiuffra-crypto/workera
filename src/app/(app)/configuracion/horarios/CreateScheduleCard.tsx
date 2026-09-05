@@ -2,7 +2,9 @@
 
 import { useActionState } from "react";
 import { SectionCard } from "../../../../components/shell/SectionCard";
-import { createScheduleAction, SCHEDULE_ACTION_INITIAL } from "./actions";
+import { createScheduleAction, type ScheduleActionState } from "./actions";
+
+const SCHEDULE_ACTION_INITIAL: ScheduleActionState = { status: "idle", message: "" };
 
 /**
  * Crea un horario con la forma que la empresa usa realmente: una entrada, una

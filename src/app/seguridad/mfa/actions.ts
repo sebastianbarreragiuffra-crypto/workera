@@ -30,12 +30,6 @@ export interface MfaEnrollmentState {
   enrollment: MfaEnrollment | null;
 }
 
-export const MFA_ENROLLMENT_INITIAL_STATE: MfaEnrollmentState = {
-  status: "idle",
-  message: "",
-  enrollment: null,
-};
-
 /**
  * El desfase de reloj del teléfono es la causa número uno de un TOTP que "no
  * funciona". Decirlo en el mensaje evita el diagnóstico equivocado de que el

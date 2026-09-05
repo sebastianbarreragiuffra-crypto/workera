@@ -34,6 +34,17 @@ function actionSegments(source: string): Array<{ name: string; body: string }> {
   }));
 }
 
+test("un modulo use server solo exporta funciones async en runtime", () => {
+  for (const filePath of sourceFiles(APP_ROOT)) {
+    const source = readFileSync(filePath, "utf8");
+    assert.doesNotMatch(
+      source,
+      /^export\s+(?:const|let|var|class|function)\b/gm,
+      `${relativeSource(filePath)} exporta un valor que Next.js 16 rechaza en un módulo use server`,
+    );
+  }
+});
+
 test("los 16 archivos y 74 Server Actions estan inventariados exactamente", () => {
   const discovered = new Map(sourceFiles(APP_ROOT).map((filePath) => {
     const source = readFileSync(filePath, "utf8");
