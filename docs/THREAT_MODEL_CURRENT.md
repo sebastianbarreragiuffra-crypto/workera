@@ -53,10 +53,10 @@ Fronteras:
 
 - Riesgo: login, recuperación, challenge MFA, APIs, webhooks, uploads,
   exportaciones o acciones admin consumen recursos o revelan cuentas/datos.
-- Evidencia: Rendiciones financieras, uploads laborales y descarga de
-  documentos laborales ya tienen cuotas distribuidas; persisten login, otras
-  exportaciones/descargas laborales y acciones administrativas sin cobertura
-  completa, y nada fue comprobado hospedado.
+- Evidencia: Rendiciones financieras, uploads laborales, documentos y las tres
+  exportaciones laborales ya tienen cuotas distribuidas; persisten login,
+  borde público y acciones administrativas sin cobertura completa, y nada fue
+  comprobado hospedado.
 - Estado: `BLOCKED`.
 - Control requerido: límites por identidad/IP/empresa, protección adaptativa o
   CAPTCHA cuando proceda, respuestas no enumerables, alerta y política explícita

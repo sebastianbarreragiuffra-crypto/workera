@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { createClient } from "../../../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../../../lib/auth/session";
+import {
+  authorizeWorkforceDataAccess,
+  workforceDataAccessFailureResponse,
+} from "../../../../../lib/decisions/workforce-data-access";
+import { privateAttachmentHeaders } from "../../../../../lib/shared/private-download";
 
 /**
- * Descarga del archivo maestro de proveedores ACTUALMENTE ACTIVO. Genera
- * una signed URL de corta duración en el momento (nunca una URL pública
- * permanente) y redirige -- el archivo nunca pasa por este servidor, solo
- * la referencia temporal a Storage.
+ * Descarga del archivo maestro de proveedores ACTUALMENTE ACTIVO. PostgreSQL
+ * deriva ARCOTEX y revalida membresia, rol, MFA, cuota y fila ACTIVE. El
+ * handler sirve los bytes como attachment; nunca expone una signed URL.
  */
 export async function GET() {
   const profile = await getCurrentProfile();
@@ -15,21 +19,27 @@ export async function GET() {
   }
 
   const supabase = await createClient();
-
-  const { data: active, error: activeError } = await supabase.from("supplier_master_imports").select("storage_path, original_filename").eq("status", "ACTIVE").maybeSingle();
-  if (activeError) {
-    return NextResponse.json({ error: "No pudimos leer el maestro de proveedores." }, { status: 500 });
-  }
-  if (!active?.storage_path) {
-    return NextResponse.json({ error: "No hay un maestro de proveedores activo." }, { status: 404 });
-  }
-
-  const { data: signed, error: signError } = await supabase.storage.from("supplier-master-files").createSignedUrl(active.storage_path, 60, {
-    download: active.original_filename,
+  const access = await authorizeWorkforceDataAccess(supabase, {
+    scope: "supplier_master.download",
   });
-  if (signError || !signed?.signedUrl) {
-    return NextResponse.json({ error: "No pudimos generar el enlace de descarga." }, { status: 500 });
+  if (access.status !== "ALLOWED") {
+    return workforceDataAccessFailureResponse(access, {
+      deniedStatus: 404,
+      deniedMessage: "No hay un maestro de proveedores activo.",
+    })!;
+  }
+  const { data: file, error } = await supabase.storage
+    .from("supplier-master-files")
+    .download(access.storagePath!);
+  if (error || !file) {
+    return workforceDataAccessFailureResponse({ status: "UNAVAILABLE" })!;
   }
 
-  return NextResponse.redirect(signed.signedUrl);
+  return new Response(file, {
+    status: 200,
+    headers: privateAttachmentHeaders(access.originalFilename!, file.size, {
+      limit: access.requestLimit,
+      remaining: access.remaining,
+    }),
+  });
 }

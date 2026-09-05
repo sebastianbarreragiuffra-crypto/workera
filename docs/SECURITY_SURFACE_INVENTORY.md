@@ -25,7 +25,7 @@ también impide autorizar con roles/usuarios recibidos por `FormData`, exige que
 la autorización preceda al parseo de bytes y evita que aparezca una familia de
 uploads sin un máximo explícito de hasta 10 MiB.
 
-El inventario de datos cubre exactamente 26 archivos consumidores, 85 nombres
+El inventario de datos cubre exactamente 27 archivos consumidores, 86 nombres
 RPC permitidos y 13 operaciones Storage agrupadas en 12 perfiles. Declara la
 identidad de ejecución (sesión o capability `service_role`), alcance tenant,
 autorización, auditoría, clase de datos, bucket y estado de cuarentena. Los RPC
@@ -44,11 +44,12 @@ nuevo o una operación no registrada rompe CI.
 - La importación bancaria de Rendiciones ya tiene sesión, tenant, permiso,
   same-origin, límite de 2 MiB, cuota durable e idempotencia en base de datos.
 - Las cuatro entregas de Rendiciones ya revalidan empresa/recurso en la base,
-  consumen un límite distribuido y escriben auditoría atómica. La descarga de
-  documentos laborales ahora hace lo mismo, deriva la empresa desde el
-  trabajador y sirve adjuntos sin signed URL; exportaciones de asistencia,
-  nómina y proveedores aún conservan deuda de cuota/auditoría y parte del
-  dominio laboral continúa limitado a ARCOTEX.
+  consumen un límite distribuido y escriben auditoría atómica. Documentos,
+  asistencia, lotes de nómina y maestro de proveedores aplican el mismo patrón
+  antes de entregar bytes; documentos derivan empresa desde el trabajador y
+  los tres exports heredados derivan explícitamente ARCOTEX. Todos sirven
+  adjuntos sin signed URL. La cuota/auditoría quedó cerrada, pero esas tablas
+  heredadas siguen siendo `LEGACY_ARCOTEX`, no multiempresa.
 - Los callbacks de identidad dependen de controles de Auth hospedados que aún
   deben verificarse; la configuración local no es evidencia de producción.
 - El reintento de Google Forms de colaciones ya no acepta payload/menú/nómina

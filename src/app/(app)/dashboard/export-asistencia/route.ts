@@ -9,6 +9,11 @@ import {
   type AttendanceExportPeriod,
 } from "../../../../lib/business-rules/attendance-export-periods";
 import { buildAttendanceExportData, buildAttendanceExportWorkbook } from "../../../../lib/business-rules/attendance-export";
+import {
+  authorizeWorkforceDataAccess,
+  workforceDataAccessFailureResponse,
+} from "../../../../lib/decisions/workforce-data-access";
+import { privateAttachmentHeaders } from "../../../../lib/shared/private-download";
 import { isCalendarDate } from "../../../../lib/view-models/date-utils";
 
 /**
@@ -67,6 +72,14 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = await createClient();
+  const access = await authorizeWorkforceDataAccess(supabase, {
+    scope: "attendance.export",
+    period,
+  });
+  if (access.status !== "ALLOWED") {
+    return workforceDataAccessFailureResponse(access)!;
+  }
+
   let data;
   try {
     data = await buildAttendanceExportData(supabase, profile.role, period);
@@ -80,12 +93,13 @@ export async function GET(request: NextRequest) {
 
   const workbook = buildAttendanceExportWorkbook(data);
   const filename = `asistencia-${period.type.toLowerCase()}-${period.startDate}-al-${period.endDate}.xlsx`;
+  const bytes = Buffer.from(workbook);
 
-  return new NextResponse(Buffer.from(workbook), {
+  return new NextResponse(bytes, {
     status: 200,
-    headers: {
-      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${filename}"`,
-    },
+    headers: privateAttachmentHeaders(filename, bytes.byteLength, {
+      limit: access.requestLimit,
+      remaining: access.remaining,
+    }),
   });
 }

@@ -717,7 +717,7 @@ Orden de ejecución recomendado:
 
 | Bloque | Puede ejecutarse sin activar proveedores | Requiere owner/ambiente hospedado |
 |---|---|---|
-| P0-A arquitectura | límites de módulo; inventarios ejecutables de HTTP, Server Actions, RPC y Storage; cuarentena y entregas financieras de Rendiciones; upload y descarga laboral tenant-aware, atómicos, limitados y auditados. Faltan tenant sintético del resto laboral, límites de decisiones/admin/otras exportaciones, adapter antimalware, telemetría hospedada y runbooks operacionales | no |
+| P0-A arquitectura | límites de módulo; inventarios ejecutables de HTTP, Server Actions, RPC y Storage; cuarentena y entregas financieras de Rendiciones; upload/download documental y exports laborales atómicos, limitados y auditados. Faltan tenant sintético del resto laboral, límites de decisiones/admin, adapter antimalware, telemetría hospedada y runbooks operacionales | no |
 | P0-B plataforma | configuración de grants/secrets, staging sintético y automatización de evidencias | acceso administrativo controlado |
 | P0-C seguridad real | MFA rollout, restore drill, canarios, alertas/paging, DAST y pentest | sí; ventana, cuentas de recuperación y responsables presentes |
 | P0-D aceptación | cierre de threat model, riesgo residual, privacidad/legal y decisión GO/NO-GO | responsables de negocio, seguridad y datos |

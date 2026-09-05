@@ -2,9 +2,9 @@
 
 Estado: `PARTIALLY_IMPLEMENTED`. Rendiciones ya posee cuotas durables para
 ingreso bancario y conectores, además de autorización + rate limit + auditoría
-atómica para sus cuatro entregas financieras. La carga y descarga de documentos
-laborales también está cubierta; login, otras exportaciones laborales, Server
-Actions administrativas y el borde público conservan brechas explícitas.
+atómica para sus cuatro entregas financieras. La carga/descarga de documentos
+y las tres exportaciones laborales están cubiertas; login, Server Actions
+administrativas y el borde público conservan brechas explícitas.
 Los valores marcados `TBD`/`PROPOSED` siguen sin ser decisiones finales.
 
 Fuentes oficiales consultadas: [Supabase Auth Rate Limits](https://supabase.com/docs/guides/auth/rate-limits) (documentación oficial, consultada en este gate), [OWASP API Security Top 10 — API4:2023 Unrestricted Resource Consumption](https://owasp.org/API-Security/editions/2023/en/0x11-t10/) (verificado contra el documento oficial en este gate de hardening), RFC 6585 (`429 Too Many Requests`), RFC 9110 §10.2.3 (`Retry-After`).
@@ -102,12 +102,20 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
 - **Justificación**: detectar un script automatizando aprobaciones masivas fuera del patrón humano esperado (T-25, insider threat).
 - **Auditoría**: cada aprobación ya debe quedar en `audit_log` (regla de `ARCHITECTURE.md`) — el rate limit es una capa adicional de detección, no el mecanismo de auditoría en sí.
 
-### 2.5 Exportaciones laborales legacy
-- **Clave**: usuario.
-- **Ventana**: `TBD` — propuesta inicial: pocas exportaciones por hora son normales (es un reporte semanal/mensual, no una acción de alta frecuencia).
-- **Límite propuesto**: `TBD`.
-- **Justificación**: mitiga T-12 (abuso de exportaciones para exfiltración masiva de datos de remuneración).
-- **Auditoría**: existe `excel_exports`, pero el inventario HTTP aún marca rutas laborales sin cobertura integral de acceso; el rate limit complementa, no reemplaza, ese registro.
+### 2.5 Exportaciones laborales legacy (`IMPLEMENTED_LOCAL`)
+- **Clave**: `company_id + actor_id + scope`, con ARCOTEX derivada en DB; el
+  cliente no puede elegir la empresa mientras estas tablas sigan legacy.
+- **Ventana/límite inicial**: asistencia 20/hora, lote de nómina 20/hora y
+  maestro de proveedores 10/hora.
+- **Autorización**: `authorize_workforce_data_access()` exige membresía activa,
+  rol, AAL2 cuando corresponde, período/recurso allowlisted y fila ACTIVE.
+- **Respuesta**: `429` con `Retry-After`; si el guard no responde se usa `503`.
+  Los archivos se fuerzan como attachment, sin caché ni signed URL al navegador.
+- **Auditoría**: autorización y primer bloqueo de cada ventana quedan en
+  `audit_log`, con empresa, scope, período y UUID técnico; nunca filas, cuentas
+  bancarias, ruta ni nombre de archivo.
+- **Pendiente**: calibrar límites con carga sintética y migrar las tablas a
+  `company_id` antes de admitir un segundo workspace laboral.
 
 ### 2.6 Upload de documentos laborales (`IMPLEMENTED_LOCAL`)
 - **Clave**: usuario autenticado (`auth.uid()`).
@@ -151,15 +159,14 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
   requiere afinidad de instancia. Login/borde puede necesitar un store dedicado
   según el hosting y la latencia que se midan.
 - **Comportamiento ante caída del rate limiter**: las entregas financieras de
-  Rendiciones y documentos laborales ya son fail-closed. Falta decidirlo para
-  login, borde y otros flujos laborales.
+  Rendiciones y las descargas/exportaciones laborales ya son fail-closed.
+  Falta decidirlo para login, borde y Server Actions.
 - **Protección contra bypass**: el rate limiting nunca debe ser la única defensa (ver capas ya implementadas: RLS, guard de sesión, validación de contraseña de Supabase Auth); nunca confiar en un header de IP sin verificar la cadena de confianza del proxy que lo generó.
 - **Encabezados confiables**: cualquier IP usada para limitar debe venir de una fuente verificada por la plataforma de hosting (no aceptar `X-Forwarded-For` arbitrario de un cliente no confiable) — mismo principio que Supabase exige para habilitar `Sb-Forwarded-For`.
 
 ## 4. Qué todavía NO está implementado
 
 No hay aún control propio para login/recuperación, rate limit de borde para
-webhooks, ni protección de volumen para exportaciones de asistencia, nómina,
-proveedores o acciones administrativas. Los defaults de Auth local no deben
+webhooks ni protección de volumen para acciones administrativas. Los defaults de Auth local no deben
 asumirse válidos en producción: deben confirmarse y ensayarse en el proyecto
 hospedado.

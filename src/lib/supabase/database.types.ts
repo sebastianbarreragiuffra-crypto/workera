@@ -5655,6 +5655,23 @@ export type Database = {
           storage_path: string | null
         }[]
       }
+      authorize_workforce_data_access: {
+        Args: {
+          p_period_end?: string | null
+          p_period_start?: string | null
+          p_period_type?: string | null
+          p_resource_id?: string | null
+          p_scope: string
+        }
+        Returns: {
+          allowed: boolean
+          original_filename: string | null
+          remaining: number
+          request_limit: number
+          retry_after_seconds: number
+          storage_path: string | null
+        }[]
+      }
       begin_expense_receipt_whatsapp_pairing: {
         Args: {
           p_company_id: string
@@ -5678,6 +5695,10 @@ export type Database = {
         Returns: boolean
       }
       can_read_supporting_document_path: {
+        Args: { p_storage_path: string }
+        Returns: boolean
+      }
+      can_read_supplier_master_path: {
         Args: { p_storage_path: string }
         Returns: boolean
       }

@@ -22,7 +22,7 @@ function normalizedRoute(filePath: string): string {
   return `/${segments.join("/")}`;
 }
 
-function directLocalSources(sourcePath: string, source: string): string[] {
+function localSourceClosure(sourcePath: string, source: string, seen = new Set<string>()): string[] {
   const imports = [...source.matchAll(/(?:from\s+|import\s+)["'](@\/[^"']+|\.{1,2}\/[^"']+)["']/g)]
     .map((match) => match[1]);
   return imports.flatMap((specifier) => {
@@ -30,7 +30,10 @@ function directLocalSources(sourcePath: string, source: string): string[] {
       ? path.join(REPO_ROOT, "src", specifier.slice(2))
       : path.resolve(path.dirname(sourcePath), specifier);
     const candidate = `${base}.ts`;
-    return existsSync(candidate) ? [readFileSync(candidate, "utf8")] : [];
+    if (!existsSync(candidate) || seen.has(candidate)) return [];
+    seen.add(candidate);
+    const imported = readFileSync(candidate, "utf8");
+    return [imported, ...localSourceClosure(candidate, imported, seen)];
   });
 }
 
@@ -55,7 +58,7 @@ test("la ruta declarada, el archivo y el feature flag coinciden con el código",
     const source = readFileSync(sourcePath, "utf8");
     assert.match(source, new RegExp(`export\\s+(?:async\\s+)?function\\s+${surface.method}\\b`));
     if (surface.featureFlag) {
-      const evidence = [source, ...directLocalSources(sourcePath, source)];
+      const evidence = [source, ...localSourceClosure(sourcePath, source)];
       assert.ok(
         evidence.some((candidate) => candidate.includes(surface.featureFlag!)),
         `${surface.source} ni su configuración directa consultan ${surface.featureFlag}`
@@ -93,10 +96,10 @@ test("los limites de aplicacion declarados tienen evidencia directa en el handle
   for (const surface of REQUEST_SURFACES.filter((item) => item.abuseControl === "DATABASE_RATE_LIMIT")) {
     const sourcePath = path.join(REPO_ROOT, surface.source);
     const source = readFileSync(sourcePath, "utf8");
-    const evidence = [source, ...directLocalSources(sourcePath, source)].join("\n");
+    const evidence = [source, ...localSourceClosure(sourcePath, source)].join("\n");
     assert.match(
       evidence,
-      /authorize(?:ExpenseDataAccess|SupportingDocumentDownload)/,
+      /authorize(?:ExpenseDataAccess|SupportingDocumentDownload|WorkforceDataAccess)/,
       `${requestSurfaceKey(surface)} no consume el limite`,
     );
     assert.equal(surface.auditControl, "DATA_ACCESS_LEDGER", `${requestSurfaceKey(surface)} debe auditar el acceso`);
@@ -108,16 +111,43 @@ test("los limites de aplicacion declarados tienen evidencia directa en el handle
   }
 });
 
-test("documentos laborales no redirigen a signed URLs ni se renderizan inline", () => {
-  const surface = REQUEST_SURFACES.find((item) => item.route === "/licencias/documento/[documentId]");
-  assert.ok(surface);
-  const source = readFileSync(path.join(REPO_ROOT, surface.source), "utf8");
-  const evidence = [source, ...directLocalSources(path.join(REPO_ROOT, surface.source), source)].join("\n");
-  assert.doesNotMatch(source, /createSignedUrl|NextResponse\.redirect/);
-  assert.match(source, /\.download\(access\.storagePath\)/);
-  assert.match(evidence, /application\/octet-stream/);
-  assert.match(evidence, /Content-Disposition/);
-  assert.ok(surface.blockers.includes("ANTIMALWARE_PROVIDER"));
+test("archivos laborales protegidos no redirigen a signed URLs ni se renderizan inline", () => {
+  for (const route of [
+    "/licencias/documento/[documentId]",
+    "/nomina-de-pago/proveedores/descargar",
+  ]) {
+    const surface = REQUEST_SURFACES.find((item) => item.route === route);
+    assert.ok(surface);
+    const sourcePath = path.join(REPO_ROOT, surface.source);
+    const source = readFileSync(sourcePath, "utf8");
+    const evidence = [source, ...localSourceClosure(sourcePath, source)].join("\n");
+    assert.doesNotMatch(source, /createSignedUrl|NextResponse\.redirect/, route);
+    assert.match(source, /\.download\(access\.storagePath!?\)/, route);
+    assert.match(evidence, /application\/octet-stream/, route);
+    assert.match(evidence, /Content-Disposition/, route);
+  }
+
+  const documents = REQUEST_SURFACES.find((item) => item.route === "/licencias/documento/[documentId]");
+  assert.ok(documents?.blockers.includes("ANTIMALWARE_PROVIDER"));
+});
+
+test("exportaciones laborales consumen cuota antes de leer o construir datos", () => {
+  for (const route of [
+    "/dashboard/export-asistencia",
+    "/nomina-de-pago/export/[batchId]",
+    "/nomina-de-pago/proveedores/descargar",
+  ]) {
+    const surface = REQUEST_SURFACES.find((item) => item.route === route);
+    assert.ok(surface);
+    const source = readFileSync(path.join(REPO_ROOT, surface.source), "utf8");
+    const guard = source.indexOf("authorizeWorkforceDataAccess(");
+    const costlyRead = Math.max(
+      source.indexOf("buildAttendanceExportData("),
+      source.indexOf('.from("payroll_batch_items")'),
+      source.indexOf('.from("supplier-master-files")'),
+    );
+    assert.ok(guard >= 0 && costlyRead > guard, `${route} debe autorizar antes de leer datos`);
+  }
 });
 
 test("datos empresariales nunca usan un tenant NONE", () => {

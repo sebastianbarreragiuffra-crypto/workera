@@ -2,6 +2,9 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
+import { privateAttachmentHeaders } from "../shared/private-download";
+
+export { attachmentContentDisposition } from "../shared/private-download";
 
 export type SupportingDocumentDownloadDecision =
   | {
@@ -89,35 +92,10 @@ export function supportingDocumentDownloadFailureResponse(
   });
 }
 
-/** RFC 6266/RFC 5987, sin permitir CRLF ni comillas desde metadata. */
-export function attachmentContentDisposition(originalFilename: string): string {
-  const cleanUnicode = originalFilename
-    .replace(/[\u0000-\u001f\u007f]/g, "")
-    .trim()
-    .slice(-180) || "documento";
-  const ascii = cleanUnicode
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\x20-\x7e]/g, "_")
-    .replace(/["\\]/g, "_");
-  const encoded = encodeURIComponent(cleanUnicode).replace(/[!'()*]/g, (character) =>
-    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
-  );
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
-}
-
 export function privateSupportingDocumentHeaders(
   originalFilename: string,
   byteLength: number,
 ): Record<string, string> {
-  return {
-    ...PRIVATE_RESPONSE_HEADERS,
-    // El archivo sigue siendo no confiable hasta integrar antimalware/CDR.
-    // Forzar descarga evita renderizar PDF/imagen activa dentro de GESTORA.
-    "Content-Type": "application/octet-stream",
-    "Content-Disposition": attachmentContentDisposition(originalFilename),
-    "Content-Length": String(byteLength),
-    "Content-Security-Policy": "sandbox",
-    "X-Download-Options": "noopen",
-  };
+  // El archivo sigue siendo no confiable hasta integrar antimalware/CDR.
+  return privateAttachmentHeaders(originalFilename, byteLength);
 }

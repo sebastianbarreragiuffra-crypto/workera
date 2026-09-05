@@ -121,6 +121,13 @@ export const RPC_CONSUMER_SURFACES = [
     blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT"],
   },
   {
+    source: "src/lib/decisions/workforce-data-access.ts",
+    domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "LEGACY_ARCOTEX",
+    literalRpcs: ["authorize_workforce_data_access"], dynamicRpcs: [],
+    authorization: "RPC deriva ARCOTEX y exige membresía, rol, MFA, recurso/período y cuota.",
+    auditControl: "DATA_ACCESS_LEDGER", dataClass: "FINANCIAL", blockers: ["LABOR_MULTI_TENANCY"],
+  },
+  {
     source: "src/lib/employees/personnel-roster-import.ts",
     domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "LEGACY_ARCOTEX",
     literalRpcs: ["apply_personnel_roster_import"], dynamicRpcs: [],
@@ -304,10 +311,10 @@ export const STORAGE_CONSUMER_SURFACES = [
     securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER"],
   },
   {
-    source: "src/app/(app)/nomina-de-pago/proveedores/descargar/route.ts", bucket: "supplier-master-files", operation: "createSignedUrl", occurrences: 1,
+    source: "src/app/(app)/nomina-de-pago/proveedores/descargar/route.ts", bucket: "supplier-master-files", operation: "download", occurrences: 1,
     executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
-    authorization: "Rol RRHH, RLS y URL firmada de 60 segundos.", securityState: "TRUSTED_INTERNAL_SOURCE",
-    blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT"],
+    authorization: "RPC, MFA, cuota y policy revalidan el maestro ACTIVE; respuesta attachment.", securityState: "TRUSTED_INTERNAL_SOURCE",
+    blockers: ["LABOR_MULTI_TENANCY"],
   },
   {
     source: "src/app/(expenses)/empresas/[companySlug]/rendiciones/comprobantes/[receiptId]/route.ts", bucket: "expense-receipts", operation: "createSignedUrl", occurrences: 1,

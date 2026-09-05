@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "../../../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../../../lib/auth/session";
+import {
+  authorizeWorkforceDataAccess,
+  workforceDataAccessFailureResponse,
+} from "../../../../../lib/decisions/workforce-data-access";
 import { buildPayrollExportWorkbook } from "../../../../../lib/payroll/payroll-export";
+import { privateAttachmentHeaders } from "../../../../../lib/shared/private-download";
 import type { PayrollBatchItemResult } from "../../../../../lib/payroll/invoice-import";
 
 /**
@@ -34,6 +39,16 @@ export async function GET(_request: Request, { params }: { params: Promise<{ bat
     return NextResponse.json({ error: "Identificador de lote inválido." }, { status: 400 });
   }
   const supabase = await createClient();
+  const access = await authorizeWorkforceDataAccess(supabase, {
+    scope: "payroll_batch.export",
+    resourceId: batchId,
+  });
+  if (access.status !== "ALLOWED") {
+    return workforceDataAccessFailureResponse(access, {
+      deniedStatus: 404,
+      deniedMessage: "El lote no existe.",
+    })!;
+  }
 
   const { data: rows, error } = await supabase
     .from("payroll_batch_items")
@@ -71,12 +86,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ bat
   });
 
   const workbook = buildPayrollExportWorkbook(items);
+  const bytes = Buffer.from(workbook);
 
-  return new NextResponse(Buffer.from(workbook), {
+  return new NextResponse(bytes, {
     status: 200,
-    headers: {
-      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="nomina-pago-${batchId}.xlsx"`,
-    },
+    headers: privateAttachmentHeaders(`nomina-pago-${batchId}.xlsx`, bytes.byteLength, {
+      limit: access.requestLimit,
+      remaining: access.remaining,
+    }),
   });
 }
