@@ -8,6 +8,7 @@ import { isPrivilegedAdmin } from "../../../lib/supabase/authorize";
 import { parseMealMenuDocx, type ParsedMealMenu } from "../../../lib/colaciones/menu-docx";
 import { buildWeeklyMealGoogleFormPayload, type WeeklyMealGoogleFormPayload } from "../../../lib/colaciones/google-forms-payload";
 import { createWeeklyMealGoogleForm, COLACIONES_FORMS_LIST_CACHE_TAG } from "../../../lib/colaciones/google-forms";
+import { openPendingMealFormState, sealPendingMealFormState } from "../../../lib/colaciones/pending-form-state";
 import { getNextFridayMealFormClosing } from "../../../lib/colaciones/weekly-form-schedule";
 
 /**
@@ -21,11 +22,10 @@ import { getNextFridayMealFormClosing } from "../../../lib/colaciones/weekly-for
  * `reused:true` si ya existe -- nunca se reimplementa esa lógica acá.
  *
  * Si la creación del formulario falla DESPUÉS de validar el menú
- * correctamente, el menú NUNCA se pierde: `pendingPayload` queda con el
- * payload ya construido (mismo `requestId`) para que `retryCreateGoogleFormAction`
- * pueda reintentar la creación sin pedir el archivo de nuevo -- al reenviar
- * el MISMO requestId, el Apps Script aplica la misma protección de
- * duplicados que en la subida original (nunca crea dos formularios).
+ * correctamente, el menú NUNCA se pierde: el servidor entrega un token
+ * `pendingToken` cifrado, autenticado y de corta duración. El reintento abre
+ * ese token y recupera el mismo payload/requestId sin confiar en JSON oculto
+ * del navegador. Apps Script conserva la protección de duplicados existente.
  */
 
 export interface CreatedFormState {
@@ -49,11 +49,11 @@ export interface MenuUploadState {
   fileName: string;
   menu: ParsedMealMenu | null;
   googleForm: CreatedFormState | null;
-  /** Presente SOLO si el menú se validó correctamente pero la creación del Google Form falló -- habilita reintentar sin volver a subir el archivo. */
-  pendingPayload: WeeklyMealGoogleFormPayload | null;
+  /** Estado opaco, cifrado y de corta duración para reintentar sin volver a subir el archivo. */
+  pendingToken: string | null;
 }
 
-const IDLE_STATE_BASE = { fileName: "", menu: null, googleForm: null, pendingPayload: null };
+const IDLE_STATE_BASE = { fileName: "", menu: null, googleForm: null, pendingToken: null };
 
 function toCreatedFormState(created: Awaited<ReturnType<typeof createWeeklyMealGoogleForm>>): CreatedFormState {
   return {
@@ -125,30 +125,24 @@ export async function parseMealMenuAction(_previousState: MenuUploadState, formD
   return createOrRetryGoogleForm(payload, menu, file.name);
 }
 
-/** Reintento -- recibe el MISMO payload ya validado (mismo requestId), nunca vuelve a pedir el archivo ni a re-parsear el menú. */
+/** Reintento -- abre estado sellado por el servidor; nunca confía en payloads JSON del cliente. */
 export async function retryCreateGoogleFormAction(_previousState: MenuUploadState, formData: FormData): Promise<MenuUploadState> {
   const profile = await getCurrentProfile();
   if (!profile?.role || !isPrivilegedAdmin(profile.role)) {
     return { status: "error", message: "No tienes permiso para reintentar la creación del formulario.", ...IDLE_STATE_BASE };
   }
 
-  const rawPayload = formData.get("pendingPayload");
-  const rawMenu = formData.get("pendingMenu");
-  const fileName = String(formData.get("fileName") ?? "");
-  if (typeof rawPayload !== "string" || typeof rawMenu !== "string") {
+  const pendingToken = formData.get("pendingToken");
+  if (typeof pendingToken !== "string" || !pendingToken) {
     return { status: "error", message: "No encontramos el menú a reintentar -- sube el archivo nuevamente.", ...IDLE_STATE_BASE };
   }
 
-  let payload: WeeklyMealGoogleFormPayload;
-  let menu: ParsedMealMenu;
   try {
-    payload = JSON.parse(rawPayload) as WeeklyMealGoogleFormPayload;
-    menu = JSON.parse(rawMenu) as ParsedMealMenu;
+    const pending = openPendingMealFormState(pendingToken);
+    return createOrRetryGoogleForm(pending.payload, pending.menu, pending.fileName);
   } catch {
-    return { status: "error", message: "No pudimos leer el menú a reintentar -- sube el archivo nuevamente.", ...IDLE_STATE_BASE };
+    return { status: "error", message: "El reintento venció o no es válido -- sube el archivo nuevamente.", ...IDLE_STATE_BASE };
   }
-
-  return createOrRetryGoogleForm(payload, menu, fileName);
 }
 
 async function createOrRetryGoogleForm(payload: WeeklyMealGoogleFormPayload, menu: ParsedMealMenu, fileName: string): Promise<MenuUploadState> {
@@ -166,16 +160,24 @@ async function createOrRetryGoogleForm(payload: WeeklyMealGoogleFormPayload, men
       fileName,
       menu,
       googleForm: toCreatedFormState(created),
-      pendingPayload: null,
+      pendingToken: null,
     };
   } catch {
+    let pendingToken: string | null = null;
+    try {
+      pendingToken = sealPendingMealFormState({ payload, menu, fileName });
+    } catch {
+      // Sin un secreto robusto no serializamos PII ni estado confiado al navegador.
+    }
     return {
       status: "error",
-      message: "El menú fue cargado correctamente, pero no fue posible crear el formulario. Reintentar creación.",
+      message: pendingToken
+        ? "El menú fue cargado correctamente, pero no fue posible crear el formulario. Reintentar creación."
+        : "El menú fue cargado correctamente, pero no fue posible crear el formulario. Sube el archivo nuevamente.",
       fileName,
       menu,
       googleForm: null,
-      pendingPayload: payload,
+      pendingToken,
     };
   }
 }

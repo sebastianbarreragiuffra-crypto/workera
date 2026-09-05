@@ -1,7 +1,8 @@
 # Estándar de Seguridad de API — obligatorio para toda futura ruta
 
 Estado: estándar vigente. Las superficies existentes se controlan con el
-inventario ejecutable `src/lib/architecture/request-surfaces.ts`; este checklist
+inventario ejecutable `src/lib/architecture/request-surfaces.ts` y
+`src/lib/architecture/server-action-surfaces.ts`; este checklist
 aplica a todo `route.ts`, Server Action con efectos de escritura o endpoint
 nuevo antes de mergearse, sin excepción. Las brechas reales no se ocultan: se
 registran como `blockers` en ese inventario.
@@ -30,6 +31,7 @@ Ver también: `ARCHITECTURE.md`, `docs/THREAT_MODEL.md` (amenazas T-03, T-07, T-
 - [ ] `Content-Type` validado antes de parsear el body.
 - [ ] Tamaño máximo del payload definido explícitamente (ver `docs/THREAT_MODEL.md` T-15) — responder `413` si se excede.
 - [ ] Parsing seguro: nunca `eval`, nunca deserialización insegura; `JSON.parse` estándar con manejo de excepción.
+- [ ] Estado de reintento: nunca confiar en JSON que vuelve en inputs ocultos; guardar server-side o usar un token autenticado, de vida corta y, si contiene datos personales, cifrado.
 
 ### Superficie de ataque
 - [ ] CSRF: las Server Actions de Next.js ya tienen protección nativa; los Route Handlers que reciban `POST` desde un formulario deben confirmar que no aceptan mutaciones cross-origin sin control.

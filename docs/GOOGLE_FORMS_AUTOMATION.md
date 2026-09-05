@@ -5,6 +5,7 @@ Cada carga válida de un menú Word crea un Google Form en la cuenta propietaria
 ## Seguridad y operación
 
 - La app autoriza cada solicitud con un secreto guardado únicamente en variables de entorno y en Script Properties.
+- Si Google falla después de validar un menú, el reintento conserva el mismo `requestId` en un token opaco cifrado con AES-256-GCM. El token vence en 30 minutos, rechaza cualquier manipulación y evita exponer la nómina en campos ocultos. Si vence, RRHH vuelve a subir el Word; no se confía en JSON devuelto por el navegador.
 - El hash del Word y del cierre funciona como clave de idempotencia: repetir la misma carga reutiliza el formulario existente.
 - El endpoint rechaza payloads sin autorización y limita el formulario a un máximo de cinco días.
 - Un disparador revisa cada 15 minutos los formularios vencidos y deja de aceptar respuestas.
@@ -28,7 +29,7 @@ Cada carga válida de un menú Word crea un Google Form en la cuenta propietaria
 
 1. Crear un proyecto de Apps Script en la cuenta corporativa autorizada.
 2. Copiar `google-apps-script/colaciones-forms.gs` y usar el manifiesto `google-apps-script/appsscript.json`.
-3. Crear la propiedad `WORKERA_SHARED_SECRET` en Script Properties.
+3. Crear la propiedad `WORKERA_SHARED_SECRET` en Script Properties con un valor aleatorio de al menos 32 caracteres.
 4. Desplegar como Web App ejecutada por el propietario y accesible por cualquiera; el secreto es la autorización de aplicación.
 5. Guardar la URL terminada en `/exec` y el mismo secreto en `.env.local` como `GOOGLE_FORMS_WEB_APP_URL` y `GOOGLE_FORMS_SHARED_SECRET`.
 6. Reiniciar el servidor de desarrollo para cargar la configuración.

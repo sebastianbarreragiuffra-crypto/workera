@@ -8,7 +8,7 @@ import type { CreatedWeeklyMealGoogleForm } from "../../../lib/colaciones/google
 import type { MealFormBusinessState } from "../../../lib/colaciones/form-business-state";
 import { formatDateTimeInSantiago } from "../../../lib/view-models/date-utils";
 
-const INITIAL_STATE: MenuUploadState = { status: "idle", message: "", fileName: "", menu: null, googleForm: null, pendingPayload: null };
+const INITIAL_STATE: MenuUploadState = { status: "idle", message: "", fileName: "", menu: null, googleForm: null, pendingToken: null };
 
 const PROGRESS_STEPS = ["Subiendo menú...", "Validando información...", "Creando formulario Google..."];
 
@@ -65,7 +65,7 @@ export function MenuUploadDashboard({
     return [current, ...recentForms.filter((item) => item.formId !== current.formId)];
   }, [recentForms, state.googleForm]);
 
-  const needsRetry = state.status === "error" && state.pendingPayload !== null && state.menu !== null;
+  const needsRetry = state.status === "error" && state.pendingToken !== null && state.menu !== null;
 
   return (
     <section className="rounded-lg border border-border bg-card shadow-sm">
@@ -78,26 +78,28 @@ export function MenuUploadDashboard({
       </div>
 
       <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(260px,0.75fr)_minmax(0,1.5fr)]">
-        <form action={uploadFormAction} className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
-          <label htmlFor="menuFile" className="block text-sm font-medium text-slate-800">Documento del proveedor</label>
-          <p className="mt-1 text-xs text-slate-500">Debe incluir los días lunes a viernes y sus opciones de menú.</p>
-          <input id="menuFile" name="menuFile" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required className="mt-4 block w-full rounded-md border border-arcotex-copper-border bg-arcotex-copper-light p-2 text-sm text-slate-600 shadow-sm file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-arcotex-copper file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-arcotex-copper-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-copper" />
-          <div className="mt-4 rounded-md border border-info-border bg-info-bg px-3 py-2 text-xs text-info">
-            <strong>Cierre automático:</strong> viernes a las 13:00. Si el menú se carga después de esa hora, se programa para el viernes siguiente.
-          </div>
-          <label htmlFor="reminderAfterHours" className="mt-3 block text-xs font-medium text-slate-600">
-            Habilitar recordatorio manual después de
-            <select id="reminderAfterHours" name="reminderAfterHours" defaultValue="24" className="mt-1 w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-slate-700">
-              <option value="0">Inmediatamente</option>
-              <option value="6">6 horas</option>
-              <option value="12">12 horas</option>
-              <option value="24">24 horas</option>
-              <option value="48">48 horas</option>
-            </select>
-          </label>
-          <button type="submit" disabled={pending} className="mt-4 w-full rounded-md bg-arcotex-blue px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-arcotex-blue-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue disabled:cursor-not-allowed disabled:bg-slate-300">
-            {uploadPending ? "Procesando..." : "Adjuntar menú"}
-          </button>
+        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
+          <form action={uploadFormAction}>
+            <label htmlFor="menuFile" className="block text-sm font-medium text-slate-800">Documento del proveedor</label>
+            <p className="mt-1 text-xs text-slate-500">Debe incluir los días lunes a viernes y sus opciones de menú.</p>
+            <input id="menuFile" name="menuFile" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required className="mt-4 block w-full rounded-md border border-arcotex-copper-border bg-arcotex-copper-light p-2 text-sm text-slate-600 shadow-sm file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-arcotex-copper file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-arcotex-copper-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-copper" />
+            <div className="mt-4 rounded-md border border-info-border bg-info-bg px-3 py-2 text-xs text-info">
+              <strong>Cierre automático:</strong> viernes a las 13:00. Si el menú se carga después de esa hora, se programa para el viernes siguiente.
+            </div>
+            <label htmlFor="reminderAfterHours" className="mt-3 block text-xs font-medium text-slate-600">
+              Habilitar recordatorio manual después de
+              <select id="reminderAfterHours" name="reminderAfterHours" defaultValue="24" className="mt-1 w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-slate-700">
+                <option value="0">Inmediatamente</option>
+                <option value="6">6 horas</option>
+                <option value="12">12 horas</option>
+                <option value="24">24 horas</option>
+                <option value="48">48 horas</option>
+              </select>
+            </label>
+            <button type="submit" disabled={pending} className="mt-4 w-full rounded-md bg-arcotex-blue px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-arcotex-blue-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue disabled:cursor-not-allowed disabled:bg-slate-300">
+              {uploadPending ? "Procesando..." : "Adjuntar menú"}
+            </button>
+          </form>
 
           {progressLabel && (
             <p role="status" className="mt-3 flex items-center gap-2 rounded-md border border-info-border bg-info-bg px-3 py-2 text-xs text-info">
@@ -118,11 +120,9 @@ export function MenuUploadDashboard({
           )}
           {state.fileName && <p className="mt-2 truncate text-xs text-slate-500">Archivo: {state.fileName}</p>}
 
-          {needsRetry && state.pendingPayload && state.menu && (
+          {needsRetry && state.pendingToken && state.menu && (
             <form action={retryFormAction} className="mt-3">
-              <input type="hidden" name="pendingPayload" value={JSON.stringify(state.pendingPayload)} />
-              <input type="hidden" name="pendingMenu" value={JSON.stringify(state.menu)} />
-              <input type="hidden" name="fileName" value={state.fileName} />
+              <input type="hidden" name="pendingToken" value={state.pendingToken} />
               <button
                 type="submit"
                 disabled={retryPending}
@@ -132,7 +132,7 @@ export function MenuUploadDashboard({
               </button>
             </form>
           )}
-        </form>
+        </div>
 
         <div className="min-w-0">
           {state.menu ? (

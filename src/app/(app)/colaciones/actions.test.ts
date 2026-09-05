@@ -41,7 +41,7 @@ test("el requestId se calcula una sola vez a partir del archivo+cierre+recordato
   assert.equal(occurrences.length, 1, "el hash de idempotencia debe calcularse en un único lugar (durante la validación), nunca recalculado en el reintento");
 });
 
-test("si la creación del formulario falla, el menú y el payload pendiente se preservan (pendingPayload no queda null) con el mensaje exacto de reintento", () => {
+test("si la creación falla, conserva el menú y sella el payload en vez de devolver JSON confiado al navegador", () => {
   const content = readSource();
   assert.match(
     content,
@@ -50,11 +50,12 @@ test("si la creación del formulario falla, el menú y el payload pendiente se p
   );
   const catchStart = content.indexOf("} catch {", content.indexOf("async function createOrRetryGoogleForm"));
   const catchBlock = content.slice(catchStart, catchStart + 400);
-  assert.match(catchBlock, /pendingPayload: payload/, "el catch debe conservar el payload que falló para permitir reintentar");
+  assert.match(catchBlock, /sealPendingMealFormState\(\{ payload, menu, fileName \}\)/, "el catch debe cifrar y autenticar el estado del reintento");
+  assert.match(catchBlock, /pendingToken/, "el catch debe devolver solo el token opaco");
   assert.match(catchBlock, /menu,/, "el catch debe conservar el menú ya validado -- el archivo subido nunca se pierde");
 });
 
-test("retryCreateGoogleFormAction reutiliza el payload ya validado -- nunca vuelve a parsear el archivo Word ni a leer la nómina de empleados", () => {
+test("retryCreateGoogleFormAction abre estado sellado -- nunca confía en JSON, vuelve a parsear el Word ni relee la nómina", () => {
   const content = readSource();
   const fnStart = content.indexOf("export async function retryCreateGoogleFormAction");
   assert.ok(fnStart >= 0, "retryCreateGoogleFormAction debe existir");
@@ -62,7 +63,17 @@ test("retryCreateGoogleFormAction reutiliza el payload ya validado -- nunca vuel
   const fnBody = content.slice(fnStart, fnEnd === -1 ? undefined : fnEnd);
   assert.doesNotMatch(fnBody, /parseMealMenuDocx\(/, "el reintento no debe volver a parsear el archivo");
   assert.doesNotMatch(fnBody, /from\("employees"\)/, "el reintento no debe volver a consultar la nómina activa -- reutiliza el payload ya construido");
+  assert.doesNotMatch(fnBody, /JSON\.parse|pendingPayload|pendingMenu/, "el reintento no debe aceptar estructuras manipulables desde campos ocultos");
+  assert.match(fnBody, /openPendingMealFormState\(pendingToken\)/, "el reintento debe abrir estado autenticado por el servidor");
   assert.match(fnBody, /createOrRetryGoogleForm\(/, "el reintento debe reusar la misma función de creación que la subida original");
+});
+
+test("la pantalla no anida formularios ni expone nómina/menú serializados en inputs ocultos", () => {
+  const dashboard = readFileSync(path.join(import.meta.dirname, "MenuUploadDashboard.tsx"), "utf8");
+  assert.doesNotMatch(dashboard, /JSON\.stringify\(state\./);
+  assert.doesNotMatch(dashboard, /name="pendingPayload"|name="pendingMenu"|name="fileName"/);
+  assert.match(dashboard, /name="pendingToken"/);
+  assert.match(dashboard, /<div className="rounded-lg border border-dashed[\s\S]*?<form action=\{uploadFormAction\}>[\s\S]*?<\/form>[\s\S]*?<form action=\{retryFormAction\}/);
 });
 
 test("las Server Actions de colaciones verifican el rol antes de tocar el menú o el formulario", () => {

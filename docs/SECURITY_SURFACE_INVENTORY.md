@@ -1,11 +1,12 @@
 # Inventario ejecutable de superficies
 
-Estado: **implementado como gate de CI para Route Handlers**. La fuente de
-verdad tipada es `src/lib/architecture/request-surfaces.ts`; su test descubre
-los archivos reales de `src/app`, elimina route groups de Next.js y compara
-cada par método + URL. Una ruta nueva, un método nuevo, un archivo movido o un
-feature flag que deje de consultarse rompe la suite hasta que exista una
-decisión explícita de seguridad.
+Estado: **implementado como gate de CI para Route Handlers y Server Actions**.
+Las fuentes de verdad tipadas son
+`src/lib/architecture/request-surfaces.ts` y
+`src/lib/architecture/server-action-surfaces.ts`. Sus tests descubren los
+archivos reales de `src/app`: una ruta/método o acción exportada nueva, un
+archivo movido o un feature flag que deje de consultarse rompe la suite hasta
+que exista una decisión explícita de seguridad.
 
 El registro cubre las 20 superficies HTTP actuales y declara para cada una:
 
@@ -15,6 +16,13 @@ El registro cubre las 20 superficies HTTP actuales y declara para cada una:
 - mutación, máximo de cuerpo e idempotencia/replay;
 - control de abuso, auditoría, feature flag y clase de datos;
 - bloqueos concretos antes de piloto o producción.
+
+El registro adicional cubre exactamente los 16 archivos `use server` y sus 75
+acciones exportadas. Registra autenticación, resolución tenant, validación,
+máximo de archivos, abuso, auditoría y deuda de aislamiento laboral. El gate
+también impide autorizar con roles/usuarios recibidos por `FormData`, exige que
+la autorización preceda al parseo de bytes y evita que aparezca una familia de
+uploads sin un máximo explícito de hasta 10 MiB.
 
 ## Lectura operativa actual
 
@@ -33,6 +41,10 @@ El registro cubre las 20 superficies HTTP actuales y declara para cada una:
   completar el aislamiento multiempresa.
 - Los callbacks de identidad dependen de controles de Auth hospedados que aún
   deben verificarse; la configuración local no es evidencia de producción.
+- El reintento de Google Forms de colaciones ya no acepta payload/menú/nómina
+  serializados por el navegador. Usa un token AES-256-GCM opaco, autenticado y
+  con 30 minutos de vigencia; cualquier cambio o vencimiento obliga a volver a
+  subir el documento. La acción sigue con deuda de rate limit y multiempresa.
 
 Este inventario no sustituye RLS, MFA, DAST, restore drill ni revisión humana.
 Tampoco convierte una superficie con `blockers` en apta para marcha blanca.

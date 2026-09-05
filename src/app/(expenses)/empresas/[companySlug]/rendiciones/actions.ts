@@ -559,12 +559,14 @@ export async function uploadExpenseReceiptAction(
   const file = formData.get("receipt");
   if (!parsed.success || !(file instanceof File)) return failed("Selecciona un comprobante válido.");
 
-  const validation = await validateExpenseReceiptFile(file);
-  if (!validation.ok || !validation.mimeType || !validation.extension) return failed(validation.message);
-
   const supabase = await createClient();
   const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
   if (!context?.canSubmit) return failed("Tu rol no permite adjuntar comprobantes.");
+
+  // El magic-byte sniffing lee contenido. Se autoriza empresa/rol antes de
+  // gastar CPU o tocar bytes aportados por el navegador.
+  const validation = await validateExpenseReceiptFile(file);
+  if (!validation.ok || !validation.mimeType || !validation.extension) return failed(validation.message);
 
   const { data: item } = await supabase
     .from("expense_items")
@@ -604,15 +606,15 @@ export async function captureExpenseReceiptAction(
   const file = formData.get("receipt");
   if (!parsed.success || !(file instanceof File)) return failed("Selecciona un comprobante válido.");
 
+  const supabase = await createClient();
+  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
+  if (!context?.canSubmit) return failed("Tu rol no permite capturar comprobantes.");
+
   const validation = await validateExpenseReceiptFile(file);
   if (!validation.ok || !validation.mimeType || !validation.extension) return failed(validation.message);
   if (parsed.data.source === "WEB_CAMERA" && !validation.mimeType.startsWith("image/")) {
     return failed("La captura de cámara debe ser una imagen JPG o PNG.");
   }
-
-  const supabase = await createClient();
-  const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
-  if (!context?.canSubmit) return failed("Tu rol no permite capturar comprobantes.");
 
   // Evita transferir y hashear hasta 10 MB cuando la bandeja ya está llena.
   // El RPC repite el control bajo advisory lock porque este pre-chequeo solo
