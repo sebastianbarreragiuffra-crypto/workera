@@ -6,6 +6,10 @@ diagramas ya reemplazados. Para el estado vigente, leer primero la sección
 evoluciona como GESTORA multiempresa; ARCOTEX es solo el primer workspace
 operativo durante la transición.
 
+La arquitectura total vigente, incluidos control de flujo, escalabilidad,
+seguridad, IA y gates de lanzamiento, está en
+`docs/TARGET_ARCHITECTURE_PHASES_2_6.md`.
+
 # Arquitectura histórica — Workera Supervisor App
 
 Estado: actualizado tras Gate B pre-UI (rama `fix-pre-ui-session-guard`, HEAD `8aa7db2`). Este documento reemplaza la versión "Fase 1" — describe exactamente lo que existe hoy en el código, distinguiendo `IMPLEMENTED` de `PLANNED`/`BLOCKED`. No se afirma nada como implementado sin verificación directa contra el repositorio en el momento de escribir esto.

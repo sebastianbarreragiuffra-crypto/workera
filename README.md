@@ -33,8 +33,10 @@ ese workspace, no la identidad ni el límite arquitectónico del producto.
   Antes de escribir código Next, leer la guía aplicable en
   `node_modules/next/dist/docs/`, tal como exige `AGENTS.md`.
 
-La arquitectura vigente, las decisiones reemplazadas y la secuencia segura de
-continuación están en
+La arquitectura total, el control de flujos, los gates de seguridad y la
+secuencia de evolución están en
+[docs/TARGET_ARCHITECTURE_PHASES_2_6.md](docs/TARGET_ARCHITECTURE_PHASES_2_6.md).
+El detalle del límite multiempresa y las decisiones reemplazadas está en
 [docs/PLATFORM_MULTI_COMPANY.md](docs/PLATFORM_MULTI_COMPANY.md).
 
 ## Estado actual resumido
@@ -147,6 +149,7 @@ Las instrucciones del ambiente compartido están en
 
 ## Referencias principales
 
+- [Arquitectura total, escalabilidad y control de flujos](docs/TARGET_ARCHITECTURE_PHASES_2_6.md)
 - [Arquitectura multiempresa](docs/PLATFORM_MULTI_COMPANY.md)
 - [Modelo de acceso histórico del workspace](docs/ACCESS_MODEL_PHASE5D.md)
 - [Estándar de seguridad de APIs](docs/API_SECURITY_STANDARD.md)

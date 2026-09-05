@@ -1,13 +1,27 @@
-# Arquitectura objetivo de GESTORA — Fases 2 a 6
+# Arquitectura total de GESTORA — plataforma multiempresa
 
-Estado al 4 de septiembre de 2026. Este documento describe el estado vigente de
-la rama `codex/phases2-6-autonomous` y la arquitectura objetivo para llevar
-GESTORA desde marcha blanca a una plataforma multiempresa operable. No implica
-que `master`, staging o producción contengan estos cambios.
+Estado al 5 de septiembre de 2026. Base auditada: rama
+`codex/phases2-6-autonomous`, commit `602800a`, 37 commits delante y 0 detrás de
+`origin/master` antes de redactar esta revisión. Este documento consolida la
+arquitectura vigente y objetivo de **todo el producto**: control plane,
+workspaces, asistencia, Rendiciones, documentos, integraciones, datos,
+seguridad, operación e IA. El nombre del archivo se conserva para no romper los
+runbooks y handoffs que ya lo enlazan. No implica que `master`, staging o
+producción contengan estos cambios.
 
-`ARCHITECTURE.md` se conserva como documento histórico de la etapa Workera
-pre-UI. Para decisiones nuevas, este documento y `docs/PLATFORM_MULTI_COMPANY.md`
-son la referencia principal.
+Orden de autoridad documental:
+
+1. La sección **Pinned** de `README.md` define las reglas que ningún agente debe
+   revertir.
+2. Este documento define la arquitectura total, los flujos y los gates de
+   evolución; `docs/PLATFORM_MULTI_COMPANY.md` detalla el límite multiempresa.
+3. Los documentos de dominio y runbooks definen procedimientos concretos.
+4. `ARCHITECTURE.md` es histórico y no representa el estado actual.
+
+Leyenda usada en este documento: **implementado** significa presente y validado
+en el repositorio; **apagado** significa implementado detrás de un flag sin
+prueba de proveedor real; **objetivo** significa diseño aún pendiente; **gate**
+significa condición obligatoria antes de usar PII hospedada o producción.
 
 ## 1. Dictamen del comité
 
@@ -123,6 +137,55 @@ GESTORA opera en dos planos:
 2. **Plano de workspace.** Resuelve una empresa activa y aplica sus permisos a
    asistencia, nómina, licencias, documentos, colaciones y Rendiciones.
 
+### Vista total de contenedores
+
+```mermaid
+flowchart LR
+    U["Usuarios<br/>web y PWA"]
+    CH["Canales externos<br/>correo / WhatsApp / banco / Workera"]
+    EDGE["Vercel<br/>hosting + cron"]
+    NX["Next.js 16<br/>proxy + BFF server-only"]
+    AUTH["Supabase Auth<br/>sesión + MFA/AAL2"]
+
+    subgraph APP["Monolito modular GESTORA"]
+      CP["Control plane<br/>clientes, módulos, roles, organigrama"]
+      WS["Workspace<br/>asistencia, RR.HH., documentos"]
+      EX["Rendiciones<br/>gastos, aprobación, pago"]
+      IP["Plano de integraciones<br/>inbox/outbox, workers, adaptadores"]
+    end
+
+    DB["Postgres<br/>transacciones + RLS + auditoría"]
+    ST["Storage privado<br/>rutas tenant-aware"]
+    EXT["Proveedores externos<br/>Azure / Meta / Resend / ERP / Workera"]
+    OBS["Observabilidad y sink externo<br/>objetivo P0"]
+    DR["PITR + copia de Storage<br/>objetivo P0 y restore drill"]
+
+    U --> EDGE --> NX
+    NX <--> AUTH
+    NX --> CP
+    NX --> WS
+    NX --> EX
+    CH --> NX
+    CP --> DB
+    WS --> DB
+    WS --> ST
+    EX --> DB
+    EX --> ST
+    EDGE --> IP
+    IP --> DB
+    IP --> ST
+    IP <--> EXT
+    NX -. eventos redactados .-> OBS
+    IP -. métricas y alertas .-> OBS
+    DB -. backup .-> DR
+    ST -. copia independiente .-> DR
+```
+
+La figura muestra dependencias concentradas, no una topología active-active.
+Postgres sigue siendo la autoridad transaccional y el monolito es una sola
+unidad desplegable; los workers ya poseen fronteras asíncronas que permiten una
+extracción posterior sin convertir cada pantalla en un servicio.
+
 El recorrido sincrónico es:
 
 `Navegador/PWA → Next.js Proxy → Supabase Auth → Server Component/Action/Route → Postgres con RLS y/o Storage privado`.
@@ -162,7 +225,46 @@ backlog retenido intencionalmente de una recuperación técnica.
 - Falta un test de dependencias/ownership que haga estas reglas ejecutables; por
   eso la extraibilidad es objetivo arquitectónico y no una garantía actual.
 
-## 4. Reglas de diseño obligatorias
+### Mapa de dominios y propiedad
+
+| Dominio | Es dueño de | Puede consumir | No puede hacer |
+|---|---|---|---|
+| Plataforma e IAM | empresas, membresías globales, catálogo de módulos, invitaciones, roles base | identidad de Supabase y auditoría | conceder acceso implícito al workspace |
+| Organización | membresías por empresa, unidades y organigrama | empresa e identidad | reutilizar `employee_groups` como jerarquía |
+| Laboral y asistencia | empleados, horarios, marcaciones, novedades, períodos, reglas y decisiones | identidad/organización mediante contratos | habilitar una segunda empresa antes de MT-3B–D |
+| Rendiciones | `expense_*`, políticas, aprobaciones, conciliación, pago y outbox contable | empresa, persona y permisos | aprobar, pagar o contabilizar automáticamente |
+| Documentos y archivos | metadata, rutas privadas, versiones y retención | empresa, actor y caso de negocio | servir un archivo no escaneado o una ruta ajena |
+| Integraciones | inbox/outbox, leases, fencing, adaptadores y salud de proveedor | contratos versionados de cada dominio | escribir tablas ajenas saltándose un use case/RPC |
+| Auditoría y operación | eventos mínimos, correlation IDs, métricas, alertas y evidencia | señales redactadas de todos los dominios | guardar secretos, payloads completos o convertirse en fuente financiera |
+
+La variación entre clientes se implementa con **módulos, entitlements,
+configuración versionada, roles/permisos y workflows por empresa**. No se crean
+forks, tablas clonadas ni condicionales por nombre de cliente. Una función
+especial que se vuelve común se promueve al catálogo; una excepción temporal
+lleva fecha de expiración, owner y test.
+
+### Experiencia multiempresa y dashboards
+
+- El **dashboard GESTORA** es la consola profesional del proveedor: cartera de
+  clientes, estado de onboarding, módulos contratados/activados, responsables,
+  salud de integraciones, riesgos/SLA y acciones administrativas auditadas.
+- El **dashboard de empresa** muestra únicamente el tenant activo: organigrama,
+  personas, pendientes, políticas, aprobaciones y KPIs de sus módulos. Cambiar de
+  empresa obliga a resolver nuevamente membresía, módulo y permisos.
+- Supervisores, Finanzas, RR. HH. y personas reciben vistas derivadas de
+  capacidades; no se codifican dashboards distintos por nombre de cliente.
+- Los KPIs cruzados del control plane provienen de read models agregados y
+  minimizados. El rol de plataforma no obtiene por ello documentos, datos
+  bancarios, médicos o laborales detallados.
+- Configuración se resuelve en capas explícitas: default versionado del módulo →
+  política de empresa → permisos del rol → alcance organizacional del actor. Cada
+  resultado crítico guarda la versión efectiva para que un cambio futuro no
+  reescriba una decisión pasada.
+- Nuevos módulos deben poder activarse en `PILOT`, pausarse y retirarse por
+  empresa, con migración/retención de datos y rollback definidos; un toggle de UI
+  no es el gate de seguridad.
+
+## 4. Reglas y control de flujo obligatorios
 
 ### Tenant explícito
 
@@ -198,6 +300,111 @@ backlog retenido intencionalmente de una recuperación técnica.
 - Versionar contratos de eventos y snapshots antes de incorporar un segundo
   consumidor.
 
+### Flujo sincrónico de toda operación
+
+Cada lectura o cambio pasa por el mismo pipeline. La UI solo presenta
+capacidades; nunca decide autorización.
+
+```mermaid
+flowchart LR
+    R["Request + correlation_id"] --> S["1. Verificar sesión"]
+    S --> T["2. Resolver company_id explícito"]
+    T --> M["3. Validar ciclo de vida + módulo"]
+    M --> P["4. Validar permiso/capacidad"]
+    P --> A["5. Exigir AAL2 si es privilegiada"]
+    A --> V["6. Validar esquema, tamaño y estado"]
+    V --> I["7. Idempotencia/precondición"]
+    I --> X["8. Transacción/RPC + auditoría + outbox"]
+    X --> O["9. DTO mínimo o error allowlisted"]
+```
+
+- Si sesión, empresa, módulo, permiso o AAL son ambiguos/`NULL`, la operación
+  falla cerrada.
+- El `company_id` se obtiene de un selector autorizado o del recurso validado;
+  jamás de una constante global ni de la primera empresa encontrada.
+- Una escritura crítica usa clave de idempotencia o versión esperada, comprueba
+  transición de estado y persiste auditoría en la misma transacción.
+- Una lectura no crea outbox, pero sí conserva límites, autorización y
+  minimización. Exportar o descargar es una acción auditable y rate-limited.
+- Errores externos se traducen a códigos estables; el detalle queda redactado en
+  telemetría y no llega al navegador.
+
+### Flujo asíncrono y control de presión
+
+```mermaid
+flowchart LR
+    E["Evento/cron"] --> G["Firma, replay window,<br/>límite y deduplicación"]
+    G --> Q["Inbox/ledger durable<br/>o cuarentena"]
+    Q --> C["Claim SKIP LOCKED<br/>lease + fencing token"]
+    C --> W["Worker stateless<br/>batch acotado + deadline"]
+    W --> D{"Resultado"}
+    D -->|confirmado| OK["Commit fenced + SUCCEEDED"]
+    D -->|retry allowlisted| RT["Backoff + RETRY"]
+    D -->|incierto| HU["Reconciliación humana"]
+    D -->|agotado| DLQ["FAILED/DLQ<br/>maker-checker"]
+    RT --> C
+    HU -->|evidencia externa| OK
+    HU -->|replay aprobado| Q
+    DLQ -->|requeue / confirmar / cancelar| Q
+```
+
+- Los productores reciben rápido después de persistir el evento; no esperan una
+  cadena de proveedores para confirmar recepción.
+- Cada cola define cupo global y por empresa, tamaño de batch, timeout, máximo de
+  intentos, backoff con jitter, antigüedad máxima y política de DLQ.
+- La equidad es por tenant: un cliente con backlog no debe agotar todos los
+  workers, conexiones ni cuota de proveedor.
+- El sistema aplica backpressure antes de saturar Postgres o un tercero: rechaza
+  con código reintentable o deja trabajo durable; nunca abre concurrencia sin
+  límite.
+- Un timeout externo es **estado desconocido**, no fracaso definitivo. La misma
+  idempotency key se conserva hasta reconciliarlo.
+- Vercel puede solapar o duplicar invocaciones cron y no reintenta una invocación
+  fallida; por eso los locks, la idempotencia, el run ledger y un watchdog externo
+  son requisitos de diseño, no optimizaciones.
+
+### Máquinas de estado que no se mezclan
+
+```mermaid
+stateDiagram-v2
+    state "Rendición" as Report {
+      [*] --> DRAFT
+      DRAFT --> SUBMITTED
+      SUBMITTED --> IN_REVIEW
+      SUBMITTED --> CANCELLED: retiro autorizado
+      IN_REVIEW --> APPROVED: último paso humano
+      IN_REVIEW --> REJECTED: motivo obligatorio
+      APPROVED --> PAID: conciliación humana + referencia
+    }
+    state "Entrega contable técnica" as Export {
+      [*] --> QUEUED
+      QUEUED --> PROCESSING: claim + lease
+      PROCESSING --> SUCCEEDED: aceptación confirmada
+      PROCESSING --> RETRY: fallo reintentable
+      RETRY --> PROCESSING
+      PROCESSING --> FAILED: intentos agotados o incierto
+      FAILED --> QUEUED: replay maker-checker
+      FAILED --> SUCCEEDED: confirmación externa
+      FAILED --> CANCELLED: cancelación auditada
+    }
+```
+
+`PAID` es una decisión de negocio con referencia; `SUCCEEDED` es la confirmación
+técnica de una salida contable. Un error o replay del segundo flujo jamás reabre
+ni modifica silenciosamente el primero. Asistencia aplica la misma separación:
+el evento bruto, el registro derivado, el candidato de regla y la decisión humana
+son hechos distintos y versionados.
+
+### Sobre de eventos y comandos
+
+Antes de que exista un segundo consumidor, todo evento interoperable debe incluir
+como mínimo: `event_id`, `event_type`, `schema_version`, `company_id`,
+`aggregate_type`, `aggregate_id`, `aggregate_version`, `occurred_at`,
+`correlation_id`, `causation_id`, `idempotency_key` y un payload minimizado. Los
+identificadores de persona o documentos solo aparecen si el consumidor los
+necesita y está autorizado. Cambios incompatibles crean una nueva versión; no se
+reescribe historia ya publicada.
+
 ## 5. Escalabilidad y alta disponibilidad
 
 ### Etapa actual: marcha blanca y primeras empresas
@@ -221,6 +428,26 @@ Activar cambios únicamente por métricas:
   para dashboards. Ninguna caché reemplaza RLS ni es autoridad financiera.
 - Extraer el plano de integraciones como servicio independiente cuando existan
   varios proveedores o backlog sostenido; conservar el outbox como frontera.
+
+### Umbrales para evolucionar, no para adivinar
+
+Los siguientes son tripwires iniciales que el owner técnico debe ratificar con
+dos semanas de telemetría; no son promesas de capacidad del proveedor.
+
+| Señal repetida después de optimizar | Cambio habilitado | Cambio que todavía no corresponde |
+|---|---|---|
+| Workers consumen >30 % de conexiones/CPU o hacen incumplir el p95 interactivo | runtime y pool de workers separados, misma cola/outbox | dividir todos los módulos en microservicios |
+| Antigüedad de cola supera su SLO o un proveedor exige otra cadencia/SLA | scheduler/queue dedicado, autoscaling acotado y cuota por tenant | aumentar concurrencia sin backpressure |
+| Lecturas agregadas mantienen CPU primaria >70 % o p95 fuera de presupuesto | índices, read model; luego réplica/caché con invalidación explícita | cachear decisiones o saltar RLS |
+| Tabla append-only alcanza decenas de millones de filas y mantenimiento/planes lo justifican | partición temporal y política de retención probada | particionar cada tabla desde el inicio |
+| Un tenant usa >25 % de recursos o exige residencia/aislamiento contractual | pool, cuota o data plane dedicado detrás del mismo contrato | fork de aplicación por cliente |
+| El RTO/RPO contratado no cubre la pérdida de una región | diseño de failover probado y runbook de cutover | declarar active-active sin reconciliación de datos |
+
+La extracción inicial recomendada es **Integration Worker**, manteniendo en el
+monolito la autorización y la decisión de negocio. La segunda candidata es
+Reporting/read models. Control plane, permisos, asistencia y Rendiciones no se
+separan hasta que ownership de datos, contratos, trazas y capacidad operativa
+estén demostrados.
 
 ### Reducir el impacto de dependencias únicas
 
@@ -248,6 +475,21 @@ El objetivo de 99,9 % solo puede aprobarse después de verificar SLA/HA y límit
 del plan contratado, definir pérdida regional y cutover, medir disponibilidad y
 asignar error budget al SPOF aceptado. En el estado actual es una aspiración, no
 una propiedad del diseño ni un compromiso de proveedor.
+
+### Continuidad y recuperación
+
+- Definir RPO/RTO por clase: identidad/decisiones, eventos reconstruibles,
+  comprobantes/documentos y telemetría no tienen el mismo impacto.
+- PITR cubre Postgres, no los objetos de Supabase Storage. Se requiere copia
+  cifrada independiente de objetos, manifiesto con checksum y restauración
+  conjunta para no recuperar metadata que apunte a archivos inexistentes.
+- Un restore drill aislado debe reconfigurar Auth, claves, Realtime, buckets,
+  jobs y proveedores, ejecutar conteos/checksums y demostrar cutover y rollback.
+- Frecuencia mínima propuesta: prueba trimestral y después de cambios relevantes
+  de esquema/Storage; conservar evidencia de RPO/RTO real y corregir desvíos.
+- Backups del mismo proveedor reducen pérdida accidental, pero no sustituyen una
+  exportación/copia independiente para escenarios de cuenta, control plane o
+  borrado del proyecto.
 
 ## 6. SLO y observabilidad propuestos
 
@@ -278,6 +520,30 @@ Instrumentación mínima:
   umbral, canal y prueba periódica de paging definidos.
 - Trazas distribuidas antes de extraer servicios, para conservar causalidad entre
   webhook, ledger, Storage y resultado.
+
+### Fitness functions de arquitectura
+
+La arquitectura deja de ser una opinión cuando CI impide regresiones. Estas son
+las pruebas obligatorias y su estado actual:
+
+| Característica protegida | Fitness function | Estado |
+|---|---|---|
+| Build reproducible | lockfile + `npm ci`, lint, typecheck, tests y build | implementado en CI |
+| Base reproducible | aplicar migraciones desde cero y ejecutar pgTAP en entorno aislado | implementado en CI |
+| Secuencia de migraciones | timestamp posterior y test pgTAP correlativo | regla manual; automatizar P0 |
+| Aislamiento tenant | toda tabla operativa con `company_id`, RLS/grants y allow/deny cross-tenant | parcial por dominio; gate P0 laboral |
+| Mínimo privilegio elevado | cada `createAdminClient` usa capacidad literal inventariada y testada | implementado; grants cloud pendientes |
+| Límites de módulo | grafo de imports impide escritura/dependencia prohibida entre dominios | pendiente P0 |
+| API segura | matriz authn/authz, tamaño, firma, replay, idempotencia, error y rate limit por ruta | estándar implementado; cobertura continua pendiente |
+| Integridad asíncrona | duplicate delivery, lease vencida, fencing, timeout incierto, DLQ y replay | implementado en Rendiciones; extender por integración |
+| Privacidad PWA | test impide cachear HTML autenticado, API, PII o documentos | implementado |
+| Secretos y supply chain | secret scan, SAST, SBOM/licencias, audit y acciones fijadas por digest | parcial; completar P0 |
+| Rendimiento | presupuesto p95, plan de consultas crítico y carga multi-tenant | pendiente P0/soak |
+| Recuperación | restore drill DB+Storage cumple RPO/RTO y checksum | pendiente P0 |
+
+Cada ADR nuevo debe nombrar la característica afectada y la fitness function que
+evita su regresión. Una excepción requiere owner, motivo, fecha de expiración y
+ticket; no se acepta un comentario permanente como control.
 
 ## 7. Arquitectura de seguridad objetivo
 
@@ -391,41 +657,69 @@ equivalentes.
 
 ## 9. Evaluación de firmas y herramientas
 
-No existe una firma universalmente “mejor”. Las siguientes son **candidatas**, no
-ganadoras: la contratación debe basarse en scorecard y PoC sobre este repositorio,
-equipo nominal, experiencia Chile/Supabase/RLS, TCO, SLA, referencias comparables,
-propiedad del código, transferencia de conocimiento, seguridad y operación.
+No existe una firma universalmente “mejor”. Esta matriz evalúa el **ajuste a
+GESTORA hoy**, no calidad absoluta. La evidencia es lo que cada firma publica
+sobre sí misma; por tanto, es una shortlist para una PoC, no una validación
+independiente ni una recomendación de compra automática.
 
-- **Globant** publica capacidades de ejecución de producto y cloud a escala,
-  arquitectura, APIs, cloud-native y CloudOps/SRE. Su ajuste al equipo debe
-  validarse mediante la PoC.
-- **Accenture** publica capacidades para modernización, gobierno, integración y
-  cambio organizacional de gran escala. Su costo y ajuste a una marcha blanca
-  pequeña deben validarse con un alcance acotado.
-- **Thoughtworks** publica prácticas de modularización evolutiva, plataformas,
-  entrega continua y transferencia de ingeniería. Que sean las adecuadas para
-  este repositorio sigue siendo una hipótesis de la PoC.
+### Comité de firmas globales
 
-Para desarrollo asistido:
+| Candidato | Evidencia pública relevante | Mejor ajuste | Riesgo que debe validar la PoC | Dictamen para GESTORA |
+|---|---|---|---|---|
+| Thoughtworks | arquitectura evolutiva y fitness functions para gobierno automatizado | modularidad, límites de dominio, CI como arquitectura y coaching | capacidad operativa local, equipo nominal, Supabase/RLS y soporte posterior | **primera opción para arquitectura/engineering enablement** en la etapa actual |
+| Globant | CloudOps, DevOps, operación 24/7, chaos engineering y SRE | squad de producto regional, UX, integraciones y operación al crecer | seniority real, seguridad multi-tenant, continuidad del equipo y TCO | **primera opción para ampliar ejecución + CloudOps/SRE** |
+| Accenture | definición de arquitectura/roadmap, modernización progresiva o a escala y Agile/DevSecOps | gobierno empresarial, integración compleja, compliance y cambio organizacional | sobrecosto, capas de coordinación y ajuste a una marcha blanca pequeña | **opción para expansión enterprise**, no la primera contratación actual |
 
-- **OpenAI Codex/repo-native agent** es un candidato natural para este brownfield:
-  puede inspeccionar el repositorio, ejecutar tests, trabajar en ramas y someter
-  cambios a revisión. Su selección definitiva requiere el mismo benchmark y los
-  controles de datos, red, sandbox y revisión de la sección 8.
-- **GitHub Copilot y agentes de terceros** son útiles dentro del flujo de PR, pero
-  sus permisos y riesgos de ejecución deben revisarse por repositorio.
-- **Replit Agent, Lovable y Bolt** sirven para prototipos o superficies UI
-  aisladas. No deben ser autoridad sobre RLS, migraciones, contabilidad o nómina.
-  En particular, la documentación de Bolt advierte límites relevantes para
-  Supabase/Next.js y que el historial de versiones no restaura la base de datos.
-  “Aislado” significa repositorio y tenant desechables, datos sintéticos, cero
-  secretos/integraciones reales, egress acotado, export verificable y borrado
-  contractual. Lovable no importa este repositorio existente, por lo que no es
-  candidato para el core brownfield.
+La preferencia anterior es una inferencia del comité basada en el estado del
+repositorio. La adjudicación debe exigir un ejercicio pagado y acotado sobre una
+rama aislada con estos criterios de aceptación:
+
+1. Levantar dos tenants sintéticos y demostrar cruces negados en UI, API, RPC,
+   RLS, Storage, exports y jobs.
+2. Romper deliberadamente proveedor, cron y lease; demostrar idempotencia,
+   backpressure, DLQ, replay y reconciliación sin doble pago/contabilización.
+3. Entregar threat model, matriz OWASP ASVS 5.0 L2 y plan de remediación con
+   responsables, no solo un informe genérico.
+4. Ejecutar restore DB+Storage con evidencia de RPO/RTO y checksums.
+5. Dejar ADR, fitness functions, runbooks, transferencia de conocimiento y código
+   en el repositorio del cliente, sin dependencia de una persona o plataforma.
+6. Cotizar con equipo nominal, seniority, dedicación, SLA, TCO a 24 meses,
+   propiedad intelectual, subprocesadores y reemplazo de perfiles por escrito.
+
+### Comité de plataformas y agentes de desarrollo
+
+| Herramienta | Ajuste al core brownfield | Controles/madurez observables | Uso aprobado | Límite obligatorio |
+|---|---|---|---|---|
+| OpenAI Codex | **muy alto** | trabajo repo-native, sandbox del sistema, aprobaciones y control de red | implementación principal, tests, refactors y auditorías con diff revisable | sin secretos/PII; CI y revisión humana antes de integrar |
+| Claude Code | **muy alto** | modo manual read-only, permisos configurables y sandbox de red/filesystem | segundo arquitecto, revisión independiente y dominios paralelos bien separados | no usar bypass amplio; revisar comandos, MCP y egress |
+| GitHub Copilot cloud agent | **alto para PR** | ambiente efímero con firewall, rama acotada, trazabilidad y scanning automático | issues acotados, mantenimiento y revisión adicional dentro del flujo GitHub | PR humana obligatoria; scanning no prueba corrección funcional |
+| Replit Agent | **medio** | importa repos GitHub y puede continuar features, debugging y refactors | PoC aislada, demo o superficie independiente con datos sintéticos | no mover el runtime/core ni copiar secretos por comodidad |
+| Lovable | **bajo para este core; alto para UX greenfield** | GitHub sync, controles de workspace y scanning; no importa un repo existente | prototipo visual desechable que luego se reimplementa/revisa | nunca fuente de verdad de este repositorio ni de la base |
+| Bolt | **bajo-medio para prototipos** | integración Supabase y generación rápida; su historial no restaura la base Supabase | mock UI o experimento sobre proyecto/tenant descartable | nunca conectarlo a staging/producción ni delegarle RLS/migraciones críticas |
+
+Recomendación operativa: **Codex + Claude Code como pareja principal** sobre ramas
+separadas, con GitHub/CI como árbitro reproducible y Copilot opcional como tercera
+revisión. Replit, Lovable y Bolt quedan fuera del core; “aislado” significa repo,
+proyecto Supabase y tenant desechables, datos sintéticos, cero secretos, egress
+acotado y borrado verificable. Ningún agente despliega, cambia IAM, activa MFA,
+aplica una migración hospedada ni decide finanzas/RR. HH. por su cuenta.
 
 ## 10. Plan de evolución
 
 ### Gate P0 — antes de usar PII en staging o producción
+
+Orden de ejecución recomendado:
+
+| Bloque | Puede ejecutarse sin activar proveedores | Requiere owner/ambiente hospedado |
+|---|---|---|
+| P0-A arquitectura | test de límites de módulo, inventarios de superficies, tenant sintético, rate-limit contracts, cuarentena, telemetría y runbooks | no |
+| P0-B plataforma | configuración de grants/secrets, staging sintético y automatización de evidencias | acceso administrativo controlado |
+| P0-C seguridad real | MFA rollout, restore drill, canarios, alertas/paging, DAST y pentest | sí; ventana, cuentas de recuperación y responsables presentes |
+| P0-D aceptación | cierre de threat model, riesgo residual, privacidad/legal y decisión GO/NO-GO | responsables de negocio, seguridad y datos |
+
+P0-A puede continuar de forma remota. P0-C no debe ejecutarse mientras el owner
+no pueda completar challenge/recovery y verificar el resultado en los paneles;
+el código ya presente no equivale a activación segura.
 
 - Poner el staging actual en hold, clasificar sus 97 registros y reemplazar por
   datos sintéticos/minimizados o aplicar controles equivalentes a producción.
@@ -503,7 +797,41 @@ Bloqueos principales:
 - No existe evidencia de SLO/alertas/soak de producción.
 - Falta el paquete legal/privacidad para datos laborales y financieros.
 
-## 12. Fuentes de referencia del comité
+## 12. Decisiones que no deben revertirse
+
+1. **Conservar y evolucionar la aplicación existente; no comenzar desde cero.**
+2. GESTORA es multiempresa: control plane y workspaces son contextos distintos y
+   un rol global nunca concede datos operativos de forma implícita.
+3. La variación de clientes se resuelve con módulos, configuración, permisos y
+   workflows versionados; no con forks ni código por nombre de empresa.
+4. Solo ARCOTEX opera por ahora el dominio laboral. Rendiciones es la primera
+   capacidad tenant-aware que puede habilitarse de forma independiente.
+5. El despliegue continúa como monolito modular. Solo se extraen workers/read
+   models cuando métricas, ownership y operación lo justifiquen.
+6. `company_id`, RLS, grants, autorización backend y pruebas negativas son una
+   única barrera compuesta; ocultar UI no sustituye ninguna de ellas.
+7. `platform_memberships` es la autoridad global; `profiles.role` queda solo para
+   compatibilidad histórica. `organization_units` es organigrama y
+   `employee_groups` no lo reemplaza.
+8. Inbox/outbox, idempotencia, lease, fencing y DLQ son obligatorios al cruzar una
+   frontera externa. El contrato es at-least-once, nunca “exactly once” supuesto.
+9. Una persona autorizada conserva la decisión final en asistencia, aprobación,
+   conciliación, pago y contabilidad; OCR, matching e IA solo proponen/evidencian.
+10. `service_role` permanece server-only, tipado por capacidad y sujeto a grants
+    mínimos. No se introduce en UI, cliente, agente ni lógica de dominio normal.
+11. La PWA no cachea contenido autenticado, API, PII, documentos ni exportaciones.
+12. MFA enforcement, correo, WhatsApp, Azure OCR, Workera real y ERP continúan
+    apagados hasta completar su rollout/canario y gate P0 correspondiente.
+13. El staging actual con PII y producción permanecen `NO-GO` hasta cerrar los
+    bloqueos; una revisión de código limpia no cambia esa decisión operacional.
+14. Ningún LLM recibe una herramienta que pueda escribir decisiones financieras
+    o laborales. Toda intención futura se recalcula y reautoriza en el backend.
+
+## 13. Fuentes de referencia del comité
+
+Las páginas de firmas y fabricantes describen capacidades publicadas por ellos
+mismos. Se usan para formar la shortlist y comprobar límites documentados, no
+como prueba independiente de superioridad.
 
 Arquitectura y firmas:
 
@@ -511,7 +839,7 @@ Arquitectura y firmas:
 - [Globant CloudOps](https://now.globant.com/en/cloudops-services/)
 - [Accenture Application Transformation](https://www.accenture.com/en/services/cloud/application-transformation)
 - [Accenture Application Modernization](https://www.accenture.com/en/services/cloud/application-transformation/application-modernization)
-- [Thoughtworks — Building Evolutionary Architectures](https://www.thoughtworks.com/en-us/insights/books/building-evolutionary-architectures)
+- [Thoughtworks — Building Evolutionary Architectures, 2nd edition](https://www.thoughtworks.com/en-au/insights/books/building-evolutionaryarchitectures-second-edition)
 - [Thoughtworks — Platform engineering](https://www.thoughtworks.com/insights/blog/platforms/the-evolution-of-platform-engineering--lessons-from-the-trenches)
 
 Seguridad y gobierno:
@@ -523,19 +851,22 @@ Seguridad y gobierno:
 - [NIST Cybersecurity Framework 2.0](https://www.nist.gov/cyberframework)
 - [AICPA SOC 2](https://www.aicpa-cima.com/topic/audit-assurance/audit-and-assurance-greater-than-soc-2/)
 - [Supabase MFA](https://supabase.com/docs/guides/auth/auth-mfa)
+- [Supabase Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
 - [Supabase Backups](https://supabase.com/docs/guides/platform/backups)
 - [Supabase — Restore to a new project](https://supabase.com/docs/guides/platform/clone-project)
-- [Ley chilena 21.719](https://www.bcn.cl/leychile/Navegar?idNorma=1209272&idVersion=2026-12-01)
+- [Vercel — seguridad, concurrencia e idempotencia de Cron Jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs)
+- [Ley chilena 21.719](https://www.bcn.cl/leychile/Navegar/imprimir?idNorma=1209272)
 
 Agentes y plataformas AI:
 
-- [OpenAI Codex](https://openai.com/codex/)
-- [OpenAI — Running Codex safely](https://openai.com/index/running-codex-safely/)
+- [OpenAI Docs — Agent approvals & security](https://learn.chatgpt.com/docs/agent-approvals-security)
+- [Claude Code — Security](https://code.claude.com/docs/en/security)
+- [GitHub — Copilot Agents application card](https://docs.github.com/en/copilot/responsible-use/agents)
 - [GitHub — Third-party coding agents](https://docs.github.com/en/copilot/concepts/agents/about-third-party-coding-agents)
 - [GitHub — Agent risks and mitigations](https://docs.github.com/en/copilot/concepts/agents/cloud-agent/risks-and-mitigations)
 - [NIST AI RMF Core](https://airc.nist.gov/airmf-resources/airmf/5-sec-core/)
-- [Replit Agent](https://docs.replit.com/learn/build-with-agent)
+- [Replit — Import from a provider](https://docs.replit.com/build/import-from-providers)
+- [Replit — Information security](https://docs.replit.com/teams/information-security/overview)
 - [Lovable Security](https://docs.lovable.dev/features/security)
 - [Lovable GitHub integration](https://docs.lovable.dev/integrations/github)
 - [Bolt Supabase integration limits](https://support.bolt.new/integrations/supabase)
-- [Bolt security audit on publish](https://bolt.new/blog/security-audit-on-publish)
