@@ -80,8 +80,40 @@ test("el cron habilitado devuelve snapshot minimo y 503 ante deuda accionable", 
       async () => unhealthy,
     );
     assert.equal(response.status, 503);
-    assert.deepEqual(await response.json(), { enabled: true, ...unhealthy });
+    const body = await response.json();
+    assert.equal(body.enabled, true);
+    assert.deepEqual(body.summary, unhealthy.summary);
+    assert.deepEqual(body.health, unhealthy.health);
+    assert.match(body.correlationId, /^[0-9a-f-]{36}$/);
   } finally {
+    if (previousSecret === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = previousSecret;
+    if (previousEnabled === undefined) delete process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED;
+    else process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED = previousEnabled;
+  }
+});
+
+test("un fallo interno expone solo codigo y correlacion, nunca el mensaje crudo", async () => {
+  const previousSecret = process.env.CRON_SECRET;
+  const previousEnabled = process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED;
+  const previousConsoleError = console.error;
+  const logs: unknown[][] = [];
+  process.env.CRON_SECRET = "fake-cron-secret-for-tests-000000000000";
+  process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED = "true";
+  console.error = (...args: unknown[]) => { logs.push(args); };
+  try {
+    const response = await handleSupportingDocumentCleanup(
+      request("Bearer fake-cron-secret-for-tests-000000000000"),
+      async () => { throw new Error("ruta privada y token secreto"); },
+    );
+    assert.equal(response.status, 500);
+    const body = await response.json();
+    assert.equal(body.errorCode, "CLEANUP_RUN_FAILED");
+    assert.match(body.correlationId, /^[0-9a-f-]{36}$/);
+    assert.doesNotMatch(JSON.stringify(body), /ruta privada|token secreto/);
+    assert.doesNotMatch(JSON.stringify(logs), /ruta privada|token secreto/);
+  } finally {
+    console.error = previousConsoleError;
     if (previousSecret === undefined) delete process.env.CRON_SECRET;
     else process.env.CRON_SECRET = previousSecret;
     if (previousEnabled === undefined) delete process.env.SUPPORTING_DOCUMENT_CLEANUP_ENABLED;

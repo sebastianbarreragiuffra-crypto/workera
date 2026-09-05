@@ -27,7 +27,9 @@ dominio laboral. No activa proveedores ni cambia datos hospedados.
    reintenta como máximo tres veces y termina en auditoría sin guardar la ruta.
 9. Cada ejecución devuelve un snapshot agregado sin PII. Un fallo terminal o
    un backlog mayor al umbral responde HTTP 503 para que el monitor del cron
-   pueda alertar; el umbral conservador es 26 horas.
+   pueda alertar; el umbral conservador es 26 horas. Cada respuesta habilitada
+   incluye un UUID de correlación y los fallos se registran solo con código y
+   clase, nunca con la ruta o el mensaje crudo de Storage.
 
 ## Entrega vigente
 
