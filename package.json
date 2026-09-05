@@ -19,7 +19,8 @@
     "test:tenant": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/tenant/**/*.test.ts\"",
     "test:schedules": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/schedules/**/*.test.ts\"",
     "readiness:report": "tsx scripts/pilot-readiness.mts",
-    "readiness:local": "tsx scripts/pilot-readiness.mts --enforce=LOCAL_SYNTHETIC"
+    "readiness:local": "tsx scripts/pilot-readiness.mts --enforce=LOCAL_SYNTHETIC",
+    "readiness:staging-data": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/staging-data-inventory.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

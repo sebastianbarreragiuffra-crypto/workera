@@ -64,6 +64,7 @@ const SERVICE_ROLE_DIRECTORIES = [
   "expense-email",
   "expense-whatsapp",
   "supporting-document-cleanup",
+  "staging-preflight",
 ];
 
 test("los límites que usan privilegios administrativos declaran server-only", () => {

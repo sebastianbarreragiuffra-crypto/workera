@@ -17,16 +17,11 @@ Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base d
 - **Organización**: Arcotex DEV
 - **Región**: `sa-east-1` (São Paulo)
 - **Ref**: ver tu `.env.staging` local (nunca en este doc — este archivo se sube a Git)
-- **Migraciones remotas verificadas**: aplicadas hasta `20260902170000`,
-  comprobado con `npx supabase db push --dry-run --linked` el 4 de septiembre
-  de 2026. La cifra anterior de este documento, 59 hasta `20260901180000`,
-  había quedado desactualizada. El dry run no escribe nada y es la única forma
-  confiable de saber dónde está staging: vuelve a correrlo antes de cualquier
-  despliegue en vez de creerle a esta línea.
-- **Pendiente de master**: cinco migraciones, `20260903100000` y las cuatro de
-  MFA, de `20260903140000` a `20260904160000`.
-- **Pendiente de `codex/phases2-6-autonomous`**: diez migraciones,
-  de `20260904170000` a `20260904224000`.
+- **Migraciones remotas verificadas**: un dry-run desde `master` en `ebc4b61`,
+  realizado el 5 de septiembre de 2026, reporta **21 migraciones pendientes**:
+  `20260904120000` y el rango `20260904170000`–`20260905190000`. El mismo
+  control confirmó que el lint remoto de `public` y `extensions` no informa
+  errores. El dry-run no escribe nada y debe repetirse antes de cada corte.
 
 > **No hacer un push único antes de inscribir MFA.** La rama ya está rebasada
 > sobre master, pero `20260904120000` es no inerte. El despliegue preferido usa
@@ -35,6 +30,27 @@ Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base d
 > completo con `--include-all` y las diez migraciones de Rendiciones. El fallback
 > explícito del OWNER es: preparar el rollback, aplicar las cinco de master,
 > completar la inscripción y solo entonces aplicar las diez de esta rama.
+
+## Inventario agregado antes del saneamiento
+
+Ejecutar desde un PC autorizado:
+
+```bash
+npm run readiness:staging-data
+```
+
+El comando usa `.env.staging`, realiza exclusivamente consultas `HEAD` de
+conteo sobre una allowlist fija y nunca descarga filas, nombres, correos,
+documentos, rutas ni identificadores. También exige que los 15 flags críticos
+estén explícitamente en sus valores seguros; depender de un default implícito
+se considera drift operacional.
+
+`REQUIRES_CLASSIFICATION` es el resultado esperado mientras existan los 97
+registros sin evidencia revisada. No significa que sean reales ni sintéticos:
+impide adivinarlo. Privacy/Platform debe clasificar y registrar la disposición
+en un sistema privado; el conteo no autoriza borrar filas, aplicar migraciones
+ni habilitar proveedores. `READY_FOR_SYNTHETIC_SEED` solo indica que las tablas
+clasificadas están vacías y los flags seguros, no que staging completo sea GO.
 - **Datos maestros**: 97 registros de empleados presentes en staging al cierre
   de la Fase 1. La depuración de posibles duplicados es una tarea de datos y no
   forma parte del despliegue estructural.
