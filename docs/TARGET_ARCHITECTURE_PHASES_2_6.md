@@ -1,7 +1,7 @@
 # Arquitectura total de GESTORA — plataforma multiempresa
 
 Estado al 5 de septiembre de 2026. Base auditada: rama
-`codex/phases2-6-autonomous`, commit `602800a`, 37 commits delante y 0 detrás de
+`codex/phases2-6-autonomous`, hasta commit `a822043`, 45 commits delante y 0 detrás de
 `origin/master` antes de redactar esta revisión. Este documento consolida la
 arquitectura vigente y objetivo de **todo el producto**: control plane,
 workspaces, asistencia, Rendiciones, documentos, integraciones, datos,
@@ -222,8 +222,11 @@ backlog retenido intencionalmente de una recuperación técnica.
 - Una escritura entre dominios debe cruzar un RPC/use case declarado. Las
   lecturas agregadas entre dominios deben migrar a read models o vistas
   versionadas antes de extraer un servicio.
-- Falta un test de dependencias/ownership que haga estas reglas ejecutables; por
-  eso la extraibilidad es objetivo arquitectónico y no una garantía actual.
+- El gate de límites de módulo impide dependencias nuevas no autorizadas entre
+  plataforma, laboral, Rendiciones e integraciones. Los inventarios ejecutables
+  cubren HTTP, Server Actions, 85 RPC y 13 operaciones Storage. La extracción
+  física sigue siendo un objetivo condicionado por carga y ownership, no una
+  garantía del despliegue actual.
 
 ### Mapa de dominios y propiedad
 
@@ -714,7 +717,7 @@ Orden de ejecución recomendado:
 
 | Bloque | Puede ejecutarse sin activar proveedores | Requiere owner/ambiente hospedado |
 |---|---|---|
-| P0-A arquitectura | límites de módulo, inventarios HTTP/Server Actions, cuarentena y entregas financieras de Rendiciones, más upload y descarga laboral tenant-aware, atómicos, limitados y auditados; faltan inventario total RPC/Storage, tenant sintético del resto laboral, límites de decisiones/admin/otras exportaciones, adapter antimalware, telemetría y runbooks | no |
+| P0-A arquitectura | límites de módulo; inventarios ejecutables de HTTP, Server Actions, RPC y Storage; cuarentena y entregas financieras de Rendiciones; upload y descarga laboral tenant-aware, atómicos, limitados y auditados. Faltan tenant sintético del resto laboral, límites de decisiones/admin/otras exportaciones, adapter antimalware, telemetría hospedada y runbooks operacionales | no |
 | P0-B plataforma | configuración de grants/secrets, staging sintético y automatización de evidencias | acceso administrativo controlado |
 | P0-C seguridad real | MFA rollout, restore drill, canarios, alertas/paging, DAST y pentest | sí; ventana, cuentas de recuperación y responsables presentes |
 | P0-D aceptación | cierre de threat model, riesgo residual, privacidad/legal y decisión GO/NO-GO | responsables de negocio, seguridad y datos |

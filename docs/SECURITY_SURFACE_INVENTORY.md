@@ -1,12 +1,13 @@
 # Inventario ejecutable de superficies
 
-Estado: **implementado como gate de CI para Route Handlers y Server Actions**.
+Estado: **implementado como gate de CI para HTTP, Server Actions, RPC y Storage**.
 Las fuentes de verdad tipadas son
 `src/lib/architecture/request-surfaces.ts` y
-`src/lib/architecture/server-action-surfaces.ts`. Sus tests descubren los
-archivos reales de `src/app`: una ruta/método o acción exportada nueva, un
-archivo movido o un feature flag que deje de consultarse rompe la suite hasta
-que exista una decisión explícita de seguridad.
+`src/lib/architecture/server-action-surfaces.ts`, además de
+`src/lib/architecture/data-surfaces.ts`. Sus tests descubren los archivos
+reales de `src`: una ruta/método, acción exportada, RPC u operación Storage
+nueva, un archivo movido o un feature flag que deje de consultarse rompe la
+suite hasta que exista una decisión explícita de seguridad.
 
 El registro cubre las 20 superficies HTTP actuales y declara para cada una:
 
@@ -23,6 +24,13 @@ máximo de archivos, abuso, auditoría y deuda de aislamiento laboral. El gate
 también impide autorizar con roles/usuarios recibidos por `FormData`, exige que
 la autorización preceda al parseo de bytes y evita que aparezca una familia de
 uploads sin un máximo explícito de hasta 10 MiB.
+
+El inventario de datos cubre exactamente 26 archivos consumidores, 85 nombres
+RPC permitidos y 13 operaciones Storage agrupadas en 12 perfiles. Declara la
+identidad de ejecución (sesión o capability `service_role`), alcance tenant,
+autorización, auditoría, clase de datos, bucket y estado de cuarentena. Los RPC
+dinámicos tienen una allowlist cerrada; un capability inexistente, un bucket
+nuevo o una operación no registrada rompe CI.
 
 ## Lectura operativa actual
 
@@ -50,8 +58,10 @@ uploads sin un máximo explícito de hasta 10 MiB.
 - Los uploads laborales ahora requieren una reserva PostgreSQL por actor y
   trabajador, magic bytes, límite doble de 10 MiB y cuota distribuida de 30
   objetos/100 MiB por hora. Metadata y licencias se confirman por RPC atómico;
-  los INSERT directos quedaron revocados. Descarga y sweeper vencido continúan
-  como brechas explícitas.
+  los INSERT directos quedaron revocados. La descarga revalida empresa, rol,
+  membresía y AAL2, consume una cuota durable y entrega bytes sin revelar signed
+  URL. El proveedor antimalware y el sweeper de reservas vencidas siguen como
+  brechas explícitas.
 
 Este inventario no sustituye RLS, MFA, DAST, restore drill ni revisión humana.
 Tampoco convierte una superficie con `blockers` en apta para marcha blanca.
