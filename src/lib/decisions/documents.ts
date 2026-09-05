@@ -172,26 +172,3 @@ export async function uploadSupportingDocument(
     throw error;
   }
 }
-
-const SIGNED_URL_TTL_SECONDS = 60;
-
-/**
- * URL firmada de corta duración para ver/descargar un documento -- nunca una
- * URL pública permanente (PASO 20/Fase 8C sección L). `storage.objects` solo
- * permite SELECT a `is_privileged_admin()` (ver migración
- * 20260821100000_phase8_documents_storage_bucket.sql), así que esto falla
- * con el cliente de sesión normal para cualquier otro rol -- RLS sigue
- * siendo la autoridad real, no un chequeo de conveniencia en la UI.
- */
-export async function getSignedDocumentUrl(supabase: SupabaseClient<Database>, documentId: string): Promise<string> {
-  const { data: doc, error: docError } = await supabase.from("supporting_documents").select("storage_path").eq("id", documentId).single();
-  if (docError || !doc) {
-    throw new Error(`getSignedDocumentUrl: documento no encontrado o sin acceso (${documentId}).`);
-  }
-
-  const { data, error } = await supabase.storage.from("supporting-documents").createSignedUrl(doc.storage_path, SIGNED_URL_TTL_SECONDS);
-  if (error || !data) {
-    throw new Error(`getSignedDocumentUrl: fallo generando URL firmada: ${error?.message ?? "sin datos"}`);
-  }
-  return data.signedUrl;
-}

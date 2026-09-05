@@ -10,7 +10,6 @@ import { EmptyState, ErrorState } from "../../../components/shell/StateMessages"
 import { PageHeader } from "../../../components/shell/PageHeader";
 import { SectionCard } from "../../../components/shell/SectionCard";
 import { FilterBar, type FilterOption } from "../../../components/shell/FilterBar";
-import { viewDocumentAction } from "./actions";
 import { DocumentUploadForm } from "./DocumentUploadForm";
 
 const AREA_LABEL: Record<AreaCode, string> = {
@@ -111,12 +110,15 @@ export default async function DocumentCenterPage({ searchParams }: { searchParam
                   <td className="px-4 py-3 text-slate-600">{formatDateLong(doc.uploadedAt.slice(0, 10))}</td>
                   <td className="px-4 py-3 text-right">
                     {doc.canView ? (
-                      <form action={viewDocumentAction}>
-                        <input type="hidden" name="documentId" value={doc.id} />
-                        <button type="submit" className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
-                          Ver
-                        </button>
-                      </form>
+                      // Un <a> nativo evita que el prefetch de Next consuma
+                      // cuota/auditoria antes de que la persona haga clic.
+                      <a
+                        href={`/licencias/documento/${doc.id}`}
+                        rel="noreferrer"
+                        className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        Descargar
+                      </a>
                     ) : (
                       <span className="text-xs text-slate-400">Solo RRHH</span>
                     )}

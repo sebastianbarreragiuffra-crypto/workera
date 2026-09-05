@@ -575,7 +575,9 @@ ticket; no se acepta un comentario permanente como control.
   de host HTTPS y cero redirects en descargas server-side.
 - Cifrado en tránsito y en reposo del proveedor; secretos en gestor del ambiente,
   rotables y separados por staging/producción.
-- Storage privado, rutas tenant-aware, URL firmada corta y limpieza de huérfanos.
+- Storage privado, rutas tenant-aware y limpieza de huérfanos. Objetos ya
+  liberados pueden usar URL firmada corta; documentos laborales sin escaneo se
+  entregan por proxy como adjunto, nunca inline ni mediante URL expuesta.
 - PDF/JPG/PNG siguen siendo entrada no confiable. Antes de habilitar correo o
   WhatsApp se exige cuarentena, estado `PENDING_SCAN`, antimalware/CDR según el
   riesgo, bloqueo de descarga hasta resultado limpio y respuesta con
@@ -712,7 +714,7 @@ Orden de ejecución recomendado:
 
 | Bloque | Puede ejecutarse sin activar proveedores | Requiere owner/ambiente hospedado |
 |---|---|---|
-| P0-A arquitectura | límites de módulo, inventarios HTTP/Server Actions, cuarentena y entregas financieras de Rendiciones, más upload laboral reservado/atómico con cuota; faltan inventario total RPC/Storage, tenant sintético laboral, límites de decisiones/admin/descargas, adapter antimalware, telemetría y runbooks | no |
+| P0-A arquitectura | límites de módulo, inventarios HTTP/Server Actions, cuarentena y entregas financieras de Rendiciones, más upload y descarga laboral tenant-aware, atómicos, limitados y auditados; faltan inventario total RPC/Storage, tenant sintético del resto laboral, límites de decisiones/admin/otras exportaciones, adapter antimalware, telemetría y runbooks | no |
 | P0-B plataforma | configuración de grants/secrets, staging sintético y automatización de evidencias | acceso administrativo controlado |
 | P0-C seguridad real | MFA rollout, restore drill, canarios, alertas/paging, DAST y pentest | sí; ventana, cuentas de recuperación y responsables presentes |
 | P0-D aceptación | cierre de threat model, riesgo residual, privacidad/legal y decisión GO/NO-GO | responsables de negocio, seguridad y datos |

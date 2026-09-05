@@ -53,9 +53,10 @@ Fronteras:
 
 - Riesgo: login, recuperación, challenge MFA, APIs, webhooks, uploads,
   exportaciones o acciones admin consumen recursos o revelan cuentas/datos.
-- Evidencia: Rendiciones financieras y uploads laborales ya tienen cuotas
-  distribuidas; persisten login, descargas y acciones administrativas sin
-  cobertura completa, y nada fue comprobado hospedado.
+- Evidencia: Rendiciones financieras, uploads laborales y descarga de
+  documentos laborales ya tienen cuotas distribuidas; persisten login, otras
+  exportaciones/descargas laborales y acciones administrativas sin cobertura
+  completa, y nada fue comprobado hospedado.
 - Estado: `BLOCKED`.
 - Control requerido: límites por identidad/IP/empresa, protección adaptativa o
   CAPTCHA cuando proceda, respuestas no enumerables, alerta y política explícita
@@ -94,6 +95,7 @@ Fronteras:
 - Evidencia: límites, MIME + magic bytes y Storage privado. Rendiciones posee
   cuarentena durable `PENDING_SCAN`/`CLEAN` con leases/fencing; documentos
   laborales usan reserva personal, commit atómico y compensación de huérfano,
+  descarga tenant-aware auditada y entrega forzada como adjunto no ejecutable,
   pero todavía no un estado de escaneo. No hay proveedor antimalware/CDR real.
 - Estado: `BLOCKED` para conectores externos y piloto con archivos reales.
 - Control requerido: conectar antimalware/CDR a la cuarentena ya implementada,

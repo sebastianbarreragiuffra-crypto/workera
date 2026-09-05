@@ -34,7 +34,7 @@ function actionSegments(source: string): Array<{ name: string; body: string }> {
   }));
 }
 
-test("los 16 archivos y 75 Server Actions estan inventariados exactamente", () => {
+test("los 16 archivos y 74 Server Actions estan inventariados exactamente", () => {
   const discovered = new Map(sourceFiles(APP_ROOT).map((filePath) => {
     const source = readFileSync(filePath, "utf8");
     return [relativeSource(filePath), exportedActions(source).sort()] as const;
@@ -47,7 +47,7 @@ test("los 16 archivos y 75 Server Actions estan inventariados exactamente", () =
   assert.equal(registered.size, SERVER_ACTION_SURFACES.length, "hay un archivo duplicado en el inventario");
   assert.deepEqual([...registered.keys()].sort(), [...discovered.keys()].sort());
   for (const [source, actions] of discovered) assert.deepEqual(registered.get(source), actions, source);
-  assert.equal([...discovered.values()].flat().length, 75);
+  assert.equal([...discovered.values()].flat().length, 74);
 });
 
 test("cada perfil conserva evidencia de autenticacion/autorizacion en su fuente", () => {

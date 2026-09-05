@@ -19,14 +19,14 @@ test("getCurrentProfile solo devuelve perfiles activos para páginas, actions y 
   assert.match(sessionSource, /\.maybeSingle\(\)/);
 });
 
-test("documentos autoriza antes de leer archivos o generar signed URLs", () => {
-  for (const actionName of ["uploadGeneralDocumentAction", "viewDocumentAction"]) {
-    const start = documentsActionsSource.indexOf(`export async function ${actionName}`);
-    assert.notEqual(start, -1, `${actionName} debe existir`);
-    const body = documentsActionsSource.slice(start, documentsActionsSource.indexOf("\n}", start) + 2);
-    assert.ok(body.indexOf("await requireActiveProfile()") >= 0, `${actionName} debe exigir profile activo`);
-    assert.ok(body.indexOf("await requireActiveProfile()") < body.indexOf("await createClient()"), `${actionName} debe autorizar antes de crear el cliente`);
-  }
+test("documentos autoriza antes de leer el archivo de una carga", () => {
+  const actionName = "uploadGeneralDocumentAction";
+  const start = documentsActionsSource.indexOf(`export async function ${actionName}`);
+  assert.notEqual(start, -1, `${actionName} debe existir`);
+  const body = documentsActionsSource.slice(start, documentsActionsSource.indexOf("\n}", start) + 2);
+  assert.ok(body.indexOf("await requireActiveProfile()") >= 0, `${actionName} debe exigir profile activo`);
+  assert.ok(body.indexOf("await requireActiveProfile()") < body.indexOf("await createClient()"), `${actionName} debe autorizar antes de crear el cliente`);
+  assert.doesNotMatch(documentsActionsSource, /createSignedUrl|getSignedDocumentUrl/);
 });
 
 test("todas las acciones de revisión diaria autorizan antes de operar", () => {

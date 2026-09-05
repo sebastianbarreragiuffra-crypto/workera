@@ -17,7 +17,7 @@ El registro cubre las 20 superficies HTTP actuales y declara para cada una:
 - control de abuso, auditoría, feature flag y clase de datos;
 - bloqueos concretos antes de piloto o producción.
 
-El registro adicional cubre exactamente los 16 archivos `use server` y sus 75
+El registro adicional cubre exactamente los 16 archivos `use server` y sus 74
 acciones exportadas. Registra autenticación, resolución tenant, validación,
 máximo de archivos, abuso, auditoría y deuda de aislamiento laboral. El gate
 también impide autorizar con roles/usuarios recibidos por `FormData`, exige que
@@ -36,9 +36,11 @@ uploads sin un máximo explícito de hasta 10 MiB.
 - La importación bancaria de Rendiciones ya tiene sesión, tenant, permiso,
   same-origin, límite de 2 MiB, cuota durable e idempotencia en base de datos.
 - Las cuatro entregas de Rendiciones ya revalidan empresa/recurso en la base,
-  consumen un límite distribuido y escriben auditoría atómica. Las descargas
-  laborales aún tienen esa deuda y, además, siguen limitadas a ARCOTEX hasta
-  completar el aislamiento multiempresa.
+  consumen un límite distribuido y escriben auditoría atómica. La descarga de
+  documentos laborales ahora hace lo mismo, deriva la empresa desde el
+  trabajador y sirve adjuntos sin signed URL; exportaciones de asistencia,
+  nómina y proveedores aún conservan deuda de cuota/auditoría y parte del
+  dominio laboral continúa limitado a ARCOTEX.
 - Los callbacks de identidad dependen de controles de Auth hospedados que aún
   deben verificarse; la configuración local no es evidencia de producción.
 - El reintento de Google Forms de colaciones ya no acepta payload/menú/nómina

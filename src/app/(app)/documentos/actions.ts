@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../lib/auth/session";
-import { uploadSupportingDocument, getSignedDocumentUrl, MAX_SUPPORTING_DOCUMENT_SIZE_BYTES, type SupportingDocumentType, type SupportingDocumentRelation } from "../../../lib/decisions/documents";
+import { uploadSupportingDocument, MAX_SUPPORTING_DOCUMENT_SIZE_BYTES, type SupportingDocumentType, type SupportingDocumentRelation } from "../../../lib/decisions/documents";
 import { assertEmployeeAccessAllowed, type CallerRole } from "../../../lib/access/scope";
 
 async function requireActiveProfile() {
@@ -52,12 +52,4 @@ export async function uploadGeneralDocumentAction(formData: FormData) {
   revalidatePath("/documentos");
   if (relation) revalidatePath("/revision-diaria");
   redirect(`/documentos?hecho=documento-adjuntado`);
-}
-
-export async function viewDocumentAction(formData: FormData) {
-  await requireActiveProfile();
-  const supabase = await createClient();
-  const documentId = String(formData.get("documentId"));
-  const signedUrl = await getSignedDocumentUrl(supabase, documentId);
-  redirect(signedUrl);
 }

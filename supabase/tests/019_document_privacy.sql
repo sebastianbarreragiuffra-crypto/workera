@@ -5,6 +5,8 @@ create extension if not exists pgtap;
 
 begin;
 select plan(7);
+-- Desde P0-A la lectura documental de un rol privilegiado exige AAL2.
+set local request.jwt.claim.aal = 'aal2';
 
 insert into public.profiles (id, display_name, role) values
   ('33000000-0000-0000-0000-000000000001', 'Fixture Admin Doc', 'ADMIN_RRHH'),
@@ -67,13 +69,13 @@ select is(
 
 reset role;
 
--- 5) ADMIN_RRHH SÍ puede leer la tabla base, incluido storage_path.
+-- 5) ADMIN_RRHH con AAL2 SÍ puede leer la tabla base, incluido storage_path.
 set local role authenticated;
 set local request.jwt.claim.sub = '33000000-0000-0000-0000-000000000001';
 
 select isnt_empty(
   $$ select storage_path from public.supporting_documents $$,
-  'ADMIN_RRHH puede leer storage_path directamente desde la tabla base'
+  'ADMIN_RRHH con AAL2 puede leer storage_path directamente desde la tabla base'
 );
 
 reset role;

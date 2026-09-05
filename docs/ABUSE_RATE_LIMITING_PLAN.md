@@ -2,8 +2,9 @@
 
 Estado: `PARTIALLY_IMPLEMENTED`. Rendiciones ya posee cuotas durables para
 ingreso bancario y conectores, además de autorización + rate limit + auditoría
-atómica para sus cuatro entregas financieras. Login, descargas laborales,
-Server Actions administrativas y el borde público conservan brechas explícitas.
+atómica para sus cuatro entregas financieras. La carga y descarga de documentos
+laborales también está cubierta; login, otras exportaciones laborales, Server
+Actions administrativas y el borde público conservan brechas explícitas.
 Los valores marcados `TBD`/`PROPOSED` siguen sin ser decisiones finales.
 
 Fuentes oficiales consultadas: [Supabase Auth Rate Limits](https://supabase.com/docs/guides/auth/rate-limits) (documentación oficial, consultada en este gate), [OWASP API Security Top 10 — API4:2023 Unrestricted Resource Consumption](https://owasp.org/API-Security/editions/2023/en/0x11-t10/) (verificado contra el documento oficial en este gate de hardening), RFC 6585 (`429 Too Many Requests`), RFC 9110 §10.2.3 (`Retry-After`).
@@ -118,16 +119,27 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
   Next.js. MIME/extensión se fijan en DB y magic bytes se validan antes de subir.
 - **Auditoría**: cada commit de metadata escribe `SUPPORTING_DOCUMENT_UPLOADED`;
   un intento fallido no amplifica la bitácora.
-- **Pendiente**: calibrar valores con marcha blanca, limitar/auditar descargas,
-  conectar antimalware y operar un sweeper de reservas vencidas.
+- **Pendiente**: calibrar valores con marcha blanca, conectar antimalware y
+  operar un sweeper de reservas vencidas.
 
-### 2.7 Sincronización con Workera (implementada pero apagada)
+### 2.7 Descarga de documentos laborales (`IMPLEMENTED_LOCAL`)
+- **Clave**: `company_id + actor_id + supporting_document.download`.
+- **Ventana/límite inicial**: 60 autorizaciones cada 5 minutos.
+- **Anti-bypass**: el RPC y la policy de Storage revalidan rol privilegiado,
+  AAL2, documento y membresía activa en la empresa derivada del trabajador.
+- **Respuesta**: `429` con `Retry-After`; una caída del guard devuelve `503`.
+  La ruta sirve un adjunto privado y nunca una signed URL al navegador.
+- **Auditoría**: cada autorización y el primer bloqueo de la ventana se escriben
+  en `audit_log`; el contador se satura en 62 para evitar amplificación.
+- **Pendiente**: calibrar el valor y conectar alertas/telemetría hospedada.
+
+### 2.8 Sincronización con Workera (implementada pero apagada)
 - **Clave**: N/A (proceso server-to-server, no un usuario final) — control por diseño del cron/job, no por rate limit de usuario.
 - **Ventana/límite**: `TBD` — depende enteramente de los rate limits que la propia Workera imponga, que hoy son desconocidos (sin documentación oficial). El intento manual previo que recibió `HTTP 429` de Workera confirma que Workera **sí aplica rate limiting del lado servidor**, pero no revela su umbral exacto ni su ventana.
 - **Justificación**: evitar que un reintento mal configurado sature la API de Workera y active sus propios límites o bloqueos.
 - **Anti-bypass**: respetar cualquier header `Retry-After` que Workera devuelva (ya contemplado conceptualmente en `WorkeraRateLimitError.retryAfterMs` en `errors.ts`, aunque sin cliente HTTP real que lo dispare todavía).
 
-### 2.8 Acciones administrativas (`ADMIN_RRHH`: cambio de rol, cierre de período)
+### 2.9 Acciones administrativas (`ADMIN_RRHH`: cambio de rol, cierre de período)
 - **Clave**: usuario administrador.
 - **Ventana/límite**: `TBD` — son acciones infrecuentes por diseño; un límite bajo (ej. unas pocas por hora) es razonable como señal de anomalía, no como fricción operativa esperada.
 - **Justificación**: una cuenta admin comprometida que intente escalar/cerrar períodos repetidamente debe ser detectable.
@@ -139,14 +151,15 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
   requiere afinidad de instancia. Login/borde puede necesitar un store dedicado
   según el hosting y la latencia que se midan.
 - **Comportamiento ante caída del rate limiter**: las entregas financieras de
-  Rendiciones ya son fail-closed. Falta decidirlo para login, borde y flujos
-  laborales.
+  Rendiciones y documentos laborales ya son fail-closed. Falta decidirlo para
+  login, borde y otros flujos laborales.
 - **Protección contra bypass**: el rate limiting nunca debe ser la única defensa (ver capas ya implementadas: RLS, guard de sesión, validación de contraseña de Supabase Auth); nunca confiar en un header de IP sin verificar la cadena de confianza del proxy que lo generó.
 - **Encabezados confiables**: cualquier IP usada para limitar debe venir de una fuente verificada por la plataforma de hosting (no aceptar `X-Forwarded-For` arbitrario de un cliente no confiable) — mismo principio que Supabase exige para habilitar `Sb-Forwarded-For`.
 
 ## 4. Qué todavía NO está implementado
 
 No hay aún control propio para login/recuperación, rate limit de borde para
-webhooks, ni protección de volumen para descargas laborales o acciones
-administrativas. Los defaults de Auth local no deben asumirse válidos en
-producción: deben confirmarse y ensayarse en el proyecto hospedado.
+webhooks, ni protección de volumen para exportaciones de asistencia, nómina,
+proveedores o acciones administrativas. Los defaults de Auth local no deben
+asumirse válidos en producción: deben confirmarse y ensayarse en el proyecto
+hospedado.

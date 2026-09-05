@@ -20,6 +20,7 @@ export type RequestTenantScope =
   | "NONE"
   | "CONTROL_PLANE"
   | "EXPLICIT_COMPANY"
+  | "RESOURCE_COMPANY"
   | "LEGACY_ARCOTEX"
   | "ROW_SCOPED_JOB"
   | "GLOBAL_MINIMIZED";
@@ -196,11 +197,11 @@ export const REQUEST_SURFACES = [
   },
   {
     source: "src/app/(app)/licencias/documento/[documentId]/route.ts", route: "/licencias/documento/[documentId]", method: "GET", kind: "DOWNLOAD",
-    domain: "workforce", authentication: "SESSION", tenantScope: "LEGACY_ARCOTEX",
-    authorization: "Perfil activo, RLS privilegiada del documento y URL privada firmada.",
-    mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "MISSING",
-    auditControl: "MISSING", featureFlag: null, dataClass: "SENSITIVE_HR",
-    blockers: ["APPLICATION_RATE_LIMIT", "EXPORT_AUDIT", "LABOR_MULTI_TENANCY"],
+    domain: "workforce", authentication: "SESSION_PRIVILEGED_ROLE", tenantScope: "RESOURCE_COMPANY",
+    authorization: "Rol privilegiado; RPC y Storage revalidan MFA, documento y membresia en la empresa del trabajador.",
+    mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "DATABASE_RATE_LIMIT",
+    auditControl: "DATA_ACCESS_LEDGER", featureFlag: null, dataClass: "SENSITIVE_HR",
+    blockers: ["ANTIMALWARE_PROVIDER"],
   },
   {
     source: "src/app/(expenses)/empresas/[companySlug]/rendiciones/contabilidad/[exportId]/csv/route.ts", route: "/empresas/[companySlug]/rendiciones/contabilidad/[exportId]/csv", method: "GET", kind: "DOWNLOAD",

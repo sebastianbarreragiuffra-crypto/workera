@@ -8,8 +8,8 @@ import { areasVisibleToRole, assertAreaAccessAllowed, type AreaCode, type Caller
  * (Fase 7/8 -- vista sin `storage_path`, ver migración
  * 20260817152542) para que un supervisor pueda ver QUÉ existe sin necesitar
  * acceso a `storage.objects`. El contenido/descarga real sigue siendo
- * exclusivo de SUPER_ADMIN/ADMIN_RRHH vía `getSignedDocumentUrl` (RLS lo
- * exige, no solo esta pantalla).
+ * exclusivo de SUPER_ADMIN/ADMIN_RRHH vía el Route Handler de descarga (RLS,
+ * membresía de empresa, MFA, cuota y auditoría lo exigen en base).
  */
 
 export interface DocumentCenterEntry {

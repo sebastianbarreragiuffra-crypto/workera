@@ -113,11 +113,10 @@ function ApprovalPanel({ license, onDone }: { license: MedicalLicenseListItem; o
         </p>
         <a
           href={`/licencias/documento/${license.documentId}`}
-          target="_blank"
           rel="noreferrer"
           className="inline-block rounded-md border border-arcotex-blue px-3 py-1.5 text-sm font-medium text-arcotex-blue hover:bg-arcotex-blue/5"
         >
-          Ver documento
+          Descargar documento
         </a>
       </div>
 

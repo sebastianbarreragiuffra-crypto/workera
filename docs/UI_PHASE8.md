@@ -167,9 +167,11 @@ WORKERA -> workera_attendance_events (Fase 6A/6B)
   por su primer segmento: exige una reserva corta, personal y limitada en DB.
   El bucket y la aplicación imponen 10 MiB + PDF/JPG/PNG; la aplicación valida
   magic bytes; metadata y licencia se confirman por RPC atómico; un fallo
-  intenta eliminar el objeto aún huérfano. SELECT/descarga sigue exclusivo de
-  `is_privileged_admin()` mediante URL firmada corta. No restaurar el antiguo
-  INSERT directo ni rutas que contengan el filename original.
+  intenta eliminar el objeto aún huérfano. SELECT/descarga exige rol
+  privilegiado, AAL2 y membresía en la empresa real del trabajador; consume
+  cuota y auditoría en DB y entrega un adjunto privado sin signed URL ni render
+  inline. No restaurar el antiguo INSERT directo ni rutas que contengan el
+  filename original.
 
 ## Empleados
 

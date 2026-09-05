@@ -4,7 +4,7 @@
  * mutacion aparezca sin revision al agregar codigo.
  */
 export type ServerActionDomain = "identity" | "platform" | "workforce" | "expenses";
-export type ServerActionTenantScope = "NONE" | "CONTROL_PLANE" | "EXPLICIT_COMPANY" | "LEGACY_ARCOTEX";
+export type ServerActionTenantScope = "NONE" | "CONTROL_PLANE" | "EXPLICIT_COMPANY" | "RESOURCE_COMPANY" | "LEGACY_ARCOTEX";
 export type ServerActionAuthentication =
   | "PUBLIC_AUTH_FLOW"
   | "SESSION"
@@ -24,6 +24,7 @@ export type ServerActionAuditControl =
   | "PARTIAL"
   | "MISSING";
 export type ServerActionBlocker =
+  | "ANTIMALWARE_PROVIDER"
   | "APPLICATION_RATE_LIMIT"
   | "HOSTED_AUTH_CONTROLS"
   | "HOSTED_OBSERVABILITY"
@@ -145,11 +146,11 @@ export const SERVER_ACTION_SURFACES = [
   },
   {
     source: "src/app/(app)/documentos/actions.ts",
-    actions: ["uploadGeneralDocumentAction", "viewDocumentAction"],
-    domain: "workforce", tenantScope: "LEGACY_ARCOTEX", authentication: "SESSION",
+    actions: ["uploadGeneralDocumentAction"],
+    domain: "workforce", tenantScope: "RESOURCE_COMPANY", authentication: "SESSION",
     authorizationEvidence: ["requireActiveProfile", "assertEmployeeAccessAllowed"], validation: "DOMAIN_VALIDATED", uploadMaxBytes: 10 * MIB,
     abuseControl: "DOMAIN_LIMITS_PARTIAL", auditControl: "PARTIAL", dataClass: "SENSITIVE_HR",
-    blockers: ["APPLICATION_RATE_LIMIT", "LABOR_MULTI_TENANCY"],
+    blockers: ["ANTIMALWARE_PROVIDER"],
   },
   {
     source: "src/app/(app)/licencias/actions.ts",

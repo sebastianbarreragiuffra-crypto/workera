@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  getSignedDocumentUrl,
   MAX_SUPPORTING_DOCUMENT_SIZE_BYTES,
   uploadSupportingDocument,
   validateSupportingDocumentFile,
@@ -18,8 +17,6 @@ function mockSupabase(options: {
   failRegister?: boolean;
   failUpload?: boolean;
   failRemove?: boolean;
-  docRow?: { storage_path: string } | null;
-  signedUrlOk?: boolean;
 } = {}) {
   const calls: Array<{ kind: string; args: unknown }> = [];
   const client = {
@@ -56,23 +53,8 @@ function mockSupabase(options: {
               ? { data: null, error: { message: "remove failed" } }
               : { data: [], error: null });
           },
-          createSignedUrl: () => options.signedUrlOk === false
-            ? Promise.resolve({ data: null, error: { message: "no access" } })
-            : Promise.resolve({ data: { signedUrl: "https://example.test/signed" }, error: null }),
         };
       },
-    },
-    from(table: string) {
-      if (table !== "supporting_documents") throw new Error(`tabla inesperada: ${table}`);
-      return {
-        select: () => ({
-          eq: () => ({
-            single: () => Promise.resolve(options.docRow
-              ? { data: options.docRow, error: null }
-              : { data: null, error: { message: "not found" } }),
-          }),
-        }),
-      };
     },
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -166,12 +148,4 @@ test("las relaciones se envían al RPC cerrado y nunca se insertan desde TypeScr
     p_late_arrival_decision_id: null,
     p_early_departure_record_id: null,
   });
-});
-
-test("getSignedDocumentUrl exige acceso a metadata y crea URL de 60 segundos", async () => {
-  const denied = mockSupabase({ docRow: null }).client;
-  await assert.rejects(() => getSignedDocumentUrl(denied, "doc-1"));
-
-  const allowed = mockSupabase({ docRow: { storage_path: STORAGE_PATH } }).client;
-  assert.equal(await getSignedDocumentUrl(allowed, "doc-1"), "https://example.test/signed");
 });

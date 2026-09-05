@@ -5643,6 +5643,18 @@ export type Database = {
           retry_after_seconds: number
         }[]
       }
+      authorize_supporting_document_download: {
+        Args: { p_document_id: string }
+        Returns: {
+          allowed: boolean
+          mime_type: string | null
+          original_filename: string | null
+          remaining: number
+          request_limit: number
+          retry_after_seconds: number
+          storage_path: string | null
+        }[]
+      }
       begin_expense_receipt_whatsapp_pairing: {
         Args: {
           p_company_id: string
@@ -5661,6 +5673,14 @@ export type Database = {
         Args: { p_name: string }
         Returns: boolean
       }
+      can_read_supporting_document_employee: {
+        Args: { p_employee_id: string }
+        Returns: boolean
+      }
+      can_read_supporting_document_path: {
+        Args: { p_storage_path: string }
+        Returns: boolean
+      }
       can_read_mfa_events_for: {
         Args: { p_target: string }
         Returns: boolean
@@ -5677,6 +5697,7 @@ export type Database = {
         Args: { p_name: string }
         Returns: boolean
       }
+      current_actor_satisfies_mfa: { Args: never; Returns: boolean }
       cancel_expense_advance: {
         Args: { p_advance_id: string }
         Returns: undefined

@@ -94,10 +94,30 @@ test("los limites de aplicacion declarados tienen evidencia directa en el handle
     const sourcePath = path.join(REPO_ROOT, surface.source);
     const source = readFileSync(sourcePath, "utf8");
     const evidence = [source, ...directLocalSources(sourcePath, source)].join("\n");
-    assert.match(evidence, /authorizeExpenseDataAccess/, `${requestSurfaceKey(surface)} no consume el limite`);
+    assert.match(
+      evidence,
+      /authorize(?:ExpenseDataAccess|SupportingDocumentDownload)/,
+      `${requestSurfaceKey(surface)} no consume el limite`,
+    );
     assert.equal(surface.auditControl, "DATA_ACCESS_LEDGER", `${requestSurfaceKey(surface)} debe auditar el acceso`);
-    assert.equal(surface.blockers.length, 0, `${requestSurfaceKey(surface)} conserva un bloqueo ya resuelto`);
+    assert.ok(
+      !(surface.blockers as readonly string[]).includes("APPLICATION_RATE_LIMIT")
+        && !(surface.blockers as readonly string[]).includes("EXPORT_AUDIT"),
+      `${requestSurfaceKey(surface)} conserva un bloqueo de entrega ya resuelto`,
+    );
   }
+});
+
+test("documentos laborales no redirigen a signed URLs ni se renderizan inline", () => {
+  const surface = REQUEST_SURFACES.find((item) => item.route === "/licencias/documento/[documentId]");
+  assert.ok(surface);
+  const source = readFileSync(path.join(REPO_ROOT, surface.source), "utf8");
+  const evidence = [source, ...directLocalSources(path.join(REPO_ROOT, surface.source), source)].join("\n");
+  assert.doesNotMatch(source, /createSignedUrl|NextResponse\.redirect/);
+  assert.match(source, /\.download\(access\.storagePath\)/);
+  assert.match(evidence, /application\/octet-stream/);
+  assert.match(evidence, /Content-Disposition/);
+  assert.ok(surface.blockers.includes("ANTIMALWARE_PROVIDER"));
 });
 
 test("datos empresariales nunca usan un tenant NONE", () => {
