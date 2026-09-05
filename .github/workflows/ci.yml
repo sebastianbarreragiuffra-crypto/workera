@@ -47,6 +47,9 @@ jobs:
       - name: Full application test suite (mock only, no external network)
         run: npm test
 
+      - name: Enforce local synthetic readiness policy
+        run: npm run readiness:local
+
       - name: Build
         run: npm run build
 
@@ -76,6 +79,9 @@ jobs:
 
       - name: Run pgTAP test suite
         run: supabase test db --local supabase/tests
+
+      - name: Lint database schemas
+        run: supabase db lint --level warning
 
       - name: Stop local Supabase stack
         if: always()

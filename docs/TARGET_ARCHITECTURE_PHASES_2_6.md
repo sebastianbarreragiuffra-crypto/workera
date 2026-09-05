@@ -726,6 +726,11 @@ P0-A puede continuar de forma remota. P0-C no debe ejecutarse mientras el owner
 no pueda completar challenge/recovery y verificar el resultado en los paneles;
 el código ya presente no equivale a activación segura.
 
+La decisión actual ya no se calcula de memoria: `npm run readiness:report`
+evalúa local, staging sintético, marcha blanca ARCOTEX, piloto de Rendiciones y
+producción contra los blockers de los inventarios ejecutables. El procedimiento
+de evidencia, activación y rollback está en `docs/PILOT_READINESS_RUNBOOK.md`.
+
 - Poner el staging actual en hold, clasificar sus 97 registros y reemplazar por
   datos sintéticos/minimizados o aplicar controles equivalentes a producción.
 - Aprobar `docs/THREAT_MODEL_CURRENT.md` con owners y aceptación residual.

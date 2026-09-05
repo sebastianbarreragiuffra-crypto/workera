@@ -300,6 +300,7 @@ export type StorageOperation = "upload" | "download" | "remove" | "createSignedU
 export type StorageSecurityState = "QUARANTINE_ENFORCED" | "PRIVATE_UNSCANNED" | "TRUSTED_INTERNAL_SOURCE";
 export interface StorageConsumerSurface {
   readonly source: `src/${string}.ts`;
+  readonly domain: DataSurfaceDomain;
   readonly bucket: string;
   readonly operation: StorageOperation;
   readonly occurrences: number;
@@ -313,71 +314,71 @@ export interface StorageConsumerSurface {
 export const STORAGE_CONSUMER_SURFACES = [
   {
     source: "src/app/(app)/licencias/documento/[documentId]/route.ts", bucket: "supporting-documents", operation: "download", occurrences: 1,
-    executionIdentity: "SESSION", tenantScope: "RESOURCE_COMPANY",
+    domain: "workforce", executionIdentity: "SESSION", tenantScope: "RESOURCE_COMPANY",
     authorization: "RPC + Storage policy repiten rol, empresa y MFA; respuesta attachment.",
     securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER"],
   },
   {
     source: "src/app/(app)/nomina-de-pago/proveedores/descargar/route.ts", bucket: "supplier-master-files", operation: "download", occurrences: 1,
-    executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
+    domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
     authorization: "RPC, MFA, cuota y policy revalidan el maestro ACTIVE; respuesta attachment.", securityState: "TRUSTED_INTERNAL_SOURCE",
     blockers: ["LABOR_MULTI_TENANCY"],
   },
   {
     source: "src/app/(expenses)/empresas/[companySlug]/rendiciones/comprobantes/[receiptId]/route.ts", bucket: "expense-receipts", operation: "createSignedUrl", occurrences: 1,
-    executionIdentity: "SESSION", tenantScope: "EXPLICIT_COMPANY",
+    domain: "expenses", executionIdentity: "SESSION", tenantScope: "EXPLICIT_COMPANY",
     authorization: "Guard de entrega + RLS solo para archivo CLEAN.", securityState: "QUARANTINE_ENFORCED", blockers: [],
   },
   {
     source: "src/app/(expenses)/empresas/[companySlug]/rendiciones/comprobantes/capturas/[captureId]/route.ts", bucket: "expense-receipts", operation: "createSignedUrl", occurrences: 1,
-    executionIdentity: "SESSION", tenantScope: "EXPLICIT_COMPANY",
+    domain: "expenses", executionIdentity: "SESSION", tenantScope: "EXPLICIT_COMPANY",
     authorization: "Propietario + guard de entrega + RLS solo para archivo CLEAN.", securityState: "QUARANTINE_ENFORCED", blockers: [],
   },
   {
     source: "src/lib/colaciones/discount-workbook-storage.ts", bucket: "colaciones-config-files", operation: "download", occurrences: 1,
-    executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
+    domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
     authorization: "RLS RRHH sobre dataset interno activo.", securityState: "TRUSTED_INTERNAL_SOURCE",
     blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT"],
   },
   {
     source: "src/lib/colaciones/discount-workbook-storage.ts", bucket: "colaciones-config-files", operation: "upload", occurrences: 1,
-    executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
+    domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
     authorization: "Acción RRHH, validación XLSX y policy privada.", securityState: "TRUSTED_INTERNAL_SOURCE",
     blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT"],
   },
   {
     source: "src/lib/decisions/documents.ts", bucket: "supporting-documents", operation: "upload", occurrences: 1,
-    executionIdentity: "SESSION", tenantScope: "RESOURCE_COMPANY",
+    domain: "workforce", executionIdentity: "SESSION", tenantScope: "RESOURCE_COMPANY",
     authorization: "Reserva opaca exacta por actor/empleado/tamaño/MIME.", securityState: "PRIVATE_UNSCANNED",
     blockers: ["ANTIMALWARE_PROVIDER"],
   },
   {
     source: "src/lib/decisions/documents.ts", bucket: "supporting-documents", operation: "remove", occurrences: 1,
-    executionIdentity: "SESSION", tenantScope: "RESOURCE_COMPANY",
+    domain: "workforce", executionIdentity: "SESSION", tenantScope: "RESOURCE_COMPANY",
     authorization: "Policy permite solo compensar reserva propia aún no registrada.", securityState: "PRIVATE_UNSCANNED",
     blockers: ["ANTIMALWARE_PROVIDER"],
   },
   {
     source: "src/lib/expense-capture/service.ts", bucket: "expense-receipts", operation: "upload", occurrences: 1,
-    executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "EXPLICIT_COMPANY",
+    domain: "expenses", executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "EXPLICIT_COMPANY",
     authorization: "Capability cerrado y registro tenant-aware en PENDING_SCAN.", securityState: "QUARANTINE_ENFORCED",
     blockers: ["ANTIMALWARE_PROVIDER"],
   },
   {
     source: "src/lib/expense-capture/service.ts", bucket: "expense-receipts", operation: "remove", occurrences: 2,
-    executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "EXPLICIT_COMPANY",
+    domain: "expenses", executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "EXPLICIT_COMPANY",
     authorization: "Compensación o descarte después de RPC que devuelve ruta validada.", securityState: "QUARANTINE_ENFORCED",
     blockers: ["ANTIMALWARE_PROVIDER"],
   },
   {
     source: "src/lib/expense-ocr/repository.ts", bucket: "expense-receipts", operation: "download", occurrences: 1,
-    executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "ROW_SCOPED_JOB",
+    domain: "expenses", executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "ROW_SCOPED_JOB",
     authorization: "Job fenced solo recibe ruta de recibo CLEAN reclamada por RPC.", securityState: "QUARANTINE_ENFORCED",
     blockers: ["ANTIMALWARE_PROVIDER", "HOSTED_OBSERVABILITY"],
   },
   {
     source: "src/lib/payroll/supplier-master.ts", bucket: "supplier-master-files", operation: "upload", occurrences: 1,
-    executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
+    domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
     authorization: "Acción RRHH, parser XLSX y policy privada.", securityState: "TRUSTED_INTERNAL_SOURCE",
     blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT"],
   },

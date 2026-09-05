@@ -36,6 +36,9 @@ ese workspace, no la identidad ni el límite arquitectónico del producto.
 La arquitectura total, el control de flujos, los gates de seguridad y la
 secuencia de evolución están en
 [docs/TARGET_ARCHITECTURE_PHASES_2_6.md](docs/TARGET_ARCHITECTURE_PHASES_2_6.md).
+La decisión ejecutable por alcance y la secuencia de marcha blanca están en
+[docs/PILOT_READINESS_RUNBOOK.md](docs/PILOT_READINESS_RUNBOOK.md); `npm run
+readiness:report` es la lectura vigente y no debe sustituirse por una estimación.
 El detalle del límite multiempresa y las decisiones reemplazadas está en
 [docs/PLATFORM_MULTI_COMPANY.md](docs/PLATFORM_MULTI_COMPANY.md).
 
@@ -138,12 +141,15 @@ Abrir `http://localhost:3000`. Los archivos `.env`, `.env.local` y
 npm run lint
 npx tsc --noEmit
 npm test
+npm run readiness:local
 npx supabase test db
 npm run build
 ```
 
 Para validar una reconstrucción local completa se puede usar
-`npx supabase db reset`; nunca ejecutar un reset sobre staging o producción.
+`npx supabase db reset` **solo después de aislar el worktree** como indica
+`docs/LOCAL_SETUP.md`; la pila local es compartida entre worktrees. Nunca
+ejecutar un reset sobre staging o producción.
 Las instrucciones del ambiente compartido están en
 [docs/STAGING_ENVIRONMENT.md](docs/STAGING_ENVIRONMENT.md).
 
@@ -156,5 +162,6 @@ Las instrucciones del ambiente compartido están en
 - [Threat model](docs/THREAT_MODEL.md)
 - [MFA (TOTP) para cuentas privilegiadas](docs/MFA_DESIGN.md)
 - [Runbook de la cuenta OWNER](docs/PLATFORM_OWNER_RUNBOOK.md)
+- [Readiness y marcha blanca](docs/PILOT_READINESS_RUNBOOK.md)
 - [Decisiones pendientes](docs/DECISIONS_PENDING.md)
 - [Sincronización Workera](docs/WORKERA_SYNC_PHASE6B.md)
