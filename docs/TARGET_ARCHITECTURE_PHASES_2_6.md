@@ -712,7 +712,7 @@ Orden de ejecución recomendado:
 
 | Bloque | Puede ejecutarse sin activar proveedores | Requiere owner/ambiente hospedado |
 |---|---|---|
-| P0-A arquitectura | límites de módulo e inventario HTTP ya automatizados; faltan acciones/RPC/Storage, tenant sintético, rate-limit runtime, cuarentena, telemetría y runbooks | no |
+| P0-A arquitectura | límites de módulo, inventario HTTP y cuarentena durable ya automatizados; faltan acciones/RPC/Storage, tenant sintético, rate-limit runtime, adapter antimalware, telemetría y runbooks | no |
 | P0-B plataforma | configuración de grants/secrets, staging sintético y automatización de evidencias | acceso administrativo controlado |
 | P0-C seguridad real | MFA rollout, restore drill, canarios, alertas/paging, DAST y pentest | sí; ventana, cuentas de recuperación y responsables presentes |
 | P0-D aceptación | cierre de threat model, riesgo residual, privacidad/legal y decisión GO/NO-GO | responsables de negocio, seguridad y datos |
@@ -740,7 +740,8 @@ el código ya presente no equivale a activación segura.
 - Demostrar segregación maker-checker, recertificación/caducidad de accesos,
   límites de descarga/exportación y alertas por uso anómalo para mitigar abuso
   de usuarios legítimamente autorizados.
-- Implementar cuarentena/antimalware antes de habilitar captura externa.
+- Conectar un proveedor antimalware/CDR a la cuarentena durable ya implementada
+  y probar sus canarios antes de habilitar captura externa.
 - Activar y monitorear el scheduler/watchdog contable ya implementado, probar el
   catch-up y la DLQ maker-checker en el ambiente, y reconciliar resultados ERP
   inciertos conservando la idempotency key.

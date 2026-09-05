@@ -76,7 +76,7 @@ test("webhooks mutables tienen firma, límite, replay ledger, cuota y flag fail-
     assert.equal(surface.idempotency, "PROVIDER_EVENT_LEDGER");
     assert.equal(surface.abuseControl, "PROVIDER_LEDGER_AND_QUOTA");
     assert.ok(surface.featureFlag, `${requestSurfaceKey(surface)} necesita un feature flag`);
-    assert.ok(surface.blockers.includes("FILE_QUARANTINE"), `${requestSurfaceKey(surface)} no puede habilitar archivos sin cuarentena`);
+    assert.ok(surface.blockers.includes("ANTIMALWARE_PROVIDER"), `${requestSurfaceKey(surface)} no puede habilitar archivos sin un escáner real`);
   }
 });
 

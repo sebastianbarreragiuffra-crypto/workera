@@ -48,10 +48,10 @@ export type RequestIdempotency =
   | "NOT_APPLICABLE";
 export type RequestDataClass = "PUBLIC" | "AUTH" | "INTERNAL" | "PERSONAL" | "SENSITIVE_HR" | "FINANCIAL";
 export type RequestSurfaceBlocker =
+  | "ANTIMALWARE_PROVIDER"
   | "APPLICATION_RATE_LIMIT"
   | "EDGE_RATE_LIMIT"
   | "EXPORT_AUDIT"
-  | "FILE_QUARANTINE"
   | "HOSTED_AUTH_CONTROLS"
   | "HOSTED_OBSERVABILITY"
   | "LABOR_MULTI_TENANCY";
@@ -114,7 +114,7 @@ export const REQUEST_SURFACES = [
     authorization: "Bearer CRON_SECRET y claims fenced de la cola OCR.",
     mutates: true, maxBodyBytes: null, idempotency: "LEASE_AND_FENCING", abuseControl: "CRON_SECRET_AND_LEASE",
     auditControl: "JOB_LEDGER", featureFlag: "EXPENSE_OCR_ENABLED", dataClass: "FINANCIAL",
-    blockers: ["FILE_QUARANTINE", "HOSTED_OBSERVABILITY"],
+    blockers: ["ANTIMALWARE_PROVIDER", "HOSTED_OBSERVABILITY"],
   },
   {
     source: "src/app/api/jobs/expense-assistant-retention/route.ts", route: "/api/jobs/expense-assistant-retention", method: "GET", kind: "CRON_JOB",
@@ -151,7 +151,7 @@ export const REQUEST_SURFACES = [
     authorization: "Firma HMAC Meta sobre bytes crudos, phone_number_id y vínculo opaco tenant-aware.",
     mutates: true, maxBodyBytes: 512 * 1024, idempotency: "PROVIDER_EVENT_LEDGER", abuseControl: "PROVIDER_LEDGER_AND_QUOTA",
     auditControl: "PROVIDER_LEDGER", featureFlag: "EXPENSE_WHATSAPP_CAPTURE_ENABLED", dataClass: "FINANCIAL",
-    blockers: ["EDGE_RATE_LIMIT", "FILE_QUARANTINE"],
+    blockers: ["EDGE_RATE_LIMIT", "ANTIMALWARE_PROVIDER"],
   },
   {
     source: "src/app/api/webhooks/resend/expense-receipts/route.ts", route: "/api/webhooks/resend/expense-receipts", method: "POST", kind: "WEBHOOK",
@@ -159,7 +159,7 @@ export const REQUEST_SURFACES = [
     authorization: "Firma Svix/Resend sobre cuerpo crudo y alias opaco tenant-aware.",
     mutates: true, maxBodyBytes: 512 * 1024, idempotency: "PROVIDER_EVENT_LEDGER", abuseControl: "PROVIDER_LEDGER_AND_QUOTA",
     auditControl: "PROVIDER_LEDGER", featureFlag: "EXPENSE_EMAIL_CAPTURE_ENABLED", dataClass: "FINANCIAL",
-    blockers: ["EDGE_RATE_LIMIT", "FILE_QUARANTINE"],
+    blockers: ["EDGE_RATE_LIMIT", "ANTIMALWARE_PROVIDER"],
   },
   {
     source: "src/app/api/expenses/[companySlug]/bank-import/route.ts", route: "/api/expenses/[companySlug]/bank-import", method: "POST", kind: "USER_API",
@@ -214,7 +214,7 @@ export const REQUEST_SURFACES = [
     authorization: "Contexto tenant, UUID, company_id, RLS y URL privada firmada por 60 segundos.",
     mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "MISSING",
     auditControl: "MISSING", featureFlag: null, dataClass: "FINANCIAL",
-    blockers: ["APPLICATION_RATE_LIMIT", "EXPORT_AUDIT", "FILE_QUARANTINE"],
+    blockers: ["APPLICATION_RATE_LIMIT", "EXPORT_AUDIT", "ANTIMALWARE_PROVIDER"],
   },
   {
     source: "src/app/(expenses)/empresas/[companySlug]/rendiciones/conciliacion/exportar/route.ts", route: "/empresas/[companySlug]/rendiciones/conciliacion/exportar", method: "GET", kind: "DOWNLOAD",
@@ -230,7 +230,7 @@ export const REQUEST_SURFACES = [
     authorization: "Contexto tenant con canSubmit, propietario, estado PENDING, company_id y URL firmada.",
     mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "MISSING",
     auditControl: "MISSING", featureFlag: null, dataClass: "FINANCIAL",
-    blockers: ["APPLICATION_RATE_LIMIT", "EXPORT_AUDIT", "FILE_QUARANTINE"],
+    blockers: ["APPLICATION_RATE_LIMIT", "EXPORT_AUDIT", "ANTIMALWARE_PROVIDER"],
   },
 ] as const satisfies readonly RequestSurface[];
 

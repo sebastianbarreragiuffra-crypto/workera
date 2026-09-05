@@ -20,8 +20,9 @@ El registro cubre las 20 superficies HTTP actuales y declara para cada una:
 
 - Las dos entradas externas de archivos (Resend y Meta) están firmadas,
   limitadas a 512 KiB, poseen ledger idempotente y cuotas de negocio, y siguen
-  apagadas. El inventario impide considerarlas habilitables mientras falten
-  cuarentena/antimalware y rate limit en el borde.
+  apagadas. La cuarentena durable ya impide lectura, asociación y OCR antes de
+  `CLEAN`; el inventario impide considerarlas habilitables mientras falten el
+  proveedor antimalware real y rate limit en el borde.
 - Los jobs usan `CRON_SECRET`; OCR y contabilidad poseen leases/fencing. Aún
   requieren observabilidad hospedada y alertas reales.
 - La importación bancaria de Rendiciones ya tiene sesión, tenant, permiso,

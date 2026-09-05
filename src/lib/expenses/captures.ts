@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import type { ExpenseCompanyContext } from "@/lib/expenses/access";
+import { isExpenseFileReleased } from "@/lib/expenses/file-security";
 
 export interface ExpenseReceiptCaptureDto {
   id: string;
@@ -12,6 +13,8 @@ export interface ExpenseReceiptCaptureDto {
   source: "WEB_UPLOAD" | "WEB_CAMERA" | "EMAIL" | "WHATSAPP";
   createdAt: string;
   possibleDuplicate: boolean;
+  securityStatus: Database["public"]["Enums"]["expense_file_security_status"];
+  available: boolean;
 }
 
 export interface ExpenseDraftItemOption {
@@ -41,7 +44,7 @@ export async function getExpenseReceiptInbox(
   const [captureResult, reportResult] = await Promise.all([
     supabase
       .from("expense_receipt_captures")
-      .select("id, original_filename, mime_type, file_size, source, checksum_sha256, created_at")
+      .select("id, original_filename, mime_type, file_size, source, checksum_sha256, security_status, created_at")
       .eq("company_id", context.id)
       .eq("uploaded_by", context.userId)
       .eq("status", "PENDING")
@@ -86,6 +89,8 @@ export async function getExpenseReceiptInbox(
       createdAt: capture.created_at,
       possibleDuplicate: (pendingCounts.get(capture.checksum_sha256) ?? 0) > 1
         || registeredChecksums.has(capture.checksum_sha256),
+      securityStatus: capture.security_status,
+      available: isExpenseFileReleased(capture.security_status),
     })),
     draftItems: (reportResult.data ?? []).flatMap((report) =>
       embeddedItems(report.expense_items).map((item) => ({

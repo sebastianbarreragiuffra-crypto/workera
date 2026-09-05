@@ -2713,6 +2713,14 @@ export type Database = {
           id: string
           mime_type: string
           original_filename: string
+          scan_attempt: number
+          scan_available_at: string
+          scan_locked_at: string | null
+          scan_locked_by: string | null
+          security_result_code: string | null
+          security_scanned_at: string | null
+          security_scanner: string | null
+          security_status: Database["public"]["Enums"]["expense_file_security_status"]
           source: string
           status: string
           storage_path: string
@@ -2731,6 +2739,14 @@ export type Database = {
           id?: string
           mime_type: string
           original_filename: string
+          scan_attempt?: number
+          scan_available_at?: string
+          scan_locked_at?: string | null
+          scan_locked_by?: string | null
+          security_result_code?: string | null
+          security_scanned_at?: string | null
+          security_scanner?: string | null
+          security_status?: Database["public"]["Enums"]["expense_file_security_status"]
           source: string
           status?: string
           storage_path: string
@@ -2749,6 +2765,14 @@ export type Database = {
           id?: string
           mime_type?: string
           original_filename?: string
+          scan_attempt?: number
+          scan_available_at?: string
+          scan_locked_at?: string | null
+          scan_locked_by?: string | null
+          security_result_code?: string | null
+          security_scanned_at?: string | null
+          security_scanner?: string | null
+          security_status?: Database["public"]["Enums"]["expense_file_security_status"]
           source?: string
           status?: string
           storage_path?: string
@@ -3153,6 +3177,10 @@ export type Database = {
           mime_type: string
           original_filename: string
           report_id: string
+          security_result_code: string | null
+          security_scanned_at: string | null
+          security_scanner: string | null
+          security_status: Database["public"]["Enums"]["expense_file_security_status"]
           status: Database["public"]["Enums"]["expense_receipt_status"]
           storage_path: string
           uploaded_by: string
@@ -3171,6 +3199,10 @@ export type Database = {
           mime_type: string
           original_filename: string
           report_id: string
+          security_result_code?: string | null
+          security_scanned_at?: string | null
+          security_scanner?: string | null
+          security_status?: Database["public"]["Enums"]["expense_file_security_status"]
           status?: Database["public"]["Enums"]["expense_receipt_status"]
           storage_path: string
           uploaded_by: string
@@ -3189,6 +3221,10 @@ export type Database = {
           mime_type?: string
           original_filename?: string
           report_id?: string
+          security_result_code?: string | null
+          security_scanned_at?: string | null
+          security_scanner?: string | null
+          security_status?: Database["public"]["Enums"]["expense_file_security_status"]
           status?: Database["public"]["Enums"]["expense_receipt_status"]
           storage_path?: string
           uploaded_by?: string
@@ -6349,6 +6385,13 @@ export type Database = {
         | "SPEND_SUMMARY"
         | "PAYMENT_STATUS"
       expense_bank_transaction_status: "UNMATCHED" | "MATCHED" | "IGNORED"
+      expense_file_security_status:
+        | "VALIDATED_INTERNAL"
+        | "PENDING_SCAN"
+        | "SCANNING"
+        | "CLEAN"
+        | "REJECTED"
+        | "SCAN_FAILED"
       expense_ocr_job_status:
         | "QUEUED"
         | "RUNNING"
@@ -6587,6 +6630,14 @@ export const Constants = {
         "PAYMENT_STATUS",
       ],
       expense_bank_transaction_status: ["UNMATCHED", "MATCHED", "IGNORED"],
+      expense_file_security_status: [
+        "VALIDATED_INTERNAL",
+        "PENDING_SCAN",
+        "SCANNING",
+        "CLEAN",
+        "REJECTED",
+        "SCAN_FAILED",
+      ],
       expense_ocr_job_status: [
         "QUEUED",
         "RUNNING",

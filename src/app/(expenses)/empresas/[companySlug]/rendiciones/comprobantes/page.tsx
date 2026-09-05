@@ -9,6 +9,7 @@ import {
 } from "@/components/expenses/ExpenseCaptureForms";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
 import { getExpenseReceiptInbox } from "@/lib/expenses/captures";
+import { expenseFileSecurityLabel } from "@/lib/expenses/file-security";
 import { getExpenseEmailConnector } from "@/lib/expenses/email-capture";
 import { getExpenseWhatsappConnector } from "@/lib/expenses/whatsapp-capture";
 import { createClient } from "@/lib/supabase/server";
@@ -43,6 +44,7 @@ export default async function ExpenseReceiptInboxPage({
     getExpenseWhatsappConnector(supabase, context),
   ]);
   const base = `/empresas/${context.slug}/rendiciones`;
+  const availableCaptures = captures.filter((capture) => capture.available);
 
   return (
     <div className="space-y-6">
@@ -80,32 +82,39 @@ export default async function ExpenseReceiptInboxPage({
           </div>
         ) : (
           <>
-            {draftItems.length > 0 ? (
+            {draftItems.length > 0 && availableCaptures.length > 0 ? (
               <div className="border-b border-slate-100 bg-slate-50 p-5">
                 <ExpenseCaptureAttachForm
                   companySlug={context.slug}
-                  captures={captures.map((capture) => ({ id: capture.id, label: capture.originalFilename }))}
+                  captures={availableCaptures.map((capture) => ({ id: capture.id, label: capture.originalFilename }))}
                   draftItems={draftItems}
                 />
               </div>
-            ) : (
+            ) : draftItems.length === 0 ? (
               <p className="border-b border-slate-100 bg-slate-50 px-5 py-4 text-sm text-slate-500">Crea una rendición y agrega al menos un gasto para asociar estos comprobantes.</p>
+            ) : (
+              <p className="border-b border-slate-100 bg-amber-50 px-5 py-4 text-sm text-amber-800">Los comprobantes recibidos están aislados hasta terminar su revisión de seguridad.</p>
             )}
             <ul className="divide-y divide-slate-100">
             {captures.map((capture) => (
               <li key={capture.id} className="grid gap-4 p-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Link
-                      href={`${base}/comprobantes/capturas/${capture.id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="truncate font-medium text-slate-900 hover:text-arcotex-blue-dark hover:underline"
-                    >
-                      {capture.originalFilename}
-                    </Link>
+                    {capture.available ? (
+                      <Link
+                        href={`${base}/comprobantes/capturas/${capture.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="truncate font-medium text-slate-900 hover:text-arcotex-blue-dark hover:underline"
+                      >
+                        {capture.originalFilename}
+                      </Link>
+                    ) : <span className="truncate font-medium text-slate-900">{capture.originalFilename}</span>}
                     {capture.possibleDuplicate && (
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">Posible duplicado</span>
+                    )}
+                    {expenseFileSecurityLabel(capture.securityStatus) && (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">{expenseFileSecurityLabel(capture.securityStatus)}</span>
                     )}
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
@@ -113,14 +122,18 @@ export default async function ExpenseReceiptInboxPage({
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-                  <Link
-                    href={`${base}/comprobantes/capturas/${capture.id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Ver comprobante
-                  </Link>
+                  {capture.available ? (
+                    <Link
+                      href={`${base}/comprobantes/capturas/${capture.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Ver comprobante
+                    </Link>
+                  ) : (
+                    <span className="inline-flex min-h-11 items-center justify-center rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-500">No disponible</span>
+                  )}
                   <ExpenseCaptureDiscardForm companySlug={context.slug} captureId={capture.id} />
                 </div>
               </li>
