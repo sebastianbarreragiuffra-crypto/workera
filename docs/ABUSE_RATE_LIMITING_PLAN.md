@@ -137,7 +137,7 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
 - **Auditoría**: cada commit de metadata escribe `SUPPORTING_DOCUMENT_UPLOADED`;
   un intento fallido no amplifica la bitácora.
 - **Pendiente**: calibrar valores con marcha blanca, conectar antimalware y
-  operar un sweeper de reservas vencidas.
+  habilitar/observar en staging el sweeper de reservas vencidas ya implementado.
 
 ### 2.7 Descarga de documentos laborales (`IMPLEMENTED_LOCAL`)
 - **Clave**: `company_id + actor_id + supporting_document.download`.

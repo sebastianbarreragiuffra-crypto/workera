@@ -220,6 +220,21 @@ export const RPC_CONSUMER_SURFACES = [
     auditControl: "PROVIDER_LEDGER", dataClass: "FINANCIAL", blockers: ["EDGE_RATE_LIMIT", "ANTIMALWARE_PROVIDER"],
   },
   {
+    source: "src/lib/supporting-document-cleanup/repository.ts",
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "supporting-document-cleanup",
+    tenantScope: "ROW_SCOPED_JOB",
+    literalRpcs: [
+      "claim_expired_supporting_document_uploads",
+      "complete_supporting_document_orphan_cleanup",
+      "fail_supporting_document_orphan_cleanup",
+      "reclaim_stale_supporting_document_cleanups",
+    ],
+    dynamicRpcs: [],
+    authorization: "Cron autenticado y leases fenced; el claim excluye reservas vigentes, consumidas y rutas registradas.",
+    auditControl: "JOB_LEDGER", dataClass: "SENSITIVE_HR",
+    blockers: ["LABOR_MULTI_TENANCY", "HOSTED_OBSERVABILITY"],
+  },
+  {
     source: "src/lib/expenses/access.ts",
     domain: "expenses", executionIdentity: "SESSION", capability: null, tenantScope: "EXPLICIT_COMPANY",
     literalRpcs: ["has_company_permission"], dynamicRpcs: [],
@@ -400,6 +415,13 @@ export const STORAGE_CONSUMER_SURFACES = [
     domain: "expenses", executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "ROW_SCOPED_JOB",
     authorization: "Claim fenced entrega una ruta PENDING_SCAN; el worker verifica SHA-256 antes del adapter.", securityState: "QUARANTINE_ENFORCED",
     blockers: ["ANTIMALWARE_PROVIDER", "HOSTED_OBSERVABILITY"],
+  },
+  {
+    source: "src/lib/supporting-document-cleanup/repository.ts", bucket: "supporting-documents", operation: "remove", occurrences: 1,
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "ROW_SCOPED_JOB",
+    authorization: "Claim fenced entrega una unica ruta vencida y SQL excluye cualquier documento registrado.",
+    securityState: "PRIVATE_UNSCANNED",
+    blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY", "HOSTED_OBSERVABILITY"],
   },
   {
     source: "src/lib/payroll/supplier-master.ts", bucket: "supplier-master-files", operation: "upload", occurrences: 1,

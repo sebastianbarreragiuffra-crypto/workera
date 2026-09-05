@@ -40,6 +40,7 @@ export const LIBRARY_MODULES = {
   "rule-engine": { realm: "workforce", owner: "workforce", purpose: "Límite privilegiado del motor laboral" },
   schedules: { realm: "workforce", owner: "workforce", purpose: "Administración de horarios" },
   shared: { realm: "shared", owner: "architecture", purpose: "Kernel mínimo sin conocimiento de dominios" },
+  "supporting-document-cleanup": { realm: "workforce", owner: "workforce-security", purpose: "Recolección fenced de archivos laborales huérfanos" },
   supabase: { realm: "shared", owner: "platform-engineering", purpose: "Acceso a datos, sesión y contratos generados" },
   sync: { realm: "workforce", owner: "workforce-integrations", purpose: "Orquestación de sincronización laboral" },
   tenant: { realm: "platform", owner: "platform", purpose: "Resolución de contexto empresarial" },

@@ -224,7 +224,8 @@ backlog retenido intencionalmente de una recuperación técnica.
   versionadas antes de extraer un servicio.
 - El gate de límites de módulo impide dependencias nuevas no autorizadas entre
   plataforma, laboral, Rendiciones e integraciones. Los inventarios ejecutables
-  cubren HTTP, Server Actions, 92 RPC y 14 operaciones Storage. La extracción
+  cubren 22 superficies HTTP, Server Actions, 96 RPC y 15 operaciones Storage.
+  La extracción
   física sigue siendo un objetivo condicionado por carga y ownership, no una
   garantía del despliegue actual.
 

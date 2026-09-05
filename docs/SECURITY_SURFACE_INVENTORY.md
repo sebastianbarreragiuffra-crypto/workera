@@ -9,7 +9,7 @@ reales de `src`: una ruta/método, acción exportada, RPC u operación Storage
 nueva, un archivo movido o un feature flag que deje de consultarse rompe la
 suite hasta que exista una decisión explícita de seguridad.
 
-El registro cubre las 21 superficies HTTP actuales y declara para cada una:
+El registro cubre las 22 superficies HTTP actuales y declara para cada una:
 
 - dominio y tipo de entrada;
 - autenticación y autorización efectiva;
@@ -25,8 +25,8 @@ también impide autorizar con roles/usuarios recibidos por `FormData`, exige que
 la autorización preceda al parseo de bytes y evita que aparezca una familia de
 uploads sin un máximo explícito de hasta 10 MiB.
 
-El inventario de datos cubre exactamente 30 archivos consumidores, 92 nombres
-RPC permitidos y 14 operaciones Storage agrupadas en 13 perfiles. Declara la
+El inventario de datos cubre exactamente 31 archivos consumidores, 96 nombres
+RPC permitidos y 15 operaciones Storage agrupadas en 14 perfiles. Declara la
 identidad de ejecución (sesión o capability `service_role`), alcance tenant,
 autorización, auditoría, clase de datos, bucket y estado de cuarentena. Los RPC
 dinámicos tienen una allowlist cerrada; un capability inexistente, un bucket
@@ -74,8 +74,9 @@ nuevo o una operación no registrada rompe CI.
   objetos/100 MiB por hora. Metadata y licencias se confirman por RPC atómico;
   los INSERT directos quedaron revocados. La descarga revalida empresa, rol,
   membresía y AAL2, consume una cuota durable y entrega bytes sin revelar signed
-  URL. El proveedor antimalware y el sweeper de reservas vencidas siguen como
-  brechas explícitas.
+  URL. El sweeper de reservas vencidas ya usa leases fenced, tres intentos y
+  auditoría terminal; permanece apagado hasta verificar staging. El proveedor
+  antimalware laboral sigue como brecha explícita.
 
 Este inventario no sustituye RLS, MFA, DAST, restore drill ni revisión humana.
 Tampoco convierte una superficie con `blockers` en apta para marcha blanca.

@@ -5742,6 +5742,18 @@ export type Database = {
         }
         Returns: undefined
       }
+      claim_expired_supporting_document_uploads: {
+        Args: {
+          p_grace_seconds?: number
+          p_limit?: number
+          p_worker_id: string
+        }
+        Returns: {
+          attempt: number
+          intent_id: string
+          storage_path: string
+        }[]
+      }
       claim_expense_file_scans: {
         Args: { p_limit?: number; p_worker_id: string }
         Returns: {
@@ -5879,6 +5891,14 @@ export type Database = {
         }
         Returns: boolean
       }
+      complete_supporting_document_orphan_cleanup: {
+        Args: {
+          p_intent_id: string
+          p_result: string
+          p_worker_id: string
+        }
+        Returns: string
+      }
       consume_platform_action_rate_limit: {
         Args: {
           p_company_id?: string | null
@@ -6013,6 +6033,16 @@ export type Database = {
           p_retry_delay_seconds?: number
           p_retryable: boolean
           p_scanner: string
+          p_worker_id: string
+        }
+        Returns: boolean
+      }
+      fail_supporting_document_orphan_cleanup: {
+        Args: {
+          p_error_code: string
+          p_intent_id: string
+          p_retry_delay_seconds?: number
+          p_retryable: boolean
           p_worker_id: string
         }
         Returns: boolean
@@ -6308,6 +6338,10 @@ export type Database = {
         Returns: number
       }
       reclaim_stale_expense_file_scans: {
+        Args: { p_stale_after_seconds?: number }
+        Returns: number
+      }
+      reclaim_stale_supporting_document_cleanups: {
         Args: { p_stale_after_seconds?: number }
         Returns: number
       }

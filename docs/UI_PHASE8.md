@@ -265,5 +265,6 @@ WORKERA -> workera_attendance_events (Fase 6A/6B)
 - Aprobación PARCIAL de horas extra: no implementada (el encargo solo pedía
   Aprobar/Rechazar).
 - Sweeper de reservas vencidas/objetos huérfanos tras una caída definitiva:
-  pendiente. La compensación inmediata ya está implementada; ver
-  `docs/SUPPORTING_DOCUMENT_SECURITY.md`.
+  implementado localmente con gracia, lease fenced, tres intentos y auditoría;
+  pendiente de habilitar y observar en staging. La compensación inmediata se
+  conserva; ver `docs/SUPPORTING_DOCUMENT_SECURITY.md`.

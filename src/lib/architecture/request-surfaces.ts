@@ -128,6 +128,14 @@ export const REQUEST_SURFACES = [
     blockers: ["ANTIMALWARE_PROVIDER", "HOSTED_OBSERVABILITY"],
   },
   {
+    source: "src/app/api/jobs/supporting-document-cleanup/route.ts", route: "/api/jobs/supporting-document-cleanup", method: "GET", kind: "CRON_JOB",
+    domain: "workforce", authentication: "CRON_SECRET", tenantScope: "ROW_SCOPED_JOB",
+    authorization: "Bearer CRON_SECRET, flag fail-closed y claim fenced que excluye documentos registrados.",
+    mutates: true, maxBodyBytes: null, idempotency: "LEASE_AND_FENCING", abuseControl: "CRON_SECRET_AND_LEASE",
+    auditControl: "JOB_LEDGER", featureFlag: "SUPPORTING_DOCUMENT_CLEANUP_ENABLED", dataClass: "SENSITIVE_HR",
+    blockers: ["LABOR_MULTI_TENANCY", "HOSTED_OBSERVABILITY"],
+  },
+  {
     source: "src/app/api/jobs/expense-assistant-retention/route.ts", route: "/api/jobs/expense-assistant-retention", method: "GET", kind: "CRON_JOB",
     domain: "expenses", authentication: "CRON_SECRET", tenantScope: "GLOBAL_MINIMIZED",
     authorization: "Bearer CRON_SECRET; RPC limitada a purgar consultas expiradas.",

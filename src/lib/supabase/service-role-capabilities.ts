@@ -93,6 +93,12 @@ export const SERVICE_ROLE_CAPABILITIES = {
     authorization: "CRON_SECRET; solo ejecuta la purga global de retención fija.",
     resources: ["purge_expired_expense_assistant_queries()"],
   },
+  "supporting-document-cleanup": {
+    consumers: ["src/lib/supporting-document-cleanup/service.ts"],
+    entrypoints: ["CRON"],
+    authorization: "CRON_SECRET y flag fail-closed; RPC entrega solo reservas vencidas, no consumidas y sin documento registrado.",
+    resources: ["RPC fenced de supporting_document_upload_intents", "bucket privado supporting-documents DELETE"],
+  },
 } as const;
 
 export type ServiceRoleCapability = keyof typeof SERVICE_ROLE_CAPABILITIES;

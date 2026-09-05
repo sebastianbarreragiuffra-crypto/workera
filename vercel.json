@@ -18,6 +18,10 @@
       "schedule": "15 11 * * *"
     },
     {
+      "path": "/api/jobs/supporting-document-cleanup",
+      "schedule": "45 11 * * *"
+    },
+    {
       "path": "/api/jobs/expense-accounting",
       "schedule": "0 12 * * *"
     },

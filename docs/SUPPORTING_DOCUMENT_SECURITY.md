@@ -21,6 +21,10 @@ dominio laboral. No activa proveedores ni cambia datos hospedados.
    acepta actor ni estado desde el cliente y nunca autoaprueba.
 7. Si Storage o el commit devuelve error, la aplicación intenta borrar el
    objeto mientras sigue huérfano. La policy impide borrar uno ya registrado.
+8. Si la aplicación cae antes de compensar, un job diario reclama reservas
+   vencidas con 5 minutos de gracia, `SKIP LOCKED` y fencing. PostgreSQL excluye
+   cualquier ruta registrada antes de entregarla al worker; el borrado se
+   reintenta como máximo tres veces y termina en auditoría sin guardar la ruta.
 
 ## Entrega vigente
 
@@ -51,7 +55,12 @@ instancias de Next.js.
 - Descarga/aislamiento: `20260905130000_supporting_document_download_guard.sql`
   y `075_supporting_document_download_guard.sql` (53 invariantes).
 - Tests TypeScript: `src/lib/decisions/documents.test.ts` y
-  `src/lib/decisions/medical-license.test.ts`.
+  `src/lib/decisions/medical-license.test.ts`, más el worker y Route Handler en
+  `src/lib/supporting-document-cleanup/` y
+  `src/app/api/jobs/supporting-document-cleanup/`.
+- Recolección de huérfanos: migración
+  `20260905170000_supporting_document_orphan_sweeper.sql` y pgTAP
+  `079_supporting_document_orphan_sweeper.sql`.
 - Inventario: `src/lib/architecture/server-action-surfaces.ts`.
 
 ## Límites que siguen abiertos
@@ -59,9 +68,9 @@ instancias de Next.js.
 - PDF/JPG/PNG continúa siendo contenido no confiable. Magic bytes no sustituyen
   antimalware/CDR; no servir documentos inline y conectar escaneo antes de una
   marcha blanca con archivos reales fuera de un grupo controlado.
-- Una caída definitiva entre upload y compensación puede dejar un objeto con
-  reserva vencida. Falta un sweeper server-side que liste reservas vencidas,
-  elimine sus objetos mediante Storage API y produzca métrica/alerta.
+- El sweeper ya conserva contadores por ejecución y auditoría terminal, pero
+  falta exportar esas señales a observabilidad hospedada y alertar cuando haya
+  `FAILED`; el endpoint permanece apagado por defecto hasta verificar staging.
 - La autorización auditada ocurre antes de buscar los bytes: demuestra una
   entrega autorizada, no que la transferencia HTTP haya terminado. Métricas
   hospedadas deben distinguir autorización, fallo de Storage y respuesta 200.

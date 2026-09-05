@@ -68,8 +68,8 @@ test("todo consumidor RPC esta inventariado con sus nombres exactos", () => {
     ...surface.literalRpcs,
     ...surface.dynamicRpcs,
   ]));
-  assert.equal(RPC_CONSUMER_SURFACES.length, 30);
-  assert.equal(registeredNames.length, 92);
+  assert.equal(RPC_CONSUMER_SURFACES.length, 31);
+  assert.equal(registeredNames.length, 96);
 });
 
 test("los RPC dinamicos tienen un conjunto cerrado comprobable", () => {
@@ -149,7 +149,7 @@ test("cada operacion Storage esta inventariada con bucket y ocurrencias exactas"
   assert.equal(registered.size, STORAGE_CONSUMER_SURFACES.length, "hay una operacion Storage duplicada");
   assert.deepEqual([...registered.keys()].sort(), [...discovered.keys()].sort());
   for (const [key, count] of discovered) assert.equal(registered.get(key), count, key);
-  assert.equal([...discovered.values()].reduce((sum, count) => sum + count, 0), 14);
+  assert.equal([...discovered.values()].reduce((sum, count) => sum + count, 0), 15);
 });
 
 test("Storage sensible conserva cuarentena o explicita su bloqueo", () => {
