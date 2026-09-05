@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ExpenseCompanyContext } from "./access";
 import type { Database, Json } from "@/lib/supabase/database.types";
-import { isCalendarDate, nextDate, santiagoDayStartIso } from "@/lib/view-models/date-utils";
+import { isCalendarDate, nextDate, santiagoDayStartIso } from "@/lib/shared/date-time";
 import { unwrapEmbed } from "@/lib/supabase/embed";
 import { parseExpenseAccountingPayload } from "@/lib/expense-accounting/payload";
 

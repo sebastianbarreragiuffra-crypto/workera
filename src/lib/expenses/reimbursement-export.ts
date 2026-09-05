@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ExpenseCompanyContext } from "./access";
 import type { Database } from "@/lib/supabase/database.types";
-import { santiagoDayStartIso } from "@/lib/view-models/date-utils";
+import { santiagoDayStartIso } from "@/lib/shared/date-time";
 import { unwrapEmbed } from "@/lib/supabase/embed";
 import { formatExpenseMoney } from "./presentation";
 
