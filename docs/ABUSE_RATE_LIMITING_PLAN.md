@@ -4,7 +4,8 @@ Estado: `PARTIALLY_IMPLEMENTED`. Rendiciones ya posee cuotas durables para
 ingreso bancario y conectores, además de autorización + rate limit + auditoría
 atómica para sus cuatro entregas financieras. La carga/descarga de documentos
 y las tres exportaciones laborales están cubiertas; login, Server Actions
-administrativas y el borde público conservan brechas explícitas.
+laborales de decisión y el borde público conservan brechas explícitas. Las
+ocho mutaciones del control plane ya usan cuota PostgreSQL fail-closed.
 Los valores marcados `TBD`/`PROPOSED` siguen sin ser decisiones finales.
 
 Fuentes oficiales consultadas: [Supabase Auth Rate Limits](https://supabase.com/docs/guides/auth/rate-limits) (documentación oficial, consultada en este gate), [OWASP API Security Top 10 — API4:2023 Unrestricted Resource Consumption](https://owasp.org/API-Security/editions/2023/en/0x11-t10/) (verificado contra el documento oficial en este gate de hardening), RFC 6585 (`429 Too Many Requests`), RFC 9110 §10.2.3 (`Retry-After`).
@@ -147,11 +148,31 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
 - **Justificación**: evitar que un reintento mal configurado sature la API de Workera y active sus propios límites o bloqueos.
 - **Anti-bypass**: respetar cualquier header `Retry-After` que Workera devuelva (ya contemplado conceptualmente en `WorkeraRateLimitError.retryAfterMs` en `errors.ts`, aunque sin cliente HTTP real que lo dispare todavía).
 
-### 2.9 Acciones administrativas (`ADMIN_RRHH`: cambio de rol, cierre de período)
-- **Clave**: usuario administrador.
-- **Ventana/límite**: `TBD` — son acciones infrecuentes por diseño; un límite bajo (ej. unas pocas por hora) es razonable como señal de anomalía, no como fricción operativa esperada.
-- **Justificación**: una cuenta admin comprometida que intente escalar/cerrar períodos repetidamente debe ser detectable.
-- **Auditoría**: obligatoria en `audit_log` sin excepción (ya es una regla no negociable del proyecto).
+### 2.9 Mutaciones del control plane (`IMPLEMENTED_LOCAL`)
+- **Clave**: `actor_id + company_id opcional + scope`; la empresa y el recurso
+  se verifican en el mismo RPC antes de consumir cuota.
+- **Ventana**: 1 hora en PostgreSQL compartido, independiente de la cantidad de
+  instancias Next.js.
+- **Límites iniciales**: alta de empresa 5; reset MFA 10; invitación/reenvío y
+  asignación de rol 30; módulo y organigrama 60; onboarding 120.
+- **Cobertura**: las ocho acciones exportadas por `/plataforma/actions.ts`.
+  Todas exigen sesión, rol OWNER/ADMIN (OWNER exclusivo para reset MFA), AAL2,
+  empresa/recurso coherentes y luego repiten autorización en el RPC de negocio.
+- **Fallo**: si autorización o cuota no pueden comprobarse, no se inicia la
+  mutación ni el efecto externo de invitación. El primer bloqueo por ventana se
+  escribe en `platform_audit_log`; no se guardan formularios, emails ni payloads.
+- **Pendiente**: calibrar límites y conectar el ledger a alertas hospedadas.
+
+### 2.10 Acciones laborales de decisión (`PLANNED`)
+- **Clave**: empresa + usuario que decide.
+- **Ventana/límite**: `TBD`; debe medirse el volumen real por supervisor para no
+  bloquear una revisión legítima de jornada.
+- **Cobertura pendiente**: atrasos, horas extra, ausencias, correcciones,
+  licencias, períodos y configuraciones heredadas de ARCOTEX.
+- **Justificación**: una cuenta comprometida no debe automatizar decisiones
+  laborales masivas fuera de un patrón humano esperado.
+- **Auditoría**: cada decisión conserva su ledger de negocio; la cuota será una
+  capa de detección adicional, nunca el mecanismo de autorización.
 
 ## 3. Consideraciones transversales
 
@@ -159,14 +180,14 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
   requiere afinidad de instancia. Login/borde puede necesitar un store dedicado
   según el hosting y la latencia que se midan.
 - **Comportamiento ante caída del rate limiter**: las entregas financieras de
-  Rendiciones y las descargas/exportaciones laborales ya son fail-closed.
-  Falta decidirlo para login, borde y Server Actions.
+  Rendiciones, las descargas/exportaciones laborales y el control plane ya son
+  fail-closed. Falta decidirlo para login, borde y decisiones laborales.
 - **Protección contra bypass**: el rate limiting nunca debe ser la única defensa (ver capas ya implementadas: RLS, guard de sesión, validación de contraseña de Supabase Auth); nunca confiar en un header de IP sin verificar la cadena de confianza del proxy que lo generó.
 - **Encabezados confiables**: cualquier IP usada para limitar debe venir de una fuente verificada por la plataforma de hosting (no aceptar `X-Forwarded-For` arbitrario de un cliente no confiable) — mismo principio que Supabase exige para habilitar `Sb-Forwarded-For`.
 
 ## 4. Qué todavía NO está implementado
 
 No hay aún control propio para login/recuperación, rate limit de borde para
-webhooks ni protección de volumen para acciones administrativas. Los defaults de Auth local no deben
+webhooks ni protección de volumen para decisiones laborales heredadas. Los defaults de Auth local no deben
 asumirse válidos en producción: deben confirmarse y ensayarse en el proyecto
 hospedado.

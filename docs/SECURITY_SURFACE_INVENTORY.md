@@ -25,7 +25,7 @@ también impide autorizar con roles/usuarios recibidos por `FormData`, exige que
 la autorización preceda al parseo de bytes y evita que aparezca una familia de
 uploads sin un máximo explícito de hasta 10 MiB.
 
-El inventario de datos cubre exactamente 27 archivos consumidores, 86 nombres
+El inventario de datos cubre exactamente 28 archivos consumidores, 87 nombres
 RPC permitidos y 13 operaciones Storage agrupadas en 12 perfiles. Declara la
 identidad de ejecución (sesión o capability `service_role`), alcance tenant,
 autorización, auditoría, clase de datos, bucket y estado de cuarentena. Los RPC
@@ -52,6 +52,10 @@ nuevo o una operación no registrada rompe CI.
   heredadas siguen siendo `LEGACY_ARCOTEX`, no multiempresa.
 - Los callbacks de identidad dependen de controles de Auth hospedados que aún
   deben verificarse; la configuración local no es evidencia de producción.
+- Las ocho mutaciones del control plane consumen antes de cualquier cambio una
+  cuota horaria PostgreSQL por actor, empresa opcional y scope cerrado. La base
+  revalida OWNER/ADMIN, AAL2 y coherencia empresa/recurso; un fallo bloquea la
+  acción y el primer exceso de cada ventana queda en la bitácora sin PII.
 - El reintento de Google Forms de colaciones ya no acepta payload/menú/nómina
   serializados por el navegador. Usa un token AES-256-GCM opaco, autenticado y
   con 30 minutos de vigencia; cualquier cambio o vencimiento obliga a volver a

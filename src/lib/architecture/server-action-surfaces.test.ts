@@ -80,6 +80,14 @@ test("la deuda legacy y la ausencia de rate limit nunca quedan ocultas", () => {
   }
 });
 
+test("los limites distribuidos declarados tienen evidencia en la frontera", () => {
+  for (const surface of SERVER_ACTION_SURFACES.filter((item) => item.abuseControl === "DATABASE_RATE_LIMIT")) {
+    const source = readFileSync(path.join(REPO_ROOT, surface.source), "utf8");
+    assert.match(source, /consumePlatformActionRateLimit\(/, surface.source);
+    assert.ok(!(surface.blockers as readonly string[]).includes("APPLICATION_RATE_LIMIT"), surface.source);
+  }
+});
+
 test("ninguna accion decide rol o permiso desde FormData", () => {
   const forbidden = /formData\.get\(["'](?:role|permission|permissions|isAdmin|isPrivileged|companyId|actorId|userId)["']\)/;
   for (const filePath of sourceFiles(APP_ROOT)) {

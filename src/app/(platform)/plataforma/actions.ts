@@ -5,6 +5,12 @@ import { headers } from "next/headers";
 import { z } from "zod";
 import { deliverCompanyInvitation, type InvitationDeliveryResult } from "@/lib/admin/company-invitations";
 import { PlatformAuthorizationError, requirePlatformManager } from "@/lib/platform/authorization";
+import {
+  assertPlatformActionLimit,
+  consumePlatformActionRateLimit,
+  PlatformActionLimitError,
+  type PlatformActionLimitInput,
+} from "@/lib/platform/action-rate-limit";
 import { createClient } from "@/lib/supabase/server";
 import {
   MfaResetAuthorizationError,
@@ -135,6 +141,9 @@ async function deliverAndRecord(
 }
 
 function failure(operation: string, error: unknown): PlatformActionState {
+  if (error instanceof PlatformActionLimitError) {
+    return { status: "error", message: error.message };
+  }
   if (error instanceof PlatformAuthorizationError) {
     return { status: "error", message: "Tu rol no permite realizar esta acción." };
   }
@@ -144,6 +153,14 @@ function failure(operation: string, error: unknown): PlatformActionState {
   }
   console.error(`[platform] ${operation} failed`, error instanceof Error ? error.message : mutationError?.code ?? "unknown");
   return { status: "error", message: "No pudimos guardar el cambio. Intenta nuevamente." };
+}
+
+async function guardedPlatformClient(input: PlatformActionLimitInput) {
+  await requirePlatformManager();
+  const supabase = await createClient();
+  const decision = await consumePlatformActionRateLimit(supabase, input);
+  assertPlatformActionLimit(decision);
+  return supabase;
 }
 
 function revalidatePlatformCompanyPages(): void {
@@ -163,8 +180,7 @@ export async function createCompanyAction(
   if (!slug) return { status: "error", message: "El identificador URL no es válido." };
 
   try {
-    await requirePlatformManager();
-    const supabase = await createClient();
+    const supabase = await guardedPlatformClient({ scope: "platform.company.create" });
     const { error } = await supabase.rpc("platform_create_company", {
       p_name: parsed.data.name,
       p_slug: slug,
@@ -190,8 +206,10 @@ export async function inviteCompanyMemberAction(
   const parsed = invitationInput.safeParse(fields(formData));
   if (!parsed.success) return failedInvitationValidation(parsed.error);
   try {
-    await requirePlatformManager();
-    const supabase = await createClient();
+    const supabase = await guardedPlatformClient({
+      scope: "platform.invitation.create",
+      companyId: parsed.data.companyId,
+    });
     const { data, error } = await supabase.rpc("platform_create_company_invitation", {
       p_company_id: parsed.data.companyId,
       p_email: parsed.data.email,
@@ -228,8 +246,11 @@ export async function resendCompanyInvitationAction(
   const parsed = resendInvitationInput.safeParse(fields(formData));
   if (!parsed.success) return failedValidation();
   try {
-    await requirePlatformManager();
-    const supabase = await createClient();
+    const supabase = await guardedPlatformClient({
+      scope: "platform.invitation.resend",
+      companyId: parsed.data.companyId,
+      resourceId: parsed.data.invitationId,
+    });
     const { data: invitation, error } = await supabase
       .from("company_invitations")
       .select("id, email")
@@ -255,8 +276,11 @@ export async function assignCompanyRoleAction(
   const parsed = managementRoleInput.safeParse(fields(formData));
   if (!parsed.success) return failedValidation();
   try {
-    await requirePlatformManager();
-    const supabase = await createClient();
+    const supabase = await guardedPlatformClient({
+      scope: "platform.role.assign",
+      companyId: parsed.data.companyId,
+      resourceId: parsed.data.membershipId,
+    });
     const { error } = await supabase.rpc("platform_assign_company_role", {
       p_membership_id: parsed.data.membershipId,
       p_role_id: parsed.data.roleId,
@@ -276,8 +300,10 @@ export async function setCompanyModuleStatusAction(
   const parsed = moduleStatusInput.safeParse(fields(formData));
   if (!parsed.success) return failedValidation();
   try {
-    await requirePlatformManager();
-    const supabase = await createClient();
+    const supabase = await guardedPlatformClient({
+      scope: "platform.module.change",
+      companyId: parsed.data.companyId,
+    });
     const { error } = await supabase.rpc("platform_set_company_module_status", {
       p_company_id: parsed.data.companyId,
       p_module_key: parsed.data.moduleKey,
@@ -301,8 +327,10 @@ export async function setOnboardingStepStatusAction(
   const parsed = onboardingInput.safeParse(fields(formData));
   if (!parsed.success) return failedValidation();
   try {
-    await requirePlatformManager();
-    const supabase = await createClient();
+    const supabase = await guardedPlatformClient({
+      scope: "platform.onboarding.change",
+      companyId: parsed.data.companyId,
+    });
     const { error } = await supabase.rpc("platform_set_onboarding_step_completed", {
       p_company_id: parsed.data.companyId,
       p_step_key: parsed.data.stepKey,
@@ -323,8 +351,10 @@ export async function createOrganizationUnitAction(
   const parsed = organizationInput.safeParse(fields(formData));
   if (!parsed.success) return failedValidation();
   try {
-    await requirePlatformManager();
-    const supabase = await createClient();
+    const supabase = await guardedPlatformClient({
+      scope: "platform.organization.create",
+      companyId: parsed.data.companyId,
+    });
     const { error } = await supabase.rpc("platform_create_organization_unit", {
       p_company_id: parsed.data.companyId,
       p_parent_id: parsed.data.parentId,
@@ -357,6 +387,12 @@ export async function resetMemberMfaAction(
   if (!parsed.success) return failedValidation();
 
   try {
+    const supabase = await createClient();
+    const decision = await consumePlatformActionRateLimit(supabase, {
+      scope: "platform.mfa.reset",
+      resourceId: parsed.data.userId,
+    });
+    assertPlatformActionLimit(decision);
     const result = await resetUserMfa(parsed.data.userId);
     revalidatePlatformCompanyPages();
 

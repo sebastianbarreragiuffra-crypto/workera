@@ -73,7 +73,7 @@ export const RPC_CONSUMER_SURFACES = [
     ],
     dynamicRpcs: [], authorization: "requirePlatformManager y AAL2; RPC repite permiso de plataforma.",
     auditControl: "PLATFORM_LEDGER", dataClass: "SENSITIVE_HR",
-    blockers: ["APPLICATION_RATE_LIMIT", "HOSTED_OBSERVABILITY"],
+    blockers: ["HOSTED_OBSERVABILITY"],
   },
   {
     source: "src/lib/admin/mfa-reset.ts",
@@ -246,6 +246,13 @@ export const RPC_CONSUMER_SURFACES = [
     authorization: "Acción privilegiada y RPC transaccional; Storage privado.",
     auditControl: "BUSINESS_LEDGER", dataClass: "FINANCIAL",
     blockers: ["LABOR_MULTI_TENANCY", "APPLICATION_RATE_LIMIT"],
+  },
+  {
+    source: "src/lib/platform/action-rate-limit.ts",
+    domain: "platform", executionIdentity: "SESSION", capability: null, tenantScope: "CONTROL_PLANE",
+    literalRpcs: ["consume_platform_action_rate_limit"], dynamicRpcs: [],
+    authorization: "Scope cerrado; RPC exige actor, rol, MFA, empresa/recurso y cuota por instancia compartida.",
+    auditControl: "PLATFORM_LEDGER", dataClass: "SENSITIVE_HR", blockers: ["HOSTED_OBSERVABILITY"],
   },
   {
     source: "src/lib/platform/invitations.ts",

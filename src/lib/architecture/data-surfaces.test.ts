@@ -68,8 +68,8 @@ test("todo consumidor RPC esta inventariado con sus nombres exactos", () => {
     ...surface.literalRpcs,
     ...surface.dynamicRpcs,
   ]));
-  assert.equal(RPC_CONSUMER_SURFACES.length, 27);
-  assert.equal(registeredNames.length, 86);
+  assert.equal(RPC_CONSUMER_SURFACES.length, 28);
+  assert.equal(registeredNames.length, 87);
 });
 
 test("los RPC dinamicos tienen un conjunto cerrado comprobable", () => {
@@ -112,6 +112,20 @@ test("la deuda RPC legacy y controles sensibles nunca quedan ocultos", () => {
       assert.ok(surface.blockers.length > 0, `${surface.source} oculta auditoria parcial sin deuda`);
     }
   }
+});
+
+test("el control plane declara su cuota distribuida sin deuda contradictoria", () => {
+  const platformSurfaces = RPC_CONSUMER_SURFACES.filter((surface) =>
+    surface.domain === "platform"
+    && (surface.source.includes("plataforma/actions") || surface.source.includes("action-rate-limit"))
+  );
+  assert.equal(platformSurfaces.length, 2);
+  for (const surface of platformSurfaces) {
+    assert.ok(!(surface.blockers as readonly string[]).includes("APPLICATION_RATE_LIMIT"), surface.source);
+  }
+  assert.ok(platformSurfaces.some((surface) =>
+    (surface.literalRpcs as readonly string[]).includes("consume_platform_action_rate_limit")
+  ));
 });
 
 test("cada operacion Storage esta inventariada con bucket y ocurrencias exactas", () => {

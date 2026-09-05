@@ -54,9 +54,10 @@ Fronteras:
 - Riesgo: login, recuperación, challenge MFA, APIs, webhooks, uploads,
   exportaciones o acciones admin consumen recursos o revelan cuentas/datos.
 - Evidencia: Rendiciones financieras, uploads laborales, documentos y las tres
-  exportaciones laborales ya tienen cuotas distribuidas; persisten login,
-  borde público y acciones administrativas sin cobertura completa, y nada fue
-  comprobado hospedado.
+  exportaciones laborales ya tienen cuotas distribuidas. Las ocho mutaciones
+  del control plane también consumen una cuota PostgreSQL con rol, AAL2 y
+  recurso revalidados; persisten login, borde público y decisiones laborales,
+  y nada fue comprobado hospedado.
 - Estado: `BLOCKED`.
 - Control requerido: límites por identidad/IP/empresa, protección adaptativa o
   CAPTCHA cuando proceda, respuestas no enumerables, alerta y política explícita
@@ -232,8 +233,9 @@ Fronteras:
   aprobar fraude; RLS correcta no impide el abuso dentro del alcance concedido.
 - Evidencia: capacidades server-side, aprobación humana y algunos logs.
   Rendiciones limita y audita en base sus cuatro entregas financieras por
-  empresa+actor; no hay todavía cobertura laboral, recertificación periódica ni
-  detección de anomalías hospedada.
+  empresa+actor; documentos y exportaciones laborales poseen guardas propias, y
+  el control plane limita sus ocho mutaciones. No hay todavía cobertura de las
+  decisiones laborales, recertificación periódica ni detección hospedada.
 - Estado: `UNVERIFIED` / `BLOCKED` para staging con PII y piloto.
 - Control requerido: matriz de segregación y conflictos, doble control para
   pagos/contabilidad, recertificación y caducidad de accesos, extender límites a

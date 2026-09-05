@@ -13,6 +13,7 @@ export type ServerActionAuthentication =
 export type ServerActionValidation = "ZOD" | "DOMAIN_VALIDATED" | "MIXED_VALIDATION";
 export type ServerActionAbuseControl =
   | "AUTH_PROVIDER_UNVERIFIED"
+  | "DATABASE_RATE_LIMIT"
   | "DATABASE_QUOTA"
   | "DOMAIN_LIMITS_PARTIAL"
   | "MISSING";
@@ -81,8 +82,8 @@ export const SERVER_ACTION_SURFACES = [
     ],
     domain: "platform", tenantScope: "CONTROL_PLANE", authentication: "SESSION_PRIVILEGED",
     authorizationEvidence: ["requirePlatformManager"], validation: "ZOD", uploadMaxBytes: null,
-    abuseControl: "MISSING", auditControl: "BUSINESS_LEDGER", dataClass: "SENSITIVE_HR",
-    blockers: ["APPLICATION_RATE_LIMIT", "HOSTED_OBSERVABILITY"],
+    abuseControl: "DATABASE_RATE_LIMIT", auditControl: "BUSINESS_LEDGER", dataClass: "SENSITIVE_HR",
+    blockers: ["HOSTED_OBSERVABILITY"],
   },
   {
     source: "src/app/(expenses)/empresas/[companySlug]/rendiciones/actions.ts",
