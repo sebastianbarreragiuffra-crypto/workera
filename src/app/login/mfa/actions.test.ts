@@ -52,3 +52,16 @@ test("el login ya no entra directo: resuelve el destino según el estado de MFA"
   assert.match(body, /redirect\(destination\)/);
   assert.doesNotMatch(body, /redirect\("\/"\)/, "el login no debe volver a redirigir siempre a la raíz");
 });
+
+test("si no puede resolver el estado MFA, elimina la sesión parcial y muestra un error genérico", () => {
+  const source = read(LOGIN_ACTIONS_PATH);
+  const loginStart = source.indexOf("export async function login(");
+  const loginEnd = source.indexOf("\nexport ", loginStart + 1);
+  const body = source.slice(loginStart, loginEnd === -1 ? undefined : loginEnd);
+  const catchStart = body.indexOf("catch {");
+  const catchBody = body.slice(catchStart, body.indexOf("\n  }", catchStart));
+
+  assert.match(catchBody, /supabase\.auth\.signOut\(\)/);
+  assert.match(catchBody, /estado de seguridad de tu cuenta/);
+  assert.doesNotMatch(catchBody, /error\.message|token|claims|email/);
+});

@@ -31,21 +31,16 @@ export async function GET(request: NextRequest) {
     if (!error) {
       await acceptCurrentUserInvitations(supabase);
 
-      // Fail-closed: si no se puede determinar el estado de segundo factor, la
-      // sesión ya existe y hay que mandarla a algún lado. `/seguridad/mfa` es
-      // el destino seguro -- es la pantalla que resuelve exactamente esa
-      // indeterminación y está permitida en aal1 -- mientras que `/` daría
-      // acceso sin haber podido comprobar nada.
-      let destination: string = "/seguridad/mfa";
       try {
-        destination = await resolvePostLoginDestination(supabase);
+        const destination = await resolvePostLoginDestination(supabase);
+        return NextResponse.redirect(`${origin}${destination}`);
       } catch {
         console.error("[auth] no se pudo resolver el destino post-login de OAuth", {
           event: "oauth_post_login_destination_failed",
         });
+        await supabase.auth.signOut();
+        return NextResponse.redirect(`${origin}/login?error=security`);
       }
-
-      return NextResponse.redirect(`${origin}${destination}`);
     }
   }
 

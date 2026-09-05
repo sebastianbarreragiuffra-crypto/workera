@@ -46,7 +46,7 @@ const confirmInput = z.object({
   code: z.string().trim().regex(/^\d{6}$/),
 });
 const factorInput = z.object({
-  factorId: z.string().trim().min(1).max(100),
+  factorId: z.string().uuid(),
 });
 
 function entries(formData: FormData): Record<string, FormDataEntryValue> {
@@ -131,7 +131,14 @@ export async function startMfaEnrollmentAction(
   try {
     qrCodeDataUri = normalizeMfaQrCodeDataUri(data.totp.qr_code);
   } catch {
-    return error("No pudimos generar un código QR seguro. Descarta este intento y vuelve a probar.");
+    const { error: cleanupError } = await supabase.auth.mfa.unenroll({ factorId: data.id });
+    if (cleanupError) {
+      console.error("[auth] no se pudo limpiar una inscripción MFA inválida", {
+        event: "mfa_invalid_enrollment_cleanup_failed",
+      });
+      return error("No pudimos generar un código QR seguro. Actualiza la página y descarta el intento incompleto.");
+    }
+    return error("No pudimos generar un código QR seguro. Vuelve a probar.");
   }
 
   return {

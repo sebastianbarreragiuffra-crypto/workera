@@ -38,14 +38,14 @@ test("el callback ya no redirige incondicionalmente a la raíz", () => {
   );
 });
 
-test("si el estado de segundo factor no se puede leer, el destino es la pantalla que lo resuelve", () => {
+test("si el estado de segundo factor no se puede leer, elimina la sesión parcial y vuelve al login", () => {
   const callback = readSource(ROUTE_PATH);
-  assert.match(
-    callback,
-    /let destination: string = "\/seguridad\/mfa";/,
-    "fail-closed: el valor inicial no puede ser / "
-  );
-  assert.match(callback, /catch \{/, "un fallo al resolver no debe caerse con la sesión ya creada");
+  const catchStart = callback.indexOf("catch {");
+  const catchBody = callback.slice(catchStart, callback.indexOf("\n      }", catchStart));
+
+  assert.match(catchBody, /supabase\.auth\.signOut\(\)/, "la sesión incompleta no debe sobrevivir");
+  assert.match(catchBody, /\/login\?error=security/, "el usuario recibe un error recuperable en el login");
+  assert.doesNotMatch(catchBody, /\/seguridad\/mfa/, "una lectura fallida no debe mandar a otra pantalla que depende de ella");
 });
 
 test("el error registrado no lleva claims, token, correo ni el mensaje del proveedor", () => {

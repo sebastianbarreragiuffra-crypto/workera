@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "tsx --conditions=react-server --test \"src/**/*.test.ts\" \"next.config.test.ts\"",
+    "test:e2e": "playwright test",
     "test:workera": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/workera/**/*.test.ts\"",
     "test:auth": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/supabase/*.test.ts\"",
     "test:admin": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/admin/**/*.test.ts\"",
@@ -35,6 +36,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

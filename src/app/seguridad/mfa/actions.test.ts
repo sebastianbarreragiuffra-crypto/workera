@@ -60,6 +60,18 @@ test("usa directamente el data URI validado por el normalizador", () => {
   assert.doesNotMatch(body, /`data:image\/svg\+xml/);
 });
 
+test("si el proveedor devuelve un QR inválido, elimina el factor recién creado", () => {
+  const body = bodyOf(readSource(), "startMfaEnrollmentAction");
+  const normalizeIdx = body.indexOf("normalizeMfaQrCodeDataUri(data.totp.qr_code)");
+  const cleanupIdx = body.indexOf("supabase.auth.mfa.unenroll({ factorId: data.id })");
+
+  assert.ok(normalizeIdx > 0 && cleanupIdx > normalizeIdx);
+});
+
+test("el identificador del factor que llega desde el navegador debe ser UUID", () => {
+  assert.match(readSource(), /factorId:\s*z\.string\(\)\.uuid\(\)/);
+});
+
 test("la confirmación encadena challenge y luego verify, y solo registra ENROLLED si verify no falló", () => {
   const body = bodyOf(readSource(), "confirmMfaEnrollmentAction");
   const challengeIdx = body.indexOf("supabase.auth.mfa.challenge(");

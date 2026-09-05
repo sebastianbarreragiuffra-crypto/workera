@@ -66,12 +66,19 @@ function GoogleIcon() {
 }
 
 /** Lee `?error=oauth` para mostrar el mismo tipo de mensaje genérico que el login por contraseña -- nunca detalle interno del proveedor. */
-function OAuthErrorBanner() {
+function LoginErrorBanner() {
   const searchParams = useSearchParams();
-  if (searchParams.get("error") !== "oauth") return null;
+  const error = searchParams.get("error");
+  const message =
+    error === "oauth"
+      ? "No pudimos completar el inicio de sesión con Google."
+      : error === "security"
+        ? "No pudimos comprobar el estado de seguridad de tu cuenta. Intenta nuevamente."
+        : null;
+  if (!message) return null;
   return (
     <p role="alert" className="mt-4 rounded-md border border-critical-border bg-critical-bg px-3 py-2 text-sm text-critical">
-      No pudimos completar el inicio de sesión con Google.
+      {message}
     </p>
   );
 }
@@ -121,7 +128,7 @@ export default function LoginPage() {
             <p className="mt-1 text-center text-sm text-login-muted">Inicia sesión para continuar</p>
 
             <Suspense fallback={null}>
-              <OAuthErrorBanner />
+              <LoginErrorBanner />
             </Suspense>
 
             <form action={formAction} className="mt-6 space-y-4">

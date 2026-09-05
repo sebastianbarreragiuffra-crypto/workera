@@ -35,7 +35,16 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
   // segundo factor, todavía está en aal1 y le falta el desafío; si debe tener
   // uno y no lo inscribió, va a inscribirlo. Ver sección 6.2 de
   // docs/MFA_DESIGN.md.
-  const destination = await resolvePostLoginDestination(supabase);
+  let destination;
+  try {
+    destination = await resolvePostLoginDestination(supabase);
+  } catch {
+    console.error("[auth] no se pudo resolver el destino post-login", {
+      event: "password_post_login_destination_failed",
+    });
+    await supabase.auth.signOut();
+    return { error: "No pudimos comprobar el estado de seguridad de tu cuenta. Intenta nuevamente." };
+  }
 
   revalidatePath("/", "layout");
   redirect(destination);

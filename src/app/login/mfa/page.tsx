@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { GestoraBrand } from "@/components/platform/GestoraBrand";
 import { MfaChallenge, type MfaChallengeFactor } from "@/components/auth/MfaChallenge";
+import { MfaLoadError } from "@/components/auth/MfaLoadError";
 import { MfaSignOut } from "@/components/auth/MfaSignOut";
 import { getMfaAccountState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
@@ -18,13 +19,51 @@ export const metadata = {
  */
 export default async function LoginMfaPage() {
   const supabase = await createClient();
-  const account = await getMfaAccountState(supabase);
+  let account;
+  try {
+    account = await getMfaAccountState(supabase);
+  } catch {
+    console.error("[auth] no se pudo cargar la cuenta para el desafío MFA", {
+      event: "mfa_challenge_account_load_failed",
+    });
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center bg-login-background px-6 py-12">
+        <div className="w-full max-w-sm">
+          <MfaLoadError retryHref="/login/mfa" />
+        </div>
+      </main>
+    );
+  }
   if (!account) redirect("/login");
 
-  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (aalError || !aal) {
+    console.error("[auth] no se pudo leer el nivel para el desafío MFA", {
+      event: "mfa_challenge_aal_load_failed",
+    });
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center bg-login-background px-6 py-12">
+        <div className="w-full max-w-sm">
+          <MfaLoadError retryHref="/login/mfa" />
+        </div>
+      </main>
+    );
+  }
   if (aal?.currentLevel === "aal2") redirect("/");
 
-  const { data: factors } = await supabase.auth.mfa.listFactors();
+  const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors();
+  if (factorsError || !factors) {
+    console.error("[auth] no se pudieron cargar los factores para el desafío MFA", {
+      event: "mfa_challenge_factors_load_failed",
+    });
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center bg-login-background px-6 py-12">
+        <div className="w-full max-w-sm">
+          <MfaLoadError retryHref="/login/mfa" />
+        </div>
+      </main>
+    );
+  }
   const verifiedFactors: MfaChallengeFactor[] = (factors?.totp ?? []).map((factor) => ({
     id: factor.id,
     friendlyName: factor.friendly_name?.trim() || "Autenticador sin nombre",
