@@ -3,17 +3,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 
 /**
- * Subida de comprobantes/licencias (Fase 8, PASO 6/Documentos). Sube al
- * bucket privado `supporting-documents` (creado en esta fase, ver
- * `supabase/migrations/20260821100000_phase8_documents_storage_bucket.sql`)
- * y luego inserta la fila de metadata en `public.supporting_documents`
- * (esquema de Fase 7, sin cambios). Nunca genera una URL pública ni marca
- * el bucket como público -- si la subida a Storage falla, no se inserta
- * metadata; si la subida a Storage funciona pero el insert de metadata
- * falla (ej. RLS/constraint), el archivo queda huérfano en Storage pero
- * nunca se referencia desde ninguna tabla -- aceptable para esta fase,
- * documentado como limitación conocida en docs/UI_PHASE8.md (no hay
- * garbage-collection de objetos huérfanos todavía).
+ * Frontera del protocolo reserve -> upload -> commit para el bucket privado
+ * `supporting-documents`. PostgreSQL autoriza la reserva, Storage acepta solo
+ * esa ruta y el RPC final confirma metadata + auditoría. Ante un resultado
+ * incierto se intenta borrar exclusivamente el objeto todavía huérfano.
  */
 
 export type SupportingDocumentType = "MEDICAL_CERTIFICATE" | "TRANSPORT_PROOF" | "IDENTIFICATION" | "OTHER";
@@ -56,28 +49,94 @@ export interface UploadSupportingDocumentResult {
  */
 export const MAX_SUPPORTING_DOCUMENT_SIZE_BYTES = 10 * 1024 * 1024;
 
-function sanitizeFilename(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(-120);
+const SUPPORTED_DOCUMENT_FORMATS = [
+  { mimeType: "application/pdf", extension: "pdf", signature: [0x25, 0x50, 0x44, 0x46, 0x2d] },
+  { mimeType: "image/jpeg", extension: "jpg", signature: [0xff, 0xd8, 0xff] },
+  { mimeType: "image/png", extension: "png", signature: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] },
+] as const;
+
+export type SupportingDocumentMime = (typeof SUPPORTED_DOCUMENT_FORMATS)[number]["mimeType"];
+
+export interface ValidatedSupportingDocument {
+  mimeType: SupportingDocumentMime;
+  extension: "pdf" | "jpg" | "png";
+}
+
+/** El MIME del navegador es una pista; la firma real es la autoridad. */
+export function validateSupportingDocumentFile(
+  fileBytes: Uint8Array,
+  declaredMimeType: string,
+): ValidatedSupportingDocument {
+  if (fileBytes.byteLength < 1) throw new Error("El documento está vacío.");
+  if (fileBytes.byteLength > MAX_SUPPORTING_DOCUMENT_SIZE_BYTES) {
+    throw new Error(`El archivo supera el tamaño máximo permitido (${MAX_SUPPORTING_DOCUMENT_SIZE_BYTES / (1024 * 1024)}MB).`);
+  }
+
+  const format = SUPPORTED_DOCUMENT_FORMATS.find(({ signature }) =>
+    signature.every((byte, index) => fileBytes[index] === byte),
+  );
+  if (!format) throw new Error("El documento debe ser un PDF, JPG o PNG válido.");
+  if (declaredMimeType && declaredMimeType !== "application/octet-stream" && declaredMimeType !== format.mimeType) {
+    throw new Error("El contenido del documento no coincide con su formato declarado.");
+  }
+  return { mimeType: format.mimeType, extension: format.extension };
+}
+
+interface StagedSupportingDocument {
+  intentId: string;
+  storagePath: string;
+}
+
+export async function stageSupportingDocument(
+  supabase: SupabaseClient<Database>,
+  input: Pick<UploadSupportingDocumentInput, "employeeId" | "mimeType" | "fileBytes">,
+): Promise<StagedSupportingDocument> {
+  const format = validateSupportingDocumentFile(input.fileBytes, input.mimeType);
+  const { data: reservation, error: reservationError } = await supabase
+    .rpc("reserve_supporting_document_upload", {
+      p_employee_id: input.employeeId,
+      p_mime_type: format.mimeType,
+      p_extension: format.extension,
+      p_file_size: input.fileBytes.byteLength,
+    })
+    .single();
+  if (reservationError || !reservation) {
+    throw new Error(`No se pudo reservar el documento: ${reservationError?.message ?? "sin respuesta"}`);
+  }
+
+  const { error: uploadError } = await supabase.storage
+    .from("supporting-documents")
+    .upload(reservation.storage_path, input.fileBytes, { contentType: format.mimeType, upsert: false });
+  if (uploadError) {
+    // La respuesta de Storage puede ser incierta (timeout después de aceptar
+    // el objeto). La reserva aún está abierta, así que la policy permite una
+    // eliminación compensatoria segura si el objeto alcanzó a persistirse.
+    await discardStagedSupportingDocument(supabase, {
+      intentId: reservation.intent_id,
+      storagePath: reservation.storage_path,
+    });
+    throw new Error(`No se pudo subir el documento: ${uploadError.message}`);
+  }
+  return { intentId: reservation.intent_id, storagePath: reservation.storage_path };
+}
+
+export async function discardStagedSupportingDocument(
+  supabase: SupabaseClient<Database>,
+  staged: StagedSupportingDocument,
+): Promise<void> {
+  const { error } = await supabase.storage.from("supporting-documents").remove([staged.storagePath]);
+  if (error) {
+    // La ruta ya es opaca (solo UUID); nunca se registra filename ni contenido.
+    console.error("[documentos] no se pudo compensar un objeto huérfano", staged.intentId, error.message);
+  }
 }
 
 export async function uploadSupportingDocument(
   supabase: SupabaseClient<Database>,
   input: UploadSupportingDocumentInput
 ): Promise<UploadSupportingDocumentResult> {
-  if (input.fileBytes.byteLength > MAX_SUPPORTING_DOCUMENT_SIZE_BYTES) {
-    throw new Error(`El archivo supera el tamaño máximo permitido (${MAX_SUPPORTING_DOCUMENT_SIZE_BYTES / (1024 * 1024)}MB).`);
-  }
-
-  // Todo lo que pueda hacer fallar el INSERT se valida ANTES de tocar Storage.
-  // El archivo se sube primero y la metadata después, así que un INSERT que
-  // falla deja el archivo huérfano: con datos personales dentro, sin ninguna
-  // fila que lo referencie y --como el bucket no tiene policy de DELETE para
-  // nadie, a propósito, porque los documentos son inmutables-- imposible de
-  // borrar desde la aplicación.
-  //
-  // `document_type` es el caso concreto y alcanzable: la columna tiene un
-  // CHECK en la base y las Server Actions lo reciben del formulario con un
-  // `as SupportingDocumentType` que nadie verifica.
+  // `document_type` se valida antes de reservar/subir. El RPC repite el gate:
+  // TypeScript nunca es la única autoridad.
   if (!SUPPORTING_DOCUMENT_TYPES.includes(input.documentType)) {
     throw new Error(`uploadSupportingDocument: tipo de documento no válido (${input.documentType}).`);
   }
@@ -88,46 +147,30 @@ export async function uploadSupportingDocument(
     throw new Error("uploadSupportingDocument: identificador de trabajador no válido.");
   }
 
-  const storagePath = `${input.employeeId}/${crypto.randomUUID()}-${sanitizeFilename(input.originalFilename)}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from("supporting-documents")
-    .upload(storagePath, input.fileBytes, { contentType: input.mimeType, upsert: false });
-  if (uploadError) {
-    throw new Error(`uploadSupportingDocument: fallo subiendo archivo a Storage: ${uploadError.message}`);
-  }
-
-  const relationColumns = !input.relation
-    ? {}
+  const relationArgs = !input.relation
+    ? { p_absence_record_id: null, p_late_arrival_decision_id: null, p_early_departure_record_id: null }
     : input.relation.kind === "ABSENCE"
-      ? { absence_record_id: input.relation.absenceRecordId }
+      ? { p_absence_record_id: input.relation.absenceRecordId, p_late_arrival_decision_id: null, p_early_departure_record_id: null }
       : input.relation.kind === "LATE_ARRIVAL_DECISION"
-        ? { late_arrival_decision_id: input.relation.lateArrivalDecisionId }
-        : { early_departure_record_id: input.relation.earlyDepartureRecordId };
+        ? { p_absence_record_id: null, p_late_arrival_decision_id: input.relation.lateArrivalDecisionId, p_early_departure_record_id: null }
+        : { p_absence_record_id: null, p_late_arrival_decision_id: null, p_early_departure_record_id: input.relation.earlyDepartureRecordId };
 
-  // id generado en el cliente e insertado explícitamente -- NUNCA
-  // `.select().single()` después del insert: la policy de SELECT de esta
-  // tabla es exclusiva de `is_privileged_admin()` (ver migración
-  // 20260817152542), y Postgres exige que una fila devuelta por
-  // `INSERT ... RETURNING` pase esa misma policy de SELECT o la sentencia
-  // completa falla con "new row violates row-level security policy" aunque
-  // el WITH CHECK del INSERT sí se cumplió -- un supervisor SIEMPRE
-  // recibiría ese error al subir un documento si se pidiera RETURNING.
-  const documentId = crypto.randomUUID();
-  const { error } = await supabase.from("supporting_documents").insert({
-    id: documentId,
-    employee_id: input.employeeId,
-    document_type: input.documentType,
-    storage_path: storagePath,
-    mime_type: input.mimeType,
-    original_filename: input.originalFilename,
-    ...relationColumns,
-  });
-  if (error) {
-    throw new Error(`uploadSupportingDocument: fallo insertando metadata: ${error.message}`);
+  const staged = await stageSupportingDocument(supabase, input);
+  try {
+    const { data: documentId, error } = await supabase.rpc("register_supporting_document_upload", {
+      p_intent_id: staged.intentId,
+      p_document_type: input.documentType,
+      p_original_filename: input.originalFilename.slice(-240),
+      ...relationArgs,
+    });
+    if (error || !documentId) {
+      throw new Error(`No se pudo registrar el documento: ${error?.message ?? "sin respuesta"}`);
+    }
+    return { documentId, storagePath: staged.storagePath };
+  } catch (error) {
+    await discardStagedSupportingDocument(supabase, staged);
+    throw error;
   }
-
-  return { documentId, storagePath };
 }
 
 const SIGNED_URL_TTL_SECONDS = 60;

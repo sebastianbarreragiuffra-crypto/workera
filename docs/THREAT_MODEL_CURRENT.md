@@ -1,6 +1,6 @@
 # Modelo de amenazas vigente — GESTORA / Workera
 
-Fecha de revisión: 4 de septiembre de 2026. Alcance: rama
+Fecha de revisión: 5 de septiembre de 2026. Alcance: rama
 `codex/phases2-6-autonomous`, incluidos UI/SSR, Route Handlers, Supabase Auth,
 Postgres/RLS, Storage, `service_role`, Workera, Rendiciones Fases 2–6, PWA,
 webhooks, jobs y agentes de desarrollo. No afirma despliegue de esta rama.
@@ -41,8 +41,9 @@ Fronteras:
 
 - Riesgo: un AAL1, JWT antiguo, unenrollment o recuperación débil permite una
   operación de plataforma/RR. HH./Finanzas.
-- Evidencia: TOTP/AAL2 existe en una rama separada; no está integrado aquí.
-- Estado: `BLOCKED`.
+- Evidencia: TOTP/AAL2 está integrado y probado en una pila local aislada; no
+  está activado ni verificado en el proyecto hospedado.
+- Estado: implementación `TESTED_LOCAL`; rollout/recuperación `BLOCKED`.
 - Control requerido: AAL2 en RLS restrictiva, RPC, API, SSR y Actions; dos
   factores TOTP para owner; revocación/recuperación ensayada; MFA en GitHub,
   Supabase, Vercel, DNS, correo y gestor de secretos.
@@ -52,8 +53,9 @@ Fronteras:
 
 - Riesgo: login, recuperación, challenge MFA, APIs, webhooks, uploads,
   exportaciones o acciones admin consumen recursos o revelan cuentas/datos.
-- Evidencia: controles puntuales de tamaño/cuota y `CRON_SECRET`; el plan global
-  de abuse/rate limiting sigue `PLANNED/TBD` y no fue comprobado hospedado.
+- Evidencia: Rendiciones financieras y uploads laborales ya tienen cuotas
+  distribuidas; persisten login, descargas y acciones administrativas sin
+  cobertura completa, y nada fue comprobado hospedado.
 - Estado: `BLOCKED`.
 - Control requerido: límites por identidad/IP/empresa, protección adaptativa o
   CAPTCHA cuando proceda, respuestas no enumerables, alerta y política explícita
@@ -89,10 +91,10 @@ Fronteras:
 
 - Riesgo: PDF/JPG/PNG de web, correo o WhatsApp explota parser/navegador, se sirve
   inline o llega a RR. HH. sin inspección.
-- Evidencia: límites, MIME + magic bytes, tipos allowlisted, Storage privado y
-  cuarentena durable `PENDING_SCAN`/`CLEAN` con leases/fencing. La base impide
-  descargar, adjuntar, enviar u OCR de archivos externos no liberados. No hay
-  todavía un proveedor antimalware/CDR real.
+- Evidencia: límites, MIME + magic bytes y Storage privado. Rendiciones posee
+  cuarentena durable `PENDING_SCAN`/`CLEAN` con leases/fencing; documentos
+  laborales usan reserva personal, commit atómico y compensación de huérfano,
+  pero todavía no un estado de escaneo. No hay proveedor antimalware/CDR real.
 - Estado: `BLOCKED` para conectores externos y piloto con archivos reales.
 - Control requerido: conectar antimalware/CDR a la cuarentena ya implementada,
   definir retención de rechazados, mantener no descarga antes de `CLEAN`, `Content-Disposition`, `nosniff`,

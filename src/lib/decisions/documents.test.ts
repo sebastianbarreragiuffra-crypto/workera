@@ -1,201 +1,177 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { uploadSupportingDocument, getSignedDocumentUrl, MAX_SUPPORTING_DOCUMENT_SIZE_BYTES } from "./documents";
+import test from "node:test";
+import {
+  getSignedDocumentUrl,
+  MAX_SUPPORTING_DOCUMENT_SIZE_BYTES,
+  uploadSupportingDocument,
+  validateSupportingDocumentFile,
+} from "./documents";
 
-
-/** `employees.id` es una columna uuid: el fixture debe parecerse al dato real. */
 const EMPLOYEE_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
-function mockSupabase({ insertedRows, docRow, signedUrlOk = true }: { insertedRows: Record<string, unknown>[]; docRow?: { storage_path: string } | null; signedUrlOk?: boolean }) {
-  return {
-    storage: {
-      from() {
+const INTENT_ID = "4f2504e0-4f89-41d3-9a0c-0305e82c3302";
+const STORAGE_PATH = `${EMPLOYEE_ID}/${INTENT_ID}.pdf`;
+const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]);
+const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function mockSupabase(options: {
+  failRegister?: boolean;
+  failUpload?: boolean;
+  failRemove?: boolean;
+  docRow?: { storage_path: string } | null;
+  signedUrlOk?: boolean;
+} = {}) {
+  const calls: Array<{ kind: string; args: unknown }> = [];
+  const client = {
+    rpc(name: string, args: unknown) {
+      calls.push({ kind: `rpc:${name}`, args });
+      if (name === "reserve_supporting_document_upload") {
         return {
-          upload: () => Promise.resolve({ data: { path: "x" }, error: null }),
-          createSignedUrl: () =>
-            signedUrlOk ? Promise.resolve({ data: { signedUrl: "https://example.test/signed" }, error: null }) : Promise.resolve({ data: null, error: { message: "no access" } }),
+          single: () => Promise.resolve({
+            data: { intent_id: INTENT_ID, storage_path: STORAGE_PATH },
+            error: null,
+          }),
+        };
+      }
+      if (name === "register_supporting_document_upload") {
+        return Promise.resolve(options.failRegister
+          ? { data: null, error: { message: "register failed" } }
+          : { data: "document-id", error: null });
+      }
+      throw new Error(`RPC inesperado: ${name}`);
+    },
+    storage: {
+      from(bucket: string) {
+        assert.equal(bucket, "supporting-documents");
+        return {
+          upload: (path: string, bytes: Uint8Array, uploadOptions: unknown) => {
+            calls.push({ kind: "storage:upload", args: { path, bytes, uploadOptions } });
+            return Promise.resolve(options.failUpload
+              ? { data: null, error: { message: "upload failed" } }
+              : { data: { path }, error: null });
+          },
+          remove: (paths: string[]) => {
+            calls.push({ kind: "storage:remove", args: paths });
+            return Promise.resolve(options.failRemove
+              ? { data: null, error: { message: "remove failed" } }
+              : { data: [], error: null });
+          },
+          createSignedUrl: () => options.signedUrlOk === false
+            ? Promise.resolve({ data: null, error: { message: "no access" } })
+            : Promise.resolve({ data: { signedUrl: "https://example.test/signed" }, error: null }),
         };
       },
     },
     from(table: string) {
-      if (table === "supporting_documents") {
-        return {
-          insert(row: Record<string, unknown>) {
-            insertedRows.push(row);
-            // Real behavior being regression-tested: this table's SELECT
-            // policy is exclusive to is_privileged_admin() (grants_lockdown
-            // migration), so `INSERT ... RETURNING` fails for a supervisor
-            // even though the WITH CHECK on the insert itself passed. A mock
-            // that resolves `.select()` as an error models that faithfully --
-            // uploadSupportingDocument must never call `.select()` here.
-            return {
-              select() {
-                throw new Error("uploadSupportingDocument must not call .select() after insert -- see grants_lockdown RLS RETURNING bug");
-              },
-              then(onResolve: (r: { data: null; error: null }) => void) {
-                onResolve({ data: null, error: null });
-              },
-            };
-          },
-          select() {
-            return {
-              eq() {
-                return {
-                  single: () => Promise.resolve(docRow ? { data: docRow, error: null } : { data: null, error: { message: "not found" } }),
-                };
-              },
-            };
-          },
-        };
-      }
-      throw new Error(`unexpected table ${table}`);
+      if (table !== "supporting_documents") throw new Error(`tabla inesperada: ${table}`);
+      return {
+        select: () => ({
+          eq: () => ({
+            single: () => Promise.resolve(options.docRow
+              ? { data: options.docRow, error: null }
+              : { data: null, error: { message: "not found" } }),
+          }),
+        }),
+      };
     },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any;
-}
-
-test("uploadSupportingDocument: nunca llama .select() tras el insert -- una fila RETURNING requeriria pasar la policy de SELECT (solo admins), rompiendo siempre para un supervisor", async () => {
-  const insertedRows: Record<string, unknown>[] = [];
-  const supabase = mockSupabase({ insertedRows });
-
-  const result = await uploadSupportingDocument(supabase, {
-    employeeId: EMPLOYEE_ID,
-    documentType: "OTHER",
-    originalFilename: "a.pdf",
-    mimeType: "application/pdf",
-    fileBytes: new Uint8Array([1, 2, 3]),
-  });
-
-  assert.ok(result.documentId, "debe devolver un documentId generado en el cliente");
-  assert.equal(insertedRows.length, 1);
-  assert.equal(insertedRows[0].id, result.documentId, "el id insertado debe coincidir con el devuelto");
-});
-
-test("uploadSupportingDocument: archivo más grande que MAX_SUPPORTING_DOCUMENT_SIZE_BYTES -> rechaza ANTES de tocar Storage/la base (auditoría de Vercel readiness: antes este upload no tenía ningún tope)", async () => {
-  const insertedRows: Record<string, unknown>[] = [];
-  const uploadCalls: unknown[] = [];
-  const supabase = {
-    storage: {
-      from() {
-        return {
-          upload: (...args: unknown[]) => {
-            uploadCalls.push(args);
-            return Promise.resolve({ data: { path: "x" }, error: null });
-          },
-        };
-      },
-    },
-    from(table: string) {
-      if (table === "supporting_documents") {
-        return { insert: (row: Record<string, unknown>) => (insertedRows.push(row), Promise.resolve({ data: null, error: null })) };
-      }
-      throw new Error(`unexpected table ${table}`);
-    },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any;
-
-  await assert.rejects(
-    () =>
-      uploadSupportingDocument(supabase, {
-        employeeId: EMPLOYEE_ID,
-        documentType: "OTHER",
-        originalFilename: "foto.jpg",
-        mimeType: "image/jpeg",
-        fileBytes: new Uint8Array(MAX_SUPPORTING_DOCUMENT_SIZE_BYTES + 1),
-      }),
-    /tamaño máximo/
-  );
-  assert.deepEqual(uploadCalls, [], "un archivo demasiado grande nunca debe llegar a subirse a Storage");
-  assert.deepEqual(insertedRows, [], "un archivo demasiado grande nunca debe insertar metadata");
-});
-
-test("uploadSupportingDocument: relation ausente -> documento general sin FK a ningún caso puntual", async () => {
-  const insertedRows: Record<string, unknown>[] = [];
-  const supabase = mockSupabase({ insertedRows });
-
-  await uploadSupportingDocument(supabase, {
-    employeeId: EMPLOYEE_ID,
-    documentType: "OTHER",
-    originalFilename: "a.pdf",
-    mimeType: "application/pdf",
-    fileBytes: new Uint8Array([1]),
-  });
-
-  assert.ok(!("absence_record_id" in insertedRows[0]));
-  assert.ok(!("late_arrival_decision_id" in insertedRows[0]));
-  assert.ok(!("early_departure_record_id" in insertedRows[0]));
-});
-
-test("getSignedDocumentUrl: sin acceso a la fila base -> error, nunca una URL", async () => {
-  const supabase = mockSupabase({ insertedRows: [], docRow: null });
-  await assert.rejects(() => getSignedDocumentUrl(supabase, "doc-1"));
-});
-
-test("getSignedDocumentUrl: con acceso -> URL firmada de Storage", async () => {
-  const supabase = mockSupabase({ insertedRows: [], docRow: { storage_path: "e1/doc.pdf" } });
-  const url = await getSignedDocumentUrl(supabase, "doc-1");
-  assert.equal(url, "https://example.test/signed");
-});
-
-// ---------------------------------------------------------------------------
-// El archivo no puede llegar a Storage si el INSERT va a fallar
-// ---------------------------------------------------------------------------
-
-/**
- * El archivo se sube primero y la metadata después. Un INSERT que falla deja
- * el archivo huérfano: con datos personales dentro, sin fila que lo
- * referencie, y --como el bucket no tiene policy de DELETE para nadie, a
- * propósito-- imposible de borrar desde la aplicación.
- */
-function trackingClient() {
-  const uploads: unknown[] = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const supabase: any = {
-    storage: {
-      from: () => ({
-        upload: (...args: unknown[]) => {
-          uploads.push(args);
-          return Promise.resolve({ data: { path: "x" }, error: null });
-        },
-      }),
-    },
-    from: () => ({ insert: () => Promise.resolve({ data: null, error: null }) }),
   };
-  return { supabase, uploads };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return { client: client as any, calls };
 }
 
 const VALID_DOC = {
   employeeId: EMPLOYEE_ID,
-  originalFilename: "certificado.pdf",
+  documentType: "MEDICAL_CERTIFICATE" as const,
+  originalFilename: "certificado médico.pdf",
   mimeType: "application/pdf",
-  fileBytes: new Uint8Array([1, 2, 3]),
+  fileBytes: PDF,
 };
 
-test("uploadSupportingDocument: un document_type fuera del CHECK se rechaza ANTES de subir el archivo", async () => {
-  const { supabase, uploads } = trackingClient();
-
-  await assert.rejects(
-    // Las Server Actions lo reciben del formulario con un `as` que nadie
-    // verifica, así que este valor llega de verdad hasta acá.
-    () => uploadSupportingDocument(supabase, { ...VALID_DOC, documentType: "INVENTADO" as never }),
-    /tipo de documento no válido/i
-  );
-  assert.equal(uploads.length, 0, "no debe quedar nada en Storage");
+test("valida PDF/JPEG/PNG por magic bytes y devuelve MIME canónico", () => {
+  assert.deepEqual(validateSupportingDocumentFile(PDF, "application/pdf"), { mimeType: "application/pdf", extension: "pdf" });
+  assert.deepEqual(validateSupportingDocumentFile(JPEG, "image/jpeg"), { mimeType: "image/jpeg", extension: "jpg" });
+  assert.deepEqual(validateSupportingDocumentFile(PNG, "application/octet-stream"), { mimeType: "image/png", extension: "png" });
 });
 
-test("uploadSupportingDocument: un employeeId que no es UUID se rechaza ANTES de subir el archivo", async () => {
-  const { supabase, uploads } = trackingClient();
-
-  await assert.rejects(
-    () => uploadSupportingDocument(supabase, { ...VALID_DOC, employeeId: "e1", documentType: "OTHER" }),
-    /trabajador no válido/i
+test("rechaza archivo vacío, ejecutable disfrazado, MIME discordante y más de 10 MiB", () => {
+  assert.throws(() => validateSupportingDocumentFile(new Uint8Array(), "application/pdf"), /vacío/i);
+  assert.throws(() => validateSupportingDocumentFile(new Uint8Array([0x4d, 0x5a, 0x90]), "application/pdf"), /PDF, JPG o PNG/i);
+  assert.throws(() => validateSupportingDocumentFile(PDF, "image/jpeg"), /no coincide/i);
+  assert.throws(
+    () => validateSupportingDocumentFile(new Uint8Array(MAX_SUPPORTING_DOCUMENT_SIZE_BYTES + 1), "application/pdf"),
+    /tamaño máximo/i,
   );
-  assert.equal(uploads.length, 0, "no debe quedar nada en Storage");
 });
 
-test("uploadSupportingDocument: con datos válidos sí sube y la ruta arranca con el employeeId", async () => {
-  const { supabase, uploads } = trackingClient();
+test("reserva antes de subir y registra metadata por RPC; la ruta nunca contiene el filename", async () => {
+  const { client, calls } = mockSupabase();
+  const result = await uploadSupportingDocument(client, VALID_DOC);
 
-  const { storagePath } = await uploadSupportingDocument(supabase, { ...VALID_DOC, documentType: "MEDICAL_CERTIFICATE" });
-  assert.equal(uploads.length, 1);
-  assert.ok(storagePath.startsWith(`${EMPLOYEE_ID}/`), `ruta inesperada: ${storagePath}`);
+  assert.deepEqual(result, { documentId: "document-id", storagePath: STORAGE_PATH });
+  assert.deepEqual(calls.map((call) => call.kind), [
+    "rpc:reserve_supporting_document_upload",
+    "storage:upload",
+    "rpc:register_supporting_document_upload",
+  ]);
+  assert.ok(!STORAGE_PATH.includes("certificado"));
+  assert.deepEqual(calls[0].args, {
+    p_employee_id: EMPLOYEE_ID,
+    p_mime_type: "application/pdf",
+    p_extension: "pdf",
+    p_file_size: PDF.byteLength,
+  });
+});
+
+test("un tipo de documento o employeeId inválido falla antes de reservar/subir", async () => {
+  for (const input of [
+    { ...VALID_DOC, documentType: "INVENTADO" as never },
+    { ...VALID_DOC, employeeId: "e1" },
+  ]) {
+    const { client, calls } = mockSupabase();
+    await assert.rejects(() => uploadSupportingDocument(client, input));
+    assert.deepEqual(calls, []);
+  }
+});
+
+test("un resultado incierto del upload intenta compensar y no registra metadata", async () => {
+  const { client, calls } = mockSupabase({ failUpload: true });
+  await assert.rejects(() => uploadSupportingDocument(client, VALID_DOC), /subir/i);
+  assert.deepEqual(calls.map((call) => call.kind), ["rpc:reserve_supporting_document_upload", "storage:upload", "storage:remove"]);
+});
+
+test("un fallo del commit elimina por compensación el objeto aún huérfano", async () => {
+  const { client, calls } = mockSupabase({ failRegister: true });
+  await assert.rejects(() => uploadSupportingDocument(client, VALID_DOC), /registrar/i);
+  assert.deepEqual(calls.map((call) => call.kind), [
+    "rpc:reserve_supporting_document_upload",
+    "storage:upload",
+    "rpc:register_supporting_document_upload",
+    "storage:remove",
+  ]);
+  assert.deepEqual(calls.at(-1)?.args, [STORAGE_PATH]);
+});
+
+test("las relaciones se envían al RPC cerrado y nunca se insertan desde TypeScript", async () => {
+  const { client, calls } = mockSupabase();
+  await uploadSupportingDocument(client, {
+    ...VALID_DOC,
+    relation: { kind: "ABSENCE", absenceRecordId: "absence-id" },
+  });
+  const register = calls.find((call) => call.kind === "rpc:register_supporting_document_upload");
+  assert.deepEqual(register?.args, {
+    p_intent_id: INTENT_ID,
+    p_document_type: "MEDICAL_CERTIFICATE",
+    p_original_filename: "certificado médico.pdf",
+    p_absence_record_id: "absence-id",
+    p_late_arrival_decision_id: null,
+    p_early_departure_record_id: null,
+  });
+});
+
+test("getSignedDocumentUrl exige acceso a metadata y crea URL de 60 segundos", async () => {
+  const denied = mockSupabase({ docRow: null }).client;
+  await assert.rejects(() => getSignedDocumentUrl(denied, "doc-1"));
+
+  const allowed = mockSupabase({ docRow: { storage_path: STORAGE_PATH } }).client;
+  assert.equal(await getSignedDocumentUrl(allowed, "doc-1"), "https://example.test/signed");
 });

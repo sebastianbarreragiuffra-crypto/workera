@@ -1,18 +1,19 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
-import { uploadSupportingDocument, MAX_SUPPORTING_DOCUMENT_SIZE_BYTES } from "./documents";
+import {
+  discardStagedSupportingDocument,
+  stageSupportingDocument,
+  validateSupportingDocumentFile,
+} from "./documents";
 
 /**
  * Flujo de dos etapas para licencias médicas: subir documento -> pendiente
  * de aprobación RRHH -> aprobar (genera "L" en asistencia) o rechazar
- * (nunca genera "L"). Reutiliza EXACTAMENTE lo que ya existía:
- * `absence_records` (el registro de ausencia, tipo MEDICAL_LEAVE),
- * `uploadSupportingDocument` (el documento, mismo bucket privado
- * `supporting-documents`) -- lo único nuevo es `medical_license_approvals`
- * (la pieza de aprobación que no existía) y las funciones atómicas
- * `approve_medical_license`/`reject_medical_license` (ver migración
- * `20260825100000_medical_license_approval.sql`).
+ * (nunca genera "L"). `create_pending_medical_license` crea
+ * `absence_records`, `supporting_documents` y `medical_license_approvals` en
+ * un solo commit después de que el archivo reservado existe en Storage.
+ * Aprobar/rechazar conserva los RPC atómicos originales.
  *
  * Subir un documento NUNCA aprueba nada -- la fila nace en
  * `PENDING_RRHH_APPROVAL` y solo la cuenta marcada
@@ -29,7 +30,6 @@ export interface UploadMedicalLicenseInput {
   originalFilename: string;
   mimeType: string;
   fileBytes: Uint8Array;
-  uploadedBy: string;
 }
 
 export interface UploadMedicalLicenseResult {
@@ -38,96 +38,39 @@ export interface UploadMedicalLicenseResult {
   documentId: string;
 }
 
-const MEDICAL_LEAVE_CODE = "MEDICAL_LEAVE";
-
 /**
- * Crea el registro de ausencia (tipo licencia médica), sube el documento de
- * respaldo, y crea la fila de aprobación en `PENDING_RRHH_APPROVAL`. RLS
- * (`can_manage_employee`) es quien realmente decide si el llamador puede
- * hacer esto para este empleado -- el mismo criterio que ya rige
- * `absence_records`/`supporting_documents`, sin scoping nuevo que inventar.
+ * Reserva/sube el archivo y confirma el grafo de licencia en una transacción.
+ * El RPC deriva el actor de auth.uid(), repite `can_manage_employee` y es la
+ * autoridad real; ningún estado/actor llega desde el cliente.
  */
 export async function uploadMedicalLicense(
   supabase: SupabaseClient<Database>,
   input: UploadMedicalLicenseInput
 ): Promise<UploadMedicalLicenseResult> {
-  // El tamaño se valida ANTES de escribir nada. `uploadSupportingDocument` ya
-  // lo rechaza, pero para entonces la ausencia de más abajo ya existe: como
-  // Next.js acepta hasta 12MB de body y el tope del documento son 10MB, un
-  // archivo en esa franja creaba una ausencia médica huérfana, sin documento
-  // ni fila de aprobación, que queda como caso pendiente para siempre.
-  if (input.fileBytes.byteLength > MAX_SUPPORTING_DOCUMENT_SIZE_BYTES) {
-    throw new Error(`El archivo supera el tamaño máximo permitido (${MAX_SUPPORTING_DOCUMENT_SIZE_BYTES / (1024 * 1024)}MB).`);
-  }
-
-  const { data: absenceType, error: absenceTypeError } = await supabase
-    .from("absence_types")
-    .select("id")
-    .eq("code", MEDICAL_LEAVE_CODE)
-    .single();
-  if (absenceTypeError || !absenceType) {
-    throw new Error(`uploadMedicalLicense: no se encontró el tipo de ausencia ${MEDICAL_LEAVE_CODE}: ${absenceTypeError?.message ?? "sin fila"}`);
-  }
-
-  const sourceHash = `manual-license-${input.employeeId}-${input.proposedStartDate}-${input.proposedEndDate}-${crypto.randomUUID()}`;
-  const { data: absenceRecord, error: absenceError } = await supabase
-    .from("absence_records")
-    .insert({
-      employee_id: input.employeeId,
-      absence_type_id: absenceType.id,
-      start_date: input.proposedStartDate,
-      end_date: input.proposedEndDate,
-      source: "manual",
-      source_hash: sourceHash,
-      created_by: input.uploadedBy,
-    })
-    .select("id")
-    .single();
-  if (absenceError || !absenceRecord) {
-    throw new Error(`uploadMedicalLicense: fallo creando el registro de ausencia: ${absenceError?.message ?? "sin fila devuelta"}`);
-  }
-
-  // Los tres pasos no comparten transacción: si algo falla después de crear la
-  // ausencia hay que deshacerla, o queda un caso pendiente sin documento ni
-  // aprobación que nadie puede resolver desde la UI.
+  // Fallar por contenido/tamaño no crea ni siquiera una reserva.
+  validateSupportingDocumentFile(input.fileBytes, input.mimeType);
+  const staged = await stageSupportingDocument(supabase, input);
   try {
-    const { documentId } = await uploadSupportingDocument(supabase, {
-      employeeId: input.employeeId,
-      documentType: "MEDICAL_CERTIFICATE",
-      originalFilename: input.originalFilename,
-      mimeType: input.mimeType,
-      fileBytes: input.fileBytes,
-      relation: { kind: "ABSENCE", absenceRecordId: absenceRecord.id },
-    });
-
-    const approvalId = crypto.randomUUID();
-    const { error: approvalError } = await supabase.from("medical_license_approvals").insert({
-      id: approvalId,
-      absence_record_id: absenceRecord.id,
-      supporting_document_id: documentId,
-      proposed_start_date: input.proposedStartDate,
-      proposed_end_date: input.proposedEndDate,
-      extraction_status: input.extractionStatus,
-      uploaded_by: input.uploadedBy,
-    });
-    if (approvalError) {
-      throw new Error(`uploadMedicalLicense: fallo creando la fila de aprobación: ${approvalError.message}`);
+    const { data, error } = await supabase.rpc("create_pending_medical_license", {
+      p_intent_id: staged.intentId,
+      p_original_filename: input.originalFilename.slice(-240),
+      p_proposed_start_date: input.proposedStartDate,
+      p_proposed_end_date: input.proposedEndDate,
+      p_extraction_status: input.extractionStatus,
+    }).single();
+    if (error || !data) {
+      throw new Error(`No se pudo crear la licencia pendiente: ${error?.message ?? "sin respuesta"}`);
     }
-
-    return { approvalId, absenceRecordId: absenceRecord.id, documentId };
-  } catch (err) {
-    // Compensación de mejor esfuerzo. Si ni siquiera esto se puede, se deja
-    // constancia con el id concreto: es preferible un log accionable a un
-    // registro fantasma silencioso.
-    const { error: cleanupError } = await supabase.from("absence_records").delete().eq("id", absenceRecord.id);
-    if (cleanupError) {
-      console.error(
-        "[licencias] quedó una ausencia huérfana tras fallar la subida",
-        `absence_record_id=${absenceRecord.id}`,
-        cleanupError.message
-      );
-    }
-    throw err;
+    return {
+      approvalId: data.approval_id,
+      absenceRecordId: data.absence_record_id,
+      documentId: data.document_id,
+    };
+  } catch (error) {
+    // El RPC revierte sus tres inserts como una sola transacción; solo queda
+    // compensar el objeto de Storage que necesariamente se cargó antes.
+    await discardStagedSupportingDocument(supabase, staged);
+    throw error;
   }
 }
 

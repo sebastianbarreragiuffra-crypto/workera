@@ -161,19 +161,15 @@ WORKERA -> workera_attendance_events (Fase 6A/6B)
   ("DOCUMENTO DE RESPALDO OBLIGATORIO", plazo visible) antes de permitir
   intentar `Confirmar documento recibido` -- el enforcement real sigue
   siendo el trigger de base de datos (Fase 7), la UI solo lo comunica.
-- **Seguridad de Storage**: bucket privado `supporting-documents` CREADO en
-  esta fase (`supabase/migrations/20260821100000_phase8_documents_storage_bucket.sql`)
-  -- Fase 7 había dejado esto explícitamente pendiente
-  ("Storage real no implementado"). Políticas RLS de `storage.objects`
-  replican EXACTAMENTE el criterio ya usado por `supporting_documents`
-  (Fase 7): INSERT solo si `can_manage_employee(employee_id)` (primer
-  segmento de la ruta), SELECT/descarga solo `is_privileged_admin()` -- un
-  supervisor puede adjuntar pero no descargar/listar documentos ya subidos,
-  ni siquiera los que él mismo subió (mismo límite que ya tenía la tabla de
-  metadata, no es una restricción nueva). **Limitación conocida**: si el
-  INSERT de metadata falla después de una subida exitosa a Storage, el
-  archivo queda huérfano (sin fila que lo referencie) -- no hay
-  garbage-collection todavía, documentado para una fase posterior.
+- **Seguridad de Storage (estado vigente)**: el diseño inicial de esta fase fue
+  reemplazado por el protocolo reserve → upload → commit de
+  `docs/SUPPORTING_DOCUMENT_SECURITY.md`. La policy ya no autoriza una ruta solo
+  por su primer segmento: exige una reserva corta, personal y limitada en DB.
+  El bucket y la aplicación imponen 10 MiB + PDF/JPG/PNG; la aplicación valida
+  magic bytes; metadata y licencia se confirman por RPC atómico; un fallo
+  intenta eliminar el objeto aún huérfano. SELECT/descarga sigue exclusivo de
+  `is_privileged_admin()` mediante URL firmada corta. No restaurar el antiguo
+  INSERT directo ni rutas que contengan el filename original.
 
 ## Empleados
 
@@ -266,5 +262,6 @@ WORKERA -> workera_attendance_events (Fase 6A/6B)
   "Atraso" arriba).
 - Aprobación PARCIAL de horas extra: no implementada (el encargo solo pedía
   Aprobar/Rechazar).
-- Garbage-collection de archivos huérfanos en Storage: no implementada (ver
-  sección "Documentos").
+- Sweeper de reservas vencidas/objetos huérfanos tras una caída definitiva:
+  pendiente. La compensación inmediata ya está implementada; ver
+  `docs/SUPPORTING_DOCUMENT_SECURITY.md`.

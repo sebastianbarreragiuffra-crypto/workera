@@ -108,11 +108,18 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
 - **Justificación**: mitiga T-12 (abuso de exportaciones para exfiltración masiva de datos de remuneración).
 - **Auditoría**: existe `excel_exports`, pero el inventario HTTP aún marca rutas laborales sin cobertura integral de acceso; el rate limit complementa, no reemplaza, ese registro.
 
-### 2.6 Upload de documentos
-- **Clave**: usuario.
-- **Ventana**: `TBD`.
-- **Límite propuesto**: `TBD`, junto con el límite de tamaño por archivo (ver `docs/API_SECURITY_STANDARD.md`, `413`).
-- **Justificación**: los topes de tamaño, MIME/magic bytes, Storage privado y cuarentena ya reducen T-13/T-15; falta limitar frecuencia/bytes acumulados de las cargas web.
+### 2.6 Upload de documentos laborales (`IMPLEMENTED_LOCAL`)
+- **Clave**: usuario autenticado (`auth.uid()`).
+- **Ventana**: hora calendario fija en PostgreSQL.
+- **Límite inicial**: 30 reservas y 100 MiB acumulados por actor/hora; además,
+  cada archivo se limita a 10 MiB en aplicación, RPC y bucket.
+- **Anti-bypass**: Storage solo acepta una ruta reservada por 10 minutos para
+  ese actor; el contador usa advisory lock y no depende de la instancia de
+  Next.js. MIME/extensión se fijan en DB y magic bytes se validan antes de subir.
+- **Auditoría**: cada commit de metadata escribe `SUPPORTING_DOCUMENT_UPLOADED`;
+  un intento fallido no amplifica la bitácora.
+- **Pendiente**: calibrar valores con marcha blanca, limitar/auditar descargas,
+  conectar antimalware y operar un sweeper de reservas vencidas.
 
 ### 2.7 Sincronización con Workera (implementada pero apagada)
 - **Clave**: N/A (proceso server-to-server, no un usuario final) — control por diseño del cron/job, no por rate limit de usuario.

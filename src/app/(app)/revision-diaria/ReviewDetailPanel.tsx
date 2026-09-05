@@ -381,7 +381,7 @@ function EarlyDepartureDecisionSummary({ detail, date, area }: { detail: DailyRe
           <input type="hidden" name="documentType" value="MEDICAL_CERTIFICATE" />
           <input type="hidden" name="relationKind" value="EARLY_DEPARTURE" />
           <input type="hidden" name="relationId" value={detail.earlyDeparture!.recordId} />
-          <input type="file" name="file" required aria-label="Adjuntar comprobante médico" className={UPLOAD_INPUT} />
+          <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required aria-label="Adjuntar comprobante médico" className={UPLOAD_INPUT} />
           <button type="submit" className={UPLOAD_BTN}>
             Adjuntar comprobante
           </button>
@@ -421,7 +421,7 @@ function AbsenceDecisionSummary({ detail, date, area }: { detail: DailyReviewDet
           <input type="hidden" name="documentType" value="OTHER" />
           <input type="hidden" name="relationKind" value="ABSENCE" />
           <input type="hidden" name="relationId" value={detail.absence!.recordId} />
-          <input type="file" name="file" required aria-label="Adjuntar licencia" className={UPLOAD_INPUT} />
+          <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required aria-label="Adjuntar licencia" className={UPLOAD_INPUT} />
           <button type="submit" className={UPLOAD_BTN}>
             Adjuntar licencia
           </button>

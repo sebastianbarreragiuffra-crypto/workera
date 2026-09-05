@@ -42,7 +42,7 @@ export function DocumentUploadForm({ roster, pendingRelations }: { roster: Emplo
       )}
       <div>
         <label htmlFor="file" className="text-xs font-medium text-slate-500">Archivo</label>
-        <input id="file" type="file" name="file" required className="mt-1 block rounded-md border border-arcotex-copper-border bg-arcotex-copper-light p-1.5 text-sm text-slate-600 file:mr-2 file:cursor-pointer file:rounded file:border-0 file:bg-arcotex-copper file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white hover:file:bg-arcotex-copper-dark" />
+        <input id="file" type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required className="mt-1 block rounded-md border border-arcotex-copper-border bg-arcotex-copper-light p-1.5 text-sm text-slate-600 file:mr-2 file:cursor-pointer file:rounded file:border-0 file:bg-arcotex-copper file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white hover:file:bg-arcotex-copper-dark" />
       </div>
       <button type="submit" className="rounded-md bg-arcotex-copper px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-arcotex-copper-dark">Adjuntar</button>
     </form>

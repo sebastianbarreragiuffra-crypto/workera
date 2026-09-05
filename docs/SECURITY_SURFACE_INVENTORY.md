@@ -45,6 +45,11 @@ uploads sin un máximo explícito de hasta 10 MiB.
   serializados por el navegador. Usa un token AES-256-GCM opaco, autenticado y
   con 30 minutos de vigencia; cualquier cambio o vencimiento obliga a volver a
   subir el documento. La acción sigue con deuda de rate limit y multiempresa.
+- Los uploads laborales ahora requieren una reserva PostgreSQL por actor y
+  trabajador, magic bytes, límite doble de 10 MiB y cuota distribuida de 30
+  objetos/100 MiB por hora. Metadata y licencias se confirman por RPC atómico;
+  los INSERT directos quedaron revocados. Descarga y sweeper vencido continúan
+  como brechas explícitas.
 
 Este inventario no sustituye RLS, MFA, DAST, restore drill ni revisión humana.
 Tampoco convierte una superficie con `blockers` en apta para marcha blanca.

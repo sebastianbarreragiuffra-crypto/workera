@@ -147,8 +147,8 @@ export const SERVER_ACTION_SURFACES = [
     source: "src/app/(app)/documentos/actions.ts",
     actions: ["uploadGeneralDocumentAction", "viewDocumentAction"],
     domain: "workforce", tenantScope: "LEGACY_ARCOTEX", authentication: "SESSION",
-    authorizationEvidence: ["requireActiveProfile"], validation: "DOMAIN_VALIDATED", uploadMaxBytes: 10 * MIB,
-    abuseControl: "MISSING", auditControl: "MISSING", dataClass: "SENSITIVE_HR",
+    authorizationEvidence: ["requireActiveProfile", "assertEmployeeAccessAllowed"], validation: "DOMAIN_VALIDATED", uploadMaxBytes: 10 * MIB,
+    abuseControl: "DOMAIN_LIMITS_PARTIAL", auditControl: "PARTIAL", dataClass: "SENSITIVE_HR",
     blockers: ["APPLICATION_RATE_LIMIT", "LABOR_MULTI_TENANCY"],
   },
   {
@@ -156,7 +156,7 @@ export const SERVER_ACTION_SURFACES = [
     actions: ["uploadMedicalLicenseAction", "approveMedicalLicenseAction", "rejectMedicalLicenseAction"],
     domain: "workforce", tenantScope: "LEGACY_ARCOTEX", authentication: "SESSION_PRIVILEGED",
     authorizationEvidence: ["requireAuthenticatedProfile", "requireMedicalLicenseApprover"], validation: "DOMAIN_VALIDATED",
-    uploadMaxBytes: 10 * MIB, abuseControl: "MISSING", auditControl: "BUSINESS_LEDGER",
+    uploadMaxBytes: 10 * MIB, abuseControl: "DOMAIN_LIMITS_PARTIAL", auditControl: "BUSINESS_LEDGER",
     dataClass: "SENSITIVE_HR", blockers: ["APPLICATION_RATE_LIMIT", "LABOR_MULTI_TENANCY"],
   },
   {
@@ -192,8 +192,8 @@ export const SERVER_ACTION_SURFACES = [
       "submitAttendanceCorrectionAction", "uploadDocumentAction",
     ],
     domain: "workforce", tenantScope: "LEGACY_ARCOTEX", authentication: "SESSION",
-    authorizationEvidence: ["requireActiveProfile"], validation: "DOMAIN_VALIDATED", uploadMaxBytes: 10 * MIB,
-    abuseControl: "MISSING", auditControl: "BUSINESS_LEDGER", dataClass: "SENSITIVE_HR",
+    authorizationEvidence: ["requireActiveProfile", "assertEmployeeAccessAllowed"], validation: "DOMAIN_VALIDATED", uploadMaxBytes: 10 * MIB,
+    abuseControl: "DOMAIN_LIMITS_PARTIAL", auditControl: "BUSINESS_LEDGER", dataClass: "SENSITIVE_HR",
     blockers: ["APPLICATION_RATE_LIMIT", "LABOR_MULTI_TENANCY"],
   },
 ] as const satisfies readonly ServerActionFileSurface[];

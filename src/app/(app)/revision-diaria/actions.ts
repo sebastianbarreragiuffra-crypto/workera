@@ -15,9 +15,9 @@ import {
 import { markAbsencePendingDocument, confirmAbsenceDocument, disputeAbsence } from "../../../lib/decisions/absence-decisions";
 import { submitAttendanceCorrection } from "../../../lib/decisions/attendance-corrections";
 import { reprocessEmployeeDay } from "../../../lib/rule-engine/service";
-import { uploadSupportingDocument, type SupportingDocumentType, type SupportingDocumentRelation } from "../../../lib/decisions/documents";
+import { uploadSupportingDocument, MAX_SUPPORTING_DOCUMENT_SIZE_BYTES, type SupportingDocumentType, type SupportingDocumentRelation } from "../../../lib/decisions/documents";
 import { getDailyReviewBoard, sortPendingCards, findNextPendingEmployeeId } from "../../../lib/view-models/daily-review-view";
-import type { AreaCode } from "../../../lib/access/scope";
+import { assertEmployeeAccessAllowed, type AreaCode, type CallerRole } from "../../../lib/access/scope";
 
 /**
  * Server Actions de Fase 8, ampliadas en Fase 8B.2 (PASO 23/24: feedback +
@@ -212,7 +212,7 @@ export async function submitAttendanceCorrectionAction(formData: FormData) {
 }
 
 export async function uploadDocumentAction(formData: FormData) {
-  await requireActiveProfile();
+  const profile = await requireActiveProfile();
   const supabase = await createClient();
   const employeeId = String(formData.get("employeeId"));
   const date = String(formData.get("date"));
@@ -225,6 +225,10 @@ export async function uploadDocumentAction(formData: FormData) {
   if (!file || file.size === 0) {
     throw new Error("Selecciona un archivo antes de adjuntar.");
   }
+  if (file.size > MAX_SUPPORTING_DOCUMENT_SIZE_BYTES) {
+    throw new Error("El archivo supera el máximo permitido de 10 MB.");
+  }
+  await assertEmployeeAccessAllowed(supabase, profile.role as CallerRole, employeeId);
 
   const relation: SupportingDocumentRelation =
     relationKind === "ABSENCE"

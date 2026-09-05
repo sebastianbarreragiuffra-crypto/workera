@@ -112,3 +112,18 @@ test("toda familia que sube archivos declara un maximo de hasta 10 MiB", () => {
     assert.match(source, /file\.size|validateExpenseReceiptFile|uploadSupportingDocument/);
   }
 });
+
+test("uploads laborales autorizan el trabajador y acotan tamaño antes de leer todos los bytes", () => {
+  for (const sourceName of [
+    "src/app/(app)/documentos/actions.ts",
+    "src/app/(app)/revision-diaria/actions.ts",
+  ]) {
+    const source = readFileSync(path.join(REPO_ROOT, sourceName), "utf8");
+    const action = actionSegments(source).find((item) => item.body.includes("uploadSupportingDocument("));
+    assert.ok(action, `${sourceName} debe conservar su acción de upload`);
+    const access = action.body.indexOf("assertEmployeeAccessAllowed(");
+    const max = action.body.indexOf("MAX_SUPPORTING_DOCUMENT_SIZE_BYTES");
+    const bytes = action.body.indexOf("file.arrayBuffer(");
+    assert.ok(access >= 0 && max >= 0 && bytes > access && bytes > max, `${sourceName} debe autorizar/acotar antes de leer bytes`);
+  }
+});

@@ -16,11 +16,21 @@ values (
   (select id from public.employee_groups where code = 'PRODUCTION')
 );
 
--- 1) SUPERVISOR_PRODUCTION puede subir metadata (upload) dentro de su dominio.
+-- Fixture creado por el owner de la prueba. En runtime el supervisor reserva
+-- y confirma por RPC; ya no posee INSERT directo sobre esta tabla sensible.
+insert into public.supporting_documents
+  (employee_id, document_type, storage_path, mime_type, original_filename, uploaded_by)
+values (
+  (select id from public.employees where external_workera_id = 'TEST3-DOC-001'),
+  'MEDICAL_CERTIFICATE', 'private/employees/fixture/cert.pdf',
+  'application/pdf', 'cert.pdf', '33000000-0000-0000-0000-000000000002'
+);
+
+-- 1) SUPERVISOR_PRODUCTION no puede componer metadata saltándose el RPC.
 set local role authenticated;
 set local request.jwt.claim.sub = '33000000-0000-0000-0000-000000000002';
 
-select lives_ok(
+select throws_ok(
   format(
     $$ insert into public.supporting_documents
          (employee_id, document_type, storage_path, mime_type, original_filename, uploaded_by)
@@ -28,7 +38,8 @@ select lives_ok(
     (select id from public.employees where external_workera_id = 'TEST3-DOC-001'),
     '33000000-0000-0000-0000-000000000002'
   ),
-  'SUPERVISOR_PRODUCTION puede subir metadata de un documento (upload)'
+  '42501', null,
+  'SUPERVISOR_PRODUCTION confirma uploads solo por RPC, nunca INSERT directo'
 );
 
 -- 2) El mismo supervisor SÍ tiene GRANT de SELECT (necesario para el INSERT

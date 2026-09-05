@@ -6,6 +6,8 @@ import { canApproveMedicalLicense } from "../supabase/authorize";
 
 /** `employees.id` es una columna uuid: el fixture debe parecerse al dato real. */
 const EMPLOYEE_ID_FIXTURE = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+const INTENT_ID_FIXTURE = "4f2504e0-4f89-41d3-9a0c-0305e82c3302";
+const PDF_BYTES = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]);
 
 /**
  * La autorización REAL (quién puede subir/aprobar/rechazar) la exige RLS y
@@ -81,12 +83,46 @@ function mockSupabase(opts: { failAt?: string } = {}) {
     },
     storage: {
       from() {
-        return { upload: () => Promise.resolve({ error: null }) };
+        return {
+          upload: () => {
+            calls.push("storage:upload");
+            return Promise.resolve({ error: null });
+          },
+          remove: () => {
+            calls.push("storage:remove");
+            return Promise.resolve({ error: null });
+          },
+        };
       },
     },
     rpc(fnName: string, args: unknown) {
       calls.push(fnName);
       (inserted[fnName] ??= []).push(args as Record<string, unknown>);
+      if (fnName === "reserve_supporting_document_upload") {
+        return {
+          single: () => Promise.resolve({
+            data: {
+              intent_id: INTENT_ID_FIXTURE,
+              storage_path: `${EMPLOYEE_ID_FIXTURE}/${INTENT_ID_FIXTURE}.pdf`,
+            },
+            error: null,
+          }),
+        };
+      }
+      if (fnName === "create_pending_medical_license") {
+        return {
+          single: () => Promise.resolve(opts.failAt === "create_pending_medical_license"
+            ? { data: null, error: { message: "boom" } }
+            : {
+                data: {
+                  approval_id: "approval-1",
+                  absence_record_id: "absence-record-1",
+                  document_id: "document-1",
+                },
+                error: null,
+              }),
+        };
+      }
       return Promise.resolve({ error: null });
     },
   };
@@ -115,7 +151,7 @@ const LIST_FIXTURE = [
   },
 ];
 
-test("uploadMedicalLicense: crea absence_records (manual, MEDICAL_LEAVE) + supporting_documents + medical_license_approvals, en ese orden", async () => {
+test("uploadMedicalLicense: reserva, sube y crea ausencia+documento+aprobación mediante un único RPC atómico", async () => {
   const { client, calls, inserted } = mockSupabase();
   await uploadMedicalLicense(client, {
     employeeId: EMPLOYEE_ID_FIXTURE,
@@ -124,16 +160,20 @@ test("uploadMedicalLicense: crea absence_records (manual, MEDICAL_LEAVE) + suppo
     extractionStatus: "EXTRAIDO",
     originalFilename: "certificado.pdf",
     mimeType: "application/pdf",
-    fileBytes: new Uint8Array([1, 2, 3]),
-    uploadedBy: "profile-1",
+    fileBytes: PDF_BYTES,
   });
 
-  assert.deepEqual(calls, ["insert:absence_records", "insert:supporting_documents", "insert:medical_license_approvals"]);
-  assert.equal((inserted.absence_records[0] as { source: string }).source, "manual");
-  assert.equal((inserted.absence_records[0] as { absence_type_id: string }).absence_type_id, "absence-type-medical-leave");
+  assert.deepEqual(calls, ["reserve_supporting_document_upload", "storage:upload", "create_pending_medical_license"]);
+  assert.deepEqual(inserted.create_pending_medical_license[0], {
+    p_intent_id: INTENT_ID_FIXTURE,
+    p_original_filename: "certificado.pdf",
+    p_proposed_start_date: "2026-08-20",
+    p_proposed_end_date: "2026-08-22",
+    p_extraction_status: "EXTRAIDO",
+  });
 });
 
-test("uploadMedicalLicense: la fila de aprobación nace SIN status explícito -- el default de la base de datos (PENDING_RRHH_APPROVAL) es quien decide, nunca la app", async () => {
+test("uploadMedicalLicense: TypeScript nunca envía status ni actor; el RPC y los defaults de DB son autoritativos", async () => {
   const { client, inserted } = mockSupabase();
   await uploadMedicalLicense(client, {
     employeeId: EMPLOYEE_ID_FIXTURE,
@@ -142,12 +182,13 @@ test("uploadMedicalLicense: la fila de aprobación nace SIN status explícito --
     extractionStatus: "EXTRAIDO",
     originalFilename: "certificado.pdf",
     mimeType: "application/pdf",
-    fileBytes: new Uint8Array([1, 2, 3]),
-    uploadedBy: "profile-1",
+    fileBytes: PDF_BYTES,
   });
 
-  const approvalRow = inserted.medical_license_approvals[0] as Record<string, unknown>;
-  assert.equal("status" in approvalRow, false, "el insert nunca fija status explícitamente -- si lo hiciera, sería fácil (y peligroso) escribir APPROVED por error");
+  const rpcArgs = inserted.create_pending_medical_license[0] as Record<string, unknown>;
+  assert.equal("status" in rpcArgs, false);
+  assert.equal("uploaded_by" in rpcArgs, false);
+  assert.equal("actor_id" in rpcArgs, false);
 });
 
 test("listMedicalLicenses: mapea la fila unida (empleado, área, quién subió) correctamente", async () => {
@@ -271,7 +312,6 @@ const VALID_UPLOAD = {
   extractionStatus: "EXTRAIDO" as const,
   originalFilename: "certificado.pdf",
   mimeType: "application/pdf",
-  uploadedBy: "profile-1",
 };
 
 test("uploadMedicalLicense: un archivo sobre el máximo se rechaza ANTES de crear la ausencia", async () => {
@@ -284,29 +324,20 @@ test("uploadMedicalLicense: un archivo sobre el máximo se rechaza ANTES de crea
   assert.deepEqual(calls, [], "no se tocó la base: ni siquiera se creó la ausencia");
 });
 
-test("uploadMedicalLicense: si falla el documento, la ausencia recién creada se borra", async () => {
-  const { client, calls } = mockSupabase({ failAt: "supporting_documents" });
-
-  await assert.rejects(() => uploadMedicalLicense(client, { ...VALID_UPLOAD, fileBytes: new Uint8Array([1, 2, 3]) }));
-  assert.ok(
-    calls.includes("delete:absence_records:absence-record-1"),
-    `la ausencia debía compensarse; llamadas: ${calls.join(", ")}`
-  );
+test("uploadMedicalLicense: si falla el commit SQL, remueve el único objeto huérfano; DB revierte sus tres filas", async () => {
+  const { client, calls } = mockSupabase({ failAt: "create_pending_medical_license" });
+  await assert.rejects(() => uploadMedicalLicense(client, { ...VALID_UPLOAD, fileBytes: PDF_BYTES }));
+  assert.deepEqual(calls, [
+    "reserve_supporting_document_upload",
+    "storage:upload",
+    "create_pending_medical_license",
+    "storage:remove",
+  ]);
 });
 
-test("uploadMedicalLicense: si falla la fila de aprobación, la ausencia también se borra", async () => {
-  const { client, calls } = mockSupabase({ failAt: "medical_license_approvals" });
-
-  await assert.rejects(() => uploadMedicalLicense(client, { ...VALID_UPLOAD, fileBytes: new Uint8Array([1, 2, 3]) }));
-  assert.ok(
-    calls.includes("delete:absence_records:absence-record-1"),
-    `la ausencia debía compensarse; llamadas: ${calls.join(", ")}`
-  );
-});
-
-test("uploadMedicalLicense: en el camino feliz NO se borra nada", async () => {
+test("uploadMedicalLicense: en el camino feliz no ejecuta compensación", async () => {
   const { client, calls } = mockSupabase();
 
-  await uploadMedicalLicense(client, { ...VALID_UPLOAD, fileBytes: new Uint8Array([1, 2, 3]) });
-  assert.ok(!calls.some((call) => call.startsWith("delete:")), "una subida correcta nunca compensa");
+  await uploadMedicalLicense(client, { ...VALID_UPLOAD, fileBytes: PDF_BYTES });
+  assert.ok(!calls.includes("storage:remove"), "una subida correcta nunca compensa");
 });

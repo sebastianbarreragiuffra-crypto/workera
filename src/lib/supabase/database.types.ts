@@ -5825,6 +5825,20 @@ export type Database = {
         }
         Returns: string
       }
+      create_pending_medical_license: {
+        Args: {
+          p_extraction_status: string
+          p_intent_id: string
+          p_original_filename: string
+          p_proposed_end_date: string
+          p_proposed_start_date: string
+        }
+        Returns: {
+          absence_record_id: string
+          approval_id: string
+          document_id: string
+        }[]
+      }
       current_platform_role: {
         Args: never
         Returns: Database["public"]["Enums"]["platform_role"]
@@ -6275,6 +6289,17 @@ export type Database = {
         }
         Returns: string
       }
+      register_supporting_document_upload: {
+        Args: {
+          p_absence_record_id?: string | null
+          p_document_type: string
+          p_early_departure_record_id?: string | null
+          p_intent_id: string
+          p_late_arrival_decision_id?: string | null
+          p_original_filename: string
+        }
+        Returns: string
+      }
       reject_medical_license: {
         Args: { p_approval_id: string; p_reason: string }
         Returns: undefined
@@ -6317,6 +6342,18 @@ export type Database = {
           p_reserved_bytes: number
         }
         Returns: boolean
+      }
+      reserve_supporting_document_upload: {
+        Args: {
+          p_employee_id: string
+          p_extension: string
+          p_file_size: number
+          p_mime_type: string
+        }
+        Returns: {
+          intent_id: string
+          storage_path: string
+        }[]
       }
       resolve_expense_accounting_export: {
         Args: {

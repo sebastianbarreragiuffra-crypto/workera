@@ -84,7 +84,6 @@ export async function uploadMedicalLicenseAction(_prev: UploadMedicalLicenseActi
       originalFilename: file.name,
       mimeType: file.type || "application/octet-stream",
       fileBytes,
-      uploadedBy: profile.id,
     });
   } catch (err) {
     // El mensaje interno arrastra el error crudo de PostgREST/Storage. Estos
