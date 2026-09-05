@@ -27,9 +27,14 @@ Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base d
   invitación/Admin API; Google permanece habilitado para identidades
   autorizadas existentes.
 - **MFA OWNER verificado**: Google vuelve por el origen público y termina en
-  `/login/mfa`; el OWNER dispone de dos factores verificados. Aún se debe
-  comprobar la inscripción de cada otra cuenta privilegiada antes de declarar
-  la marcha blanca completa.
+  `/login/mfa`; el OWNER dispone de dos factores verificados. El inventario
+  remoto del 5 de septiembre de 2026 encontró una sola identidad activa que
+  requiere MFA, sin factores pendientes, bloqueos ni identidades Auth ausentes.
+- **Aplicación alojada verificada**: el commit `138288d` está desplegado en
+  `https://arcotex-workera-staging.vercel.app`; Producción y Preview tienen
+  `APP_PUBLIC_ORIGIN` canónico y `MFA_ENFORCEMENT_ENABLED=true`. El túnel
+  temporal usado para la prueba móvil fue detenido y retirado de la allowlist
+  de redirects de Supabase.
 
 ## Inventario agregado antes del saneamiento
 

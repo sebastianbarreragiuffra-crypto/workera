@@ -134,13 +134,17 @@ El orden importa y no es intercambiable.
 > **Estado actual de staging (5 de septiembre de 2026).** El procedimiento de
 > primer/segundo corte que sigue debajo ya fue completado para esta base: las
 > migraciones MFA, incluida la guarda AAL2, están aplicadas; TOTP hosted está
-> operativo; y el OWNER tiene dos factores verificados. El cliente local que
-> apunta a staging usa `MFA_ENFORCEMENT_ENABLED=true`. No volver a preparar la
-> antigua rama temporal ni intentar reaplicar migraciones. Antes de una marcha
-> blanca quedan dos comprobaciones operativas: confirmar que las demás cuentas
-> privilegiadas hayan inscrito su factor y verificar el flag en el entorno
-> alojado de Vercel, que no se puede inferir desde un archivo `.env.staging`
-> local. La secuencia de abajo se conserva para bases nuevas.
+> operativo; y el OWNER tiene dos factores verificados. El 5 de septiembre de
+> 2026 se verificó que la base contiene una única identidad activa alcanzada
+> por `account_requires_mfa()` y que no tiene enrolamientos incompletos. Vercel
+> quedó configurado para Producción y Preview con el origen canónico
+> `https://arcotex-workera-staging.vercel.app` y
+> `MFA_ENFORCEMENT_ENABLED=true`; el commit `138288d` quedó desplegado en
+> Producción y Google OAuth llegó al desafío `/login/mfa` sin volver al túnel
+> ni a `localhost`. No volver a preparar la antigua rama temporal ni intentar
+> reaplicar migraciones. Una identidad privilegiada que se agregue en el
+> futuro debe completar su propio enrolamiento antes de operar. La secuencia de
+> abajo se conserva para bases nuevas.
 
 > **Bloqueo operativo del repositorio actual.** `master` y
 > `codex/phases2-6-autonomous` ya contienen tanto la fundación MFA como la

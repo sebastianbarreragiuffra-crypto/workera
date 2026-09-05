@@ -83,7 +83,13 @@ El detalle del límite multiempresa y las decisiones reemplazadas está en
   `EXPENSE_FILE_SCAN_ENABLED=false` y ambos canales deben seguir apagados hasta
   seleccionar y verificar un proveedor antimalware real; ver
   [docs/EXPENSE_FILE_QUARANTINE.md](docs/EXPENSE_FILE_QUARANTINE.md).
-- MFA (TOTP) para cuentas privilegiadas está **en master y sin desplegar**:
+- MFA (TOTP) para cuentas privilegiadas está **en master y desplegado en
+  staging alojado** desde el commit `138288d`: el dominio canónico es
+  `https://arcotex-workera-staging.vercel.app`, Vercel tiene
+  `MFA_ENFORCEMENT_ENABLED=true`, Google OAuth fue comprobado hasta
+  `/login/mfa` y la única identidad que actualmente coincide con el conjunto
+  privilegiado tiene dos factores verificados. Nuevas identidades que entren
+  a ese conjunto deberán inscribirse en su primer acceso. Incluye:
   inscripción y gestión de factores, desafío en el login por contraseña y por
   OAuth, gate de middleware detrás de `MFA_ENFORCEMENT_ENABLED` (default
   `false`), guarda `aal2` dentro de los RPC sensibles y en las Server Actions
