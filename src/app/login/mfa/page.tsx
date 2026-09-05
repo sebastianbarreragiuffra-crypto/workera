@@ -3,7 +3,7 @@ import { GestoraBrand } from "@/components/platform/GestoraBrand";
 import { MfaChallenge, type MfaChallengeFactor } from "@/components/auth/MfaChallenge";
 import { MfaLoadError } from "@/components/auth/MfaLoadError";
 import { MfaSignOut } from "@/components/auth/MfaSignOut";
-import { getMfaAccountState } from "@/lib/auth/mfa-account";
+import { getMfaAccountState, getVerifiedMfaSessionState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = {
@@ -36,8 +36,8 @@ export default async function LoginMfaPage() {
   }
   if (!account) redirect("/login");
 
-  const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (aalError || !aal) {
+  const mfaSession = await getVerifiedMfaSessionState(supabase);
+  if (!mfaSession) {
     console.error("[auth] no se pudo leer el nivel para el desafío MFA", {
       event: "mfa_challenge_aal_load_failed",
     });
@@ -49,22 +49,9 @@ export default async function LoginMfaPage() {
       </main>
     );
   }
-  if (aal?.currentLevel === "aal2") redirect("/");
+  if (mfaSession.currentLevel === "aal2") redirect("/");
 
-  const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors();
-  if (factorsError || !factors) {
-    console.error("[auth] no se pudieron cargar los factores para el desafío MFA", {
-      event: "mfa_challenge_factors_load_failed",
-    });
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center bg-login-background px-6 py-12">
-        <div className="w-full max-w-sm">
-          <MfaLoadError retryHref="/login/mfa" />
-        </div>
-      </main>
-    );
-  }
-  const verifiedFactors: MfaChallengeFactor[] = (factors?.totp ?? []).map((factor) => ({
+  const verifiedFactors: MfaChallengeFactor[] = (mfaSession.factors.totp ?? []).map((factor) => ({
     id: factor.id,
     friendlyName: factor.friendly_name?.trim() || "Autenticador sin nombre",
   }));

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import nextConfig from "./next.config";
+import nextConfig, { createNextConfig } from "./next.config";
 import { MAX_SUPPORTING_DOCUMENT_SIZE_BYTES } from "./src/lib/decisions/documents";
 
 /**
@@ -38,4 +38,19 @@ test("next.config.ts: bodySizeLimit cubre con margen el tope más grande que la 
 test("los túneles de desarrollo se autorizan por hostname exacto, nunca con un wildcard público versionado", () => {
   assert.deepEqual(nextConfig.allowedDevOrigins, ["127.0.0.1"]);
   assert.ok(nextConfig.allowedDevOrigins?.every((origin) => !origin.includes("*")));
+});
+
+test("el hostname exacto del túnel habilita también Server Actions sin abrir wildcards", () => {
+  const config = createNextConfig("tunnel-example.trycloudflare.com");
+  assert.deepEqual(config.allowedDevOrigins, ["127.0.0.1", "tunnel-example.trycloudflare.com"]);
+  assert.deepEqual(config.experimental?.serverActions?.allowedOrigins, [
+    "tunnel-example.trycloudflare.com",
+  ]);
+  assert.ok(config.experimental?.serverActions?.allowedOrigins?.every((origin) => !origin.includes("*")));
+});
+
+test("un origen temporal inválido no se agrega a ninguna allowlist", () => {
+  const config = createNextConfig("*.trycloudflare.com");
+  assert.deepEqual(config.allowedDevOrigins, ["127.0.0.1"]);
+  assert.equal(config.experimental?.serverActions?.allowedOrigins, undefined);
 });

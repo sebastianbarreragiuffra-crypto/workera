@@ -10,10 +10,13 @@ en este repositorio.
 - `src/app/login/actions.ts` — `loginWithGoogle()`: arma la URL de
   autorización de Supabase (`signInWithOAuth`) y redirige.
 - `src/app/auth/callback/route.ts` — recibe el `code` de vuelta de Google,
-  llama `exchangeCodeForSession`, y redirige a `/` (mismo destino que el
-  login por contraseña).
-- `src/lib/supabase/middleware.ts` — `/auth/callback` agregado a
-  `PUBLIC_PATHS` (necesario: llega antes de que exista sesión).
+  llama `exchangeCodeForSession`, y aplica la misma decisión MFA que el login
+  por contraseña (`/`, `/login/mfa` o `/seguridad/mfa`).
+- `src/lib/auth/public-origin.ts` — construye todos los callbacks y redirects
+  desde un origen canónico validado; nunca confía en `Host` o
+  `X-Forwarded-Host` enviados por Internet.
+- `src/lib/supabase/middleware.ts` — `/auth/callback` y `/auth/confirm`
+  agregados a `PUBLIC_PATHS` (ambos llegan antes de que exista sesión).
 - `src/app/login/page.tsx` — botón "Continuar con Google".
 - `supabase/config.toml` — `[auth.external.google]`, habilitado y configurado
   para leer Client ID/Secret desde variables de entorno, nunca hardcodeados.
@@ -29,6 +32,11 @@ método de login. El layout de `(app)` (`src/app/(app)/layout.tsx`) exige
 usuario de Google sin rol asignado rebota a `/login`, igual que un usuario de
 password sin rol. Ninguna de las dos barreras es específica de un método de
 login.
+
+La aplicación es **invitation-only**. `supabase/config.toml` mantiene cerrados
+el signup general y el signup por email; las identidades nuevas se crean por
+invitación o Admin API. Google sigue funcionando para cuentas existentes o ya
+invitadas, pero una cuenta Google arbitraria no puede autoaprovisionarse.
 
 ## Identity linking (evita duplicar el profile de un empleado)
 
@@ -51,12 +59,33 @@ a esa MISMA fila de `auth.users`/`profiles` — no crea un segundo profile.
 - `.env.local` tampoco se versiona. Lo usa Next.js para la URL y las claves de
   la instancia local de Supabase.
 - `.env.staging` es independiente y apunta al proyecto remoto compartido.
+- `APP_PUBLIC_ORIGIN` define el dominio visible por la persona cuando existe
+  un proxy o túnel. En localhost puro puede omitirse; fuera de loopback debe
+  ser un origen HTTPS exacto, sin ruta, query, credenciales ni wildcard.
 
 Esta separación evita mezclar cambios de puertos con secretos o callbacks de
 OAuth. Los dos PCs pueden reutilizar los mismos puertos porque se ejecutan en
 hosts distintos. Si el rango `5442x` colisiona con otro proyecto en un mismo
 PC, el cambio debe coordinarse y versionarse para todo el equipo; no debe quedar
 como una modificación local permanente.
+
+## Prueba desde un teléfono mediante túnel
+
+Un túnel de desarrollo debe configurar el mismo hostname exacto en las tres
+fronteras. Si falta una, el flujo puede llegar a Google y fallar recién al
+volver:
+
+1. Iniciar Next con `APP_PUBLIC_ORIGIN=https://<hostname-del-tunel>` y
+   `NEXT_DEV_ALLOWED_ORIGIN=<hostname-del-tunel>`.
+2. Agregar temporalmente `https://<hostname-del-tunel>/**` a **Authentication
+   → URL Configuration → Redirect URLs** en el proyecto Supabase usado por la
+   app. No usar un wildcard global de `trycloudflare.com`.
+3. Abrir siempre la URL HTTPS del túnel en el teléfono, nunca `localhost`.
+
+`NEXT_DEV_ALLOWED_ORIGIN` habilita tanto los recursos internos de desarrollo
+como las Server Actions desde ese hostname. `APP_PUBLIC_ORIGIN` gobierna las
+URLs absolutas de OAuth, invitaciones y el gate MFA; son responsabilidades
+distintas y por eso ambas deben estar presentes.
 
 ## Valores que faltan configurar manualmente
 
@@ -100,6 +129,9 @@ como una modificación local permanente.
 - Confirmar el **Site URL** / **Redirect URLs** del proyecto incluyen el
   dominio real de producción de esta app (para que `redirectTo` en
   `loginWithGoogle()` sea aceptado).
+- Configurar `APP_PUBLIC_ORIGIN=https://<dominio-real>` en el entorno de la
+  aplicación. En Vercel existe un fallback a sus dominios administrados, pero
+  el valor explícito evita que un preview se vuelva accidentalmente canónico.
 
 Referencias oficiales: [configuración y secretos de Supabase
 CLI](https://supabase.com/docs/guides/local-development/managing-config) y

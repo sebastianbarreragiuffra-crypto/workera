@@ -1,7 +1,8 @@
 # MFA (TOTP) para cuentas privilegiadas — diseño e implementación
 
-Estado: **diseño cerrado, implementado** en la rama `feat/mfa-totp`. Ver la
-sección 11 para lo que quedó distinto del texto original y por qué, y
+Estado: **diseño cerrado e implementado en `master`**. La rama histórica
+`feat/mfa-totp` ya fue integrada y no debe usarse como fuente más reciente. Ver
+la sección 11 para lo que quedó distinto del texto original y por qué, y
 [docs/PLATFORM_OWNER_RUNBOOK.md](PLATFORM_OWNER_RUNBOOK.md) para la operación.
 Todas las decisiones de este documento fueron confirmadas por el usuario en
 conversación de septiembre 2026. Ver también la entrada de MFA en
@@ -24,6 +25,13 @@ Se usa el **MFA nativo de Supabase Auth** (`supabase.auth.mfa.*` + el claim
 instalado (`@supabase/auth-js` 2.112.3): `enroll`, `challenge`, `verify`,
 `challengeAndVerify`, `unenroll`, `listFactors`,
 `getAuthenticatorAssuranceLevel`.
+
+La aplicación no usa `getAuthenticatorAssuranceLevel()` sin argumento para
+autorizar ni redirigir. Esa variante del SDK instalado consulta
+`session.user` desde la cookie. `getVerifiedMfaSessionState()` combina el claim
+`aal` validado por `getClaims()` con factores obtenidos por `listFactors()`
+(que consulta `getUser()`), y falla cerrado si cualquiera de las dos fuentes
+no se puede verificar.
 
 **Supabase NO tiene códigos de recuperación de un solo uso.** Su modelo de
 recuperación es inscribir más de un factor. Esto define el break-glass del
@@ -218,8 +226,8 @@ Server component + client component para el paso interactivo.
 Tras `signInWithPassword` correcto en `src/app/login/actions.ts`:
 
 ```
-aalResult = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-if aalResult.nextLevel === 'aal2' and aalResult.currentLevel !== 'aal2':
+mfaSession = await getVerifiedMfaSessionState(supabase)
+if mfaSession.nextLevel === 'aal2' and mfaSession.currentLevel !== 'aal2':
     // tiene factor, falta subir de nivel
     redirect('/login/mfa')          // pide código -> challengeAndVerify -> redirect('/')
 else if account_requires_mfa and no verified factor:
@@ -253,6 +261,10 @@ tienen que tomar la misma decisión y no dos distintas.
   `ADMIN_RESET`, `ADMIN_RESET_PARTIAL` o `ADMIN_RESET_FAILED`.
 - Pide al OWNER avisar manualmente a la persona afectada mientras el proveedor
   transaccional siga pendiente. No simula un correo que no se envió.
+- La API administrativa instalada revoca sesiones globales solo cuando recibe
+  un JWT del propio usuario; no ofrece revocación por `user_id`. Por eso borrar
+  factores no se presenta como cierre de sesiones. Si hay sospecha de cuenta
+  comprometida, además se desactiva la cuenta y se rotan sus credenciales.
 - **No puede** apuntar a `auth.uid()` (ya cubierto por `can_reset_mfa_for`).
 
 ### 6.4 Break-glass del OWNER (sin código — procedimiento)

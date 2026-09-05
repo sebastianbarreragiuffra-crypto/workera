@@ -4,7 +4,7 @@ import { GestoraBrand } from "@/components/platform/GestoraBrand";
 import { MfaChallenge } from "@/components/auth/MfaChallenge";
 import { MfaLoadError } from "@/components/auth/MfaLoadError";
 import { MfaSignOut } from "@/components/auth/MfaSignOut";
-import { getMfaAccountState } from "@/lib/auth/mfa-account";
+import { getMfaAccountState, getVerifiedMfaSessionState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
 import { MfaEnrollment, type MfaFactorView } from "./MfaEnrollment";
 
@@ -71,12 +71,9 @@ export default async function MfaPage() {
     redirect("/login");
   }
 
-  const [factorsResult, aalResult] = await Promise.all([
-    supabase.auth.mfa.listFactors(),
-    supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
-  ]);
+  const mfaSession = await getVerifiedMfaSessionState(supabase);
 
-  if (factorsResult.error || aalResult.error || !factorsResult.data || !aalResult.data) {
+  if (!mfaSession) {
     console.error("[auth] no se pudo cargar el estado para administrar MFA", {
       event: "mfa_management_state_load_failed",
     });
@@ -87,8 +84,7 @@ export default async function MfaPage() {
     );
   }
 
-  const factors = factorsResult.data;
-  const aal = aalResult.data;
+  const factors = mfaSession.factors;
 
   const toView = (factor: { id: string; friendly_name?: string; created_at: string }): MfaFactorView => ({
     id: factor.id,
@@ -104,7 +100,7 @@ export default async function MfaPage() {
   // sesión todavía en aal1, lo que corresponde es el desafío -- y solo el
   // desafío: dejar inscribir un factor nuevo sin haber probado el que ya
   // existe sería una forma de saltárselo.
-  const needsChallenge = aal?.currentLevel !== "aal2" && verifiedFactors.length > 0;
+  const needsChallenge = mfaSession.currentLevel !== "aal2" && verifiedFactors.length > 0;
 
   return (
     <MfaPageFrame>

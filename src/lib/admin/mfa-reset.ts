@@ -2,7 +2,7 @@ import "server-only";
 
 import { createAdminClient } from "../supabase/admin-client";
 import { createClient } from "../supabase/server";
-import { getMfaAccountState } from "../auth/mfa-account";
+import { getMfaAccountState, getVerifiedCurrentAal } from "../auth/mfa-account";
 import { recordMfaEvent } from "./mfa-audit";
 
 /**
@@ -58,8 +58,8 @@ export async function resetUserMfa(targetUserId: string): Promise<MfaResetResult
   // sesión que solo presentó una contraseña. Esta comprobación no depende de
   // `MFA_ENFORCEMENT_ENABLED`: no es el bloqueo general, es un requisito de
   // esta operación en particular.
-  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (aal?.currentLevel !== "aal2") {
+  const currentLevel = await getVerifiedCurrentAal(supabase);
+  if (currentLevel !== "aal2") {
     throw new MfaResetAuthorizationError(
       "Verifica tu propio segundo factor antes de reiniciar el de otra persona."
     );

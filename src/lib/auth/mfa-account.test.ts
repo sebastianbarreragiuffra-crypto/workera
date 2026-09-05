@@ -5,6 +5,8 @@ import type { Database } from "../supabase/database.types";
 import {
   assertSecondFactorForPrivileged,
   getMfaAccountState,
+  getVerifiedCurrentAal,
+  getVerifiedMfaSessionState,
   MfaRequiredError,
   MfaStateUnavailableError,
   resolvePostLoginDestination,
@@ -20,23 +22,36 @@ interface MockOptions {
   currentLevel?: string | null;
   nextLevel?: string | null;
   aalError?: boolean;
+  factorsError?: boolean;
 }
 
 function mockClient(options: MockOptions) {
   const client = {
     auth: {
       getClaims: async () => ({
-        data: options.userId ? { claims: { sub: options.userId } } : null,
-        error: options.claimsError ? { message: "claims unavailable" } : null,
+        data: options.userId
+          ? { claims: { sub: options.userId, aal: options.currentLevel ?? "aal1" } }
+          : null,
+        error: options.claimsError || options.aalError ? { message: "claims unavailable" } : null,
       }),
       mfa: {
-        getAuthenticatorAssuranceLevel: async () => ({
-          data: {
-            currentLevel: options.currentLevel ?? "aal1",
-            nextLevel: options.nextLevel ?? "aal1",
-          },
-          error: options.aalError ? { message: "aal unavailable" } : null,
-        }),
+        listFactors: async () => {
+          const verified = options.nextLevel === "aal2"
+            ? [{
+                id: "12121212-1212-4212-8212-121212121212",
+                factor_type: "totp",
+                status: "verified",
+                created_at: "2026-09-05T00:00:00.000Z",
+                updated_at: "2026-09-05T00:00:00.000Z",
+              }]
+            : [];
+          return {
+            data: options.factorsError
+              ? null
+              : { all: verified, totp: verified, phone: [], webauthn: [] },
+            error: options.factorsError ? { message: "factors unavailable" } : null,
+          };
+        },
       },
     },
     from(table: string) {
@@ -62,6 +77,30 @@ function mockClient(options: MockOptions) {
 test("getMfaAccountState devuelve null cuando no hay sesión", async () => {
   const { client } = mockClient({ userId: null });
   assert.equal(await getMfaAccountState(client), null);
+});
+
+test("el nivel MFA se deriva de claims verificados y factores leídos desde Auth", async () => {
+  const { client } = mockClient({
+    userId: "10101010-1010-4010-8010-101010101010",
+    currentLevel: "aal1",
+    nextLevel: "aal2",
+  });
+
+  assert.equal(await getVerifiedCurrentAal(client), "aal1");
+  const state = await getVerifiedMfaSessionState(client);
+  assert.equal(state?.currentLevel, "aal1");
+  assert.equal(state?.nextLevel, "aal2");
+  assert.equal(state?.factors.totp.length, 1);
+});
+
+test("el estado MFA falla cerrado si Auth no puede verificar los factores", async () => {
+  const { client } = mockClient({
+    userId: "11111111-1010-4010-8010-101010101010",
+    currentLevel: "aal1",
+    factorsError: true,
+  });
+
+  assert.equal(await getVerifiedMfaSessionState(client), null);
 });
 
 test("un ADMIN_RRHH activo exige segundo factor y no es OWNER de plataforma", async () => {

@@ -474,6 +474,7 @@ test("el matcher de proxy.ts excluye _next/static, _next/image, favicon y extens
 test("isPublicPath: solo auth y el shell público de la PWA quedan sin sesión", () => {
   assert.equal(isPublicPath("/login"), true);
   assert.equal(isPublicPath("/auth/callback"), true);
+  assert.equal(isPublicPath("/auth/confirm"), true);
   assert.equal(isPublicPath("/offline"), true);
   assert.equal(isPublicPath("/sw.js"), true);
   assert.equal(isPublicPath("/manifest.webmanifest"), true);

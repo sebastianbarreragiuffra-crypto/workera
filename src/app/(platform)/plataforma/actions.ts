@@ -17,6 +17,7 @@ import {
   MfaResetFailedError,
   resetUserMfa,
 } from "@/lib/admin/mfa-reset";
+import { publicAppUrl } from "@/lib/auth/public-origin";
 
 export interface PlatformActionState {
   status: "idle" | "success" | "warning" | "error";
@@ -101,15 +102,11 @@ function failedInvitationValidation(error: z.ZodError): PlatformActionState {
 }
 
 async function invitationRedirectUrl(): Promise<string> {
-  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (configured) return `${configured.replace(/\/$/, "")}/auth/confirm?next=%2F`;
   const requestHeaders = await headers();
-  const origin = requestHeaders.get("origin");
-  if (origin) return `${origin.replace(/\/$/, "")}/auth/confirm?next=%2F`;
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? "https";
-  if (!host) throw new Error("No se pudo resolver el origen público de la aplicación.");
-  return `${protocol}://${host}/auth/confirm?next=%2F`;
+  return publicAppUrl(
+    "/auth/confirm?next=%2F",
+    requestHeaders.get("origin")
+  ).toString();
 }
 
 function deliveryState(result: InvitationDeliveryResult): PlatformActionState {
@@ -408,7 +405,7 @@ export async function resetMemberMfaAction(
     // persona afectada es responsabilidad de quien ejecuta el reseteo, y sin
     // él un reseteo malicioso pasaría inadvertido.
     const notice =
-      "Avisa tú a la persona: la aplicación todavía no envía ese correo, y un reinicio que nadie comunica es indistinguible de uno malicioso.";
+      "Avisa tú a la persona: la aplicación todavía no envía ese correo. Este reinicio elimina los factores, pero la API administrativa disponible no revoca por userId las sesiones que ya estaban abiertas. Si sospechas compromiso, desactiva también la cuenta y rota sus credenciales.";
 
     if (!result.eventRecorded) {
       return {

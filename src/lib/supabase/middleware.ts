@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isValidCronSecretHeader } from "../auth/cron-secret";
 import { isMfaAllowedPath } from "../auth/mfa";
+import { publicAppUrl } from "../auth/public-origin";
 import type { Database } from "./database.types";
 
 /**
@@ -24,6 +25,7 @@ import type { Database } from "./database.types";
 const PUBLIC_PATHS = new Set<string>([
   "/login",
   "/auth/callback",
+  "/auth/confirm",
   "/offline",
   "/sw.js",
   "/manifest.webmanifest",
@@ -180,6 +182,18 @@ function copyCookies(from: NextResponse, to: NextResponse): void {
   });
 }
 
+/** Redirect absoluto seguro incluso cuando un proxy reescribe Host a localhost. */
+function authPageRedirect(request: NextRequest, destination: string): NextResponse {
+  try {
+    return NextResponse.redirect(publicAppUrl(destination, request.nextUrl.origin));
+  } catch {
+    console.error("[auth] no se pudo construir un redirect de autenticación confiable", {
+      event: "auth_public_origin_unavailable",
+    });
+    return new NextResponse("No pudimos verificar el acceso de forma segura.", { status: 503 });
+  }
+}
+
 /**
  * Refresca la sesión de Supabase Auth y decide acceso en cada request
  * (patrón oficial de @supabase/ssr para Next.js App Router con cookies,
@@ -269,7 +283,7 @@ export async function updateSession(
       return mfaRequired;
     }
 
-    const mfaRedirect = NextResponse.redirect(new URL("/seguridad/mfa", request.url));
+    const mfaRedirect = authPageRedirect(request, "/seguridad/mfa");
     copyCookies(responseRef.current, mfaRedirect);
     return mfaRedirect;
   }
@@ -284,7 +298,7 @@ export async function updateSession(
     return unauthorized;
   }
 
-  const redirectResponse = NextResponse.redirect(new URL("/login", request.url));
+  const redirectResponse = authPageRedirect(request, "/login");
   copyCookies(responseRef.current, redirectResponse);
   return redirectResponse;
 }

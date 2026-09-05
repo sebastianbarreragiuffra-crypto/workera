@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "../../../lib/supabase/server";
 import { acceptCurrentUserInvitations } from "../../../lib/platform/invitations";
 import { resolvePostLoginDestination } from "../../../lib/auth/mfa-account";
+import { publicAppUrl, resolvePublicOrigin } from "../../../lib/auth/public-origin";
 
 /**
  * Destino de vuelta de OAuth (Google, u otro proveedor que se habilite a
@@ -22,27 +23,43 @@ import { resolvePostLoginDestination } from "../../../lib/auth/mfa-account";
  * `/login` desde ahí y nunca entra a ninguna pantalla.
  */
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams, origin: requestOrigin } = new URL(request.url);
   const code = searchParams.get("code");
+
+  try {
+    resolvePublicOrigin(requestOrigin);
+  } catch {
+    console.error("[auth] origen público ausente o inválido en callback OAuth", {
+      event: "auth_public_origin_unavailable",
+    });
+    return new NextResponse("No pudimos completar el inicio de sesión de forma segura.", {
+      status: 503,
+    });
+  }
 
   if (code) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      await acceptCurrentUserInvitations(supabase);
-
       try {
+        await acceptCurrentUserInvitations(supabase);
         const destination = await resolvePostLoginDestination(supabase);
-        return NextResponse.redirect(`${origin}${destination}`);
+        return NextResponse.redirect(publicAppUrl(destination, requestOrigin));
       } catch {
         console.error("[auth] no se pudo resolver el destino post-login de OAuth", {
           event: "oauth_post_login_destination_failed",
         });
-        await supabase.auth.signOut();
-        return NextResponse.redirect(`${origin}/login?error=security`);
+        try {
+          await supabase.auth.signOut();
+        } catch {
+          console.error("[auth] no se pudo cerrar la sesión OAuth incompleta", {
+            event: "oauth_partial_session_cleanup_failed",
+          });
+        }
+        return NextResponse.redirect(publicAppUrl("/login?error=security", requestOrigin));
       }
     }
   }
 
-  return NextResponse.redirect(`${origin}/login?error=oauth`);
+  return NextResponse.redirect(publicAppUrl("/login?error=oauth", requestOrigin));
 }

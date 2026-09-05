@@ -131,6 +131,17 @@ problema de la aplicación.
 
 El orden importa y no es intercambiable.
 
+> **Estado actual de staging (5 de septiembre de 2026).** El procedimiento de
+> primer/segundo corte que sigue debajo ya fue completado para esta base: las
+> migraciones MFA, incluida la guarda AAL2, están aplicadas; TOTP hosted está
+> operativo; y el OWNER tiene dos factores verificados. El cliente local que
+> apunta a staging usa `MFA_ENFORCEMENT_ENABLED=true`. No volver a preparar la
+> antigua rama temporal ni intentar reaplicar migraciones. Antes de una marcha
+> blanca quedan dos comprobaciones operativas: confirmar que las demás cuentas
+> privilegiadas hayan inscrito su factor y verificar el flag en el entorno
+> alojado de Vercel, que no se puede inferir desde un archivo `.env.staging`
+> local. La secuencia de abajo se conserva para bases nuevas.
+
 > **Bloqueo operativo del repositorio actual.** `master` y
 > `codex/phases2-6-autonomous` ya contienen tanto la fundación MFA como la
 > migración AAL2 no inerte y migraciones posteriores. Por lo tanto, **no se debe

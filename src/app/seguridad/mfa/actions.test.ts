@@ -117,13 +117,17 @@ test("dar de baja un factor deja el evento UNENROLLED en la bitácora", () => {
  * segundo factor. La pantalla ya no ofrece esos botones en aal1, pero una
  * Server Action es un endpoint y ocultar el botón no la protege.
  */
-test("inscribir y dar de baja exigen el desafío ANTES de tocar Supabase Auth", () => {
+test("inscribir, confirmar y dar de baja exigen el desafío ANTES de tocar Supabase Auth", () => {
   const source = readSource();
 
-  for (const fnName of ["startMfaEnrollmentAction", "discardMfaFactorAction"]) {
+  for (const [fnName, mutation] of [
+    ["startMfaEnrollmentAction", /supabase\.auth\.mfa\.enroll\(/],
+    ["confirmMfaEnrollmentAction", /supabase\.auth\.mfa\.challenge\(/],
+    ["discardMfaFactorAction", /supabase\.auth\.mfa\.unenroll\(/],
+  ] as const) {
     const body = bodyOf(source, fnName);
     const guardIdx = body.indexOf("mustChallengeBeforeChangingFactors(supabase)");
-    const mutationIdx = body.search(/supabase\.auth\.mfa\.(enroll|unenroll)\(/);
+    const mutationIdx = body.search(mutation);
 
     assert.ok(guardIdx > 0, `${fnName} debe exigir el desafío con un factor verificado presente`);
     assert.ok(mutationIdx > 0, `${fnName} debe modificar factores en Supabase Auth`);
@@ -137,7 +141,11 @@ test("la guarda de cambio de factores falla cerrada y solo cede ante aal2", () =
   assert.ok(start > 0, "la guarda debe existir");
   const body = source.slice(start, source.indexOf("\n}", start));
 
-  assert.match(body, /if \(!aal \|\| !factors\) return true;/, "sin datos legibles debe bloquear");
-  assert.match(body, /aal\.currentLevel === "aal2"/, "solo una sesión en aal2 queda liberada");
-  assert.match(body, /factors\.totp \?\? \[\]\)\.length > 0/, "sin factor verificado no hay nada que exigir");
+  assert.match(body, /if \(!mfaSession\) return true;/, "sin datos verificados debe bloquear");
+  assert.match(body, /mfaSession\.currentLevel === "aal2"/, "solo una sesión en aal2 queda liberada");
+  assert.match(
+    body,
+    /mfaSession\.factors\.totp \?\? \[\]\)\.length > 0/,
+    "sin factor verificado no hay nada que exigir",
+  );
 });

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { recordMfaEvent } from "@/lib/admin/mfa-audit";
-import { getMfaAccountState } from "@/lib/auth/mfa-account";
+import { getMfaAccountState, getVerifiedMfaSessionState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeMfaQrCodeDataUri } from "./qr-code";
 
@@ -78,16 +78,13 @@ type SessionClient = Awaited<ReturnType<typeof createClient>>;
  * mantenga, y para que se pueda probar acá.
  */
 async function mustChallengeBeforeChangingFactors(supabase: SessionClient): Promise<boolean> {
-  const [{ data: aal }, { data: factors }] = await Promise.all([
-    supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
-    supabase.auth.mfa.listFactors(),
-  ]);
+  const mfaSession = await getVerifiedMfaSessionState(supabase);
 
   // Fail-closed: sin poder leer el nivel o los factores se asume que hay algo
   // que proteger. El costo de equivocarse hacia este lado es un desafío de más.
-  if (!aal || !factors) return true;
-  if (aal.currentLevel === "aal2") return false;
-  return (factors.totp ?? []).length > 0;
+  if (!mfaSession) return true;
+  if (mfaSession.currentLevel === "aal2") return false;
+  return (mfaSession.factors.totp ?? []).length > 0;
 }
 
 /**
@@ -166,6 +163,14 @@ export async function confirmMfaEnrollmentAction(
   const supabase = await createClient();
   const account = await getMfaAccountState(supabase);
   if (!account) return error("Tu sesión expiró. Vuelve a iniciar sesión.");
+
+  // Confirmar también cambia la configuración MFA. Esta comprobación parece
+  // redundante tras `startMfaEnrollmentAction`, pero cierra un factor
+  // unverified antiguo: si ya existe otro factor verificado, una sesión que
+  // solo conoce la contraseña no puede terminar aquella inscripción pendiente.
+  if (await mustChallengeBeforeChangingFactors(supabase)) {
+    return error(CHALLENGE_FIRST_MESSAGE);
+  }
 
   const parsed = confirmInput.merge(factorInput).safeParse(entries(formData));
   if (!parsed.success) return error("El código son 6 dígitos, sin espacios.");

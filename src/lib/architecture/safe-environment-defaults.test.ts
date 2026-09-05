@@ -15,7 +15,7 @@ function readExampleEnvironment(filename: string): Map<string, string> {
   return values;
 }
 
-test("la configuracion de ejemplo mantiene inactivos MFA y proveedores reales", () => {
+test("la configuracion de ejemplo mantiene inactivos los proveedores reales", () => {
   const safeDefaults = {
     WORKERA_PROVIDER: "mock",
     WORKERA_SYNC_ENABLED: "false",
@@ -26,7 +26,6 @@ test("la configuracion de ejemplo mantiene inactivos MFA y proveedores reales", 
     SUPPORTING_DOCUMENT_CLEANUP_MONITOR_EXPECT_ENABLED: "false",
     EXPENSE_OCR_ENABLED: "false",
     EXPENSE_OCR_PROVIDER: "disabled",
-    MFA_ENFORCEMENT_ENABLED: "false",
     EXPENSE_EMAIL_CAPTURE_ENABLED: "false",
     EXPENSE_WHATSAPP_CAPTURE_ENABLED: "false",
     EXPENSE_ACCOUNTING_EXPORT_ENABLED: "false",
@@ -44,6 +43,19 @@ test("la configuracion de ejemplo mantiene inactivos MFA y proveedores reales", 
       );
     }
   }
+});
+
+test("MFA falla cerrado en instalaciones nuevas y permanece activo en staging", () => {
+  assert.equal(
+    readExampleEnvironment(".env.example").get("MFA_ENFORCEMENT_ENABLED"),
+    "false",
+    ".env.example: MFA debe partir apagado hasta completar la ceremonia de enrolamiento",
+  );
+  assert.equal(
+    readExampleEnvironment(".env.staging.example").get("MFA_ENFORCEMENT_ENABLED"),
+    "true",
+    ".env.staging.example: staging ya tiene guardas AAL2 y debe mantener alineado el gate de aplicación",
+  );
 });
 
 test("los archivos de ejemplo nunca contienen credenciales ni secretos", () => {

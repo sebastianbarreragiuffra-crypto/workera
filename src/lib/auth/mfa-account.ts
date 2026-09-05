@@ -1,6 +1,10 @@
 import "server-only";
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type {
+  AuthMFAListFactorsResponse,
+  AuthenticatorAssuranceLevels,
+  SupabaseClient,
+} from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 import { isMfaEnforcementEnabled } from "../supabase/middleware";
 import {
@@ -29,6 +33,66 @@ export class MfaStateUnavailableError extends Error {
     super("No pudimos verificar el estado de seguridad de tu cuenta.");
     this.name = "MfaStateUnavailableError";
   }
+}
+
+type MfaFactors = NonNullable<AuthMFAListFactorsResponse["data"]>;
+
+export interface VerifiedMfaSessionState {
+  currentLevel: AuthenticatorAssuranceLevels | null;
+  nextLevel: AuthenticatorAssuranceLevels | null;
+  factors: MfaFactors;
+}
+
+function verifiedAalFromClaims(
+  claims: Record<string, unknown> | null | undefined,
+): AuthenticatorAssuranceLevels | null {
+  return claims?.aal === "aal1" || claims?.aal === "aal2" ? claims.aal : null;
+}
+
+/**
+ * Lee el AAL exclusivamente desde claims cuya firma verificó Supabase.
+ *
+ * No usamos `getAuthenticatorAssuranceLevel()` sin JWT: la versión instalada
+ * del SDK deriva parte de ese resultado desde `session.user` en la cookie y
+ * emite una advertencia porque ese objeto no constituye identidad verificada.
+ */
+export async function getVerifiedCurrentAal(
+  supabase: SupabaseClient<Database>,
+): Promise<AuthenticatorAssuranceLevels | null> {
+  const { data, error } = await supabase.auth.getClaims();
+  if (error || !data) return null;
+  return verifiedAalFromClaims(data.claims as Record<string, unknown>);
+}
+
+/**
+ * Combina claims firmados con factores obtenidos desde Auth mediante
+ * `listFactors()` (internamente usa `getUser()`). Así `currentLevel` y
+ * `nextLevel` nunca dependen del objeto de usuario almacenado en cookies.
+ */
+export async function getVerifiedMfaSessionState(
+  supabase: SupabaseClient<Database>,
+): Promise<VerifiedMfaSessionState | null> {
+  const [claimsResult, factorsResult] = await Promise.all([
+    supabase.auth.getClaims(),
+    supabase.auth.mfa.listFactors(),
+  ]);
+
+  if (claimsResult.error || !claimsResult.data || factorsResult.error || !factorsResult.data) {
+    return null;
+  }
+
+  const currentLevel = verifiedAalFromClaims(
+    claimsResult.data.claims as Record<string, unknown>,
+  );
+  const hasVerifiedFactor = factorsResult.data.all.some(
+    (factor) => factor.status === "verified",
+  );
+
+  return {
+    currentLevel,
+    nextLevel: hasVerifiedFactor ? "aal2" : currentLevel,
+    factors: factorsResult.data,
+  };
 }
 
 /**
@@ -99,17 +163,16 @@ export async function getMfaAccountState(
 export async function resolvePostLoginDestination(
   supabase: SupabaseClient<Database>
 ): Promise<PostLoginDestination> {
-  const [aalResult, account] = await Promise.all([
-    supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+  const [mfaSession, account] = await Promise.all([
+    getVerifiedMfaSessionState(supabase),
     getMfaAccountState(supabase),
   ]);
 
-  if (aalResult.error || !account) {
+  if (!mfaSession || !account) {
     throw new MfaStateUnavailableError();
   }
 
-  const currentLevel = aalResult.data?.currentLevel ?? null;
-  const nextLevel = aalResult.data?.nextLevel ?? null;
+  const { currentLevel, nextLevel } = mfaSession;
 
   return postLoginDestination({
     currentLevel,
@@ -152,8 +215,8 @@ export async function assertSecondFactorForPrivileged(
   if (!account) throw new MfaRequiredError("No pudimos verificar tu sesión de seguridad.");
   if (!account.requiresMfa) return;
 
-  const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (error || data?.currentLevel !== "aal2") {
+  const currentLevel = await getVerifiedCurrentAal(supabase);
+  if (currentLevel !== "aal2") {
     throw new MfaRequiredError(
       "Esta operación requiere verificación de segundo factor (MFA)."
     );

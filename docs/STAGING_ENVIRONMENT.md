@@ -2,8 +2,8 @@
 
 > **SECURITY HOLD — NO-GO para nuevas pruebas con PII o conectores reales.** Este
 > proyecto contiene 97 registros de empleados y no existe evidencia de que estén
-> anonimizados. Tampoco están cerrados MFA/AAL2 integral, antimalware, backup y
-> restauración DB+Storage, blast radius de `service_role`, incident response ni el
+> anonimizados. Aunque MFA/AAL2 ya está desplegado, todavía no están cerrados
+> antimalware, backup y restauración DB+Storage, blast radius de `service_role`, incident response ni el
 > paquete legal/privacidad. Hasta sanearlo con datos sintéticos/minimizados o aplicar
 > controles equivalentes a producción, limitar acceso, mantener conectores apagados
 > y no cargar documentos, cartolas o nueva información laboral real. Ver
@@ -17,19 +17,19 @@ Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base d
 - **Organización**: Arcotex DEV
 - **Región**: `sa-east-1` (São Paulo)
 - **Ref**: ver tu `.env.staging` local (nunca en este doc — este archivo se sube a Git)
-- **Migraciones remotas verificadas**: un dry-run desde `master` en `ebc4b61`,
-  realizado el 5 de septiembre de 2026, reporta **21 migraciones pendientes**:
-  `20260904120000` y el rango `20260904170000`–`20260905190000`. El mismo
-  control confirmó que el lint remoto de `public` y `extensions` no informa
-  errores. El dry-run no escribe nada y debe repetirse antes de cada corte.
-
-> **No hacer un push único antes de inscribir MFA.** La rama ya está rebasada
-> sobre master, pero `20260904120000` es no inerte. El despliegue preferido usa
-> los dos cortes de `PLATFORM_OWNER_RUNBOOK.md`, sección 7: primero fundación y
-> hardening sin la guarda AAL2; después de inscribir las cuentas, el corte
-> completo con `--include-all` y las diez migraciones de Rendiciones. El fallback
-> explícito del OWNER es: preparar el rollback, aplicar las cinco de master,
-> completar la inscripción y solo entonces aplicar las diez de esta rama.
+- **Migraciones remotas verificadas**: local y staging coinciden hasta
+  `20260905190000_expense_assistant_retention_audit.sql`; `supabase migration
+  list --linked` no muestra versiones pendientes ni divergentes el 5 de
+  septiembre de 2026. La antigua advertencia de “21 pendientes” quedó
+  reemplazada por este estado y no debe usarse para preparar otro corte MFA.
+- **Auth alojado verificado**: TOTP habilitado, SMS MFA deshabilitado, sesiones
+  AAL1 limitadas a 15 minutos y signup público deshabilitado. La app opera por
+  invitación/Admin API; Google permanece habilitado para identidades
+  autorizadas existentes.
+- **MFA OWNER verificado**: Google vuelve por el origen público y termina en
+  `/login/mfa`; el OWNER dispone de dos factores verificados. Aún se debe
+  comprobar la inscripción de cada otra cuenta privilegiada antes de declarar
+  la marcha blanca completa.
 
 ## Inventario agregado antes del saneamiento
 

@@ -132,7 +132,9 @@ jwt_expiry = 3600
 enable_refresh_token_rotation = true
 refresh_token_reuse_interval = 10
 
-enable_signup = true
+# SaaS B2B cerrado: las identidades nacen por invitación/Admin API. Mantener
+# coherente con la UI "Acceso exclusivo para usuarios autorizados".
+enable_signup = false
 enable_anonymous_sign_ins = false
 enable_manual_linking = false
 
@@ -162,7 +164,7 @@ web3 = 30
 # secret = ""
 
 [auth.email]
-enable_signup = true
+enable_signup = false
 double_confirm_changes = true
 enable_confirmations = false
 secure_password_change = false

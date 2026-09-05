@@ -6,6 +6,7 @@ import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { acceptCurrentUserInvitations } from "@/lib/platform/invitations";
 import { resolvePostLoginDestination } from "@/lib/auth/mfa-account";
+import { publicAppUrl } from "@/lib/auth/public-origin";
 
 export type LoginState = { error: string | null };
 
@@ -74,11 +75,22 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
 export async function loginWithGoogle() {
   const supabase = await createClient();
   const requestHeaders = await headers();
-  const origin = requestHeaders.get("origin") ?? `${requestHeaders.get("x-forwarded-proto") ?? "https"}://${requestHeaders.get("host")}`;
+  let callbackUrl: string;
+  try {
+    callbackUrl = publicAppUrl(
+      "/auth/callback",
+      requestHeaders.get("origin")
+    ).toString();
+  } catch {
+    console.error("[auth] no se pudo construir un callback OAuth confiable", {
+      event: "auth_public_origin_unavailable",
+    });
+    redirect("/login?error=security");
+  }
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo: `${origin}/auth/callback` },
+    options: { redirectTo: callbackUrl },
   });
 
   if (error || !data.url) {

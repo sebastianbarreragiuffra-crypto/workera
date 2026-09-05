@@ -22,7 +22,7 @@ function read(file: string): string {
 test("la autorización se decide antes de tocar el cliente admin", () => {
   const source = read(RESET_PATH);
   const sessionIdx = source.indexOf("getMfaAccountState(supabase)");
-  const aalIdx = source.indexOf("getAuthenticatorAssuranceLevel()");
+  const aalIdx = source.indexOf("getVerifiedCurrentAal(supabase)");
   const canResetIdx = source.indexOf('supabase.rpc("can_reset_mfa_for"');
   const adminIdx = source.indexOf('createAdminClient("mfa-factor-administration")');
 
@@ -76,6 +76,14 @@ test("la acción no afirma que se envió un correo que este proyecto no envía",
   assert.ok(start > 0, "la acción debe existir");
   assert.match(body, /Avisa tú a la persona/, "el mensaje debe pedir el aviso manual");
   assert.doesNotMatch(body, /correo enviado|se envió un correo|te enviamos/i);
+});
+
+test("la acción advierte que borrar factores no revoca sesiones existentes", () => {
+  const source = read(ACTIONS_PATH);
+  const start = source.indexOf("export async function resetMemberMfaAction");
+  const body = source.slice(start);
+  assert.match(body, /no revoca por userId las sesiones/);
+  assert.match(body, /desactiva también la cuenta y rota sus credenciales/);
 });
 
 test("un reseteo que no quedó en la bitácora se reporta como advertencia, no como éxito", () => {
