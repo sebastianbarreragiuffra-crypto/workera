@@ -1,6 +1,10 @@
 # Estándar de Seguridad de API — obligatorio para toda futura ruta
 
-Estado: creado en Gate C pre-UI. **Este documento no describe ninguna ruta existente** — hoy `src/app/api/` solo contiene `README.md`, cero `route.ts` reales (verificado). Es el checklist que cualquier futuro `route.ts`, Server Action con efectos de escritura, o endpoint debe cumplir antes de mergearse, sin excepción.
+Estado: estándar vigente. Las superficies existentes se controlan con el
+inventario ejecutable `src/lib/architecture/request-surfaces.ts`; este checklist
+aplica a todo `route.ts`, Server Action con efectos de escritura o endpoint
+nuevo antes de mergearse, sin excepción. Las brechas reales no se ocultan: se
+registran como `blockers` en ese inventario.
 
 Ver también: `ARCHITECTURE.md`, `docs/THREAT_MODEL.md` (amenazas T-03, T-07, T-08, T-09, T-10, T-13, T-15, T-19), `docs/ABUSE_RATE_LIMITING_PLAN.md`.
 

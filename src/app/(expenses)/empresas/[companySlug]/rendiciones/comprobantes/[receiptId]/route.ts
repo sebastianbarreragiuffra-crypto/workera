@@ -1,4 +1,5 @@
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
+import { authorizeExpenseDataAccess, expenseDataAccessFailureResponse } from "@/lib/expenses/data-access-guard";
 import { isExpenseFileReleased } from "@/lib/expenses/file-security";
 import { createClient } from "@/lib/supabase/server";
 
@@ -14,6 +15,13 @@ export async function GET(
   const supabase = await createClient();
   const context = await getExpenseCompanyContextFromClient(supabase, companySlug);
   if (!context) return new Response("Comprobante no encontrado.", { status: 404 });
+
+  const access = await authorizeExpenseDataAccess(supabase, context, "receipt.download", receiptId);
+  const accessFailure = expenseDataAccessFailureResponse(access, {
+    deniedStatus: 404,
+    deniedMessage: "Comprobante no encontrado.",
+  });
+  if (accessFailure) return accessFailure;
 
   const { data: receipt, error } = await supabase
     .from("expense_receipts")
@@ -31,5 +39,13 @@ export async function GET(
     .createSignedUrl(receipt.storage_path, 60);
   if (signedError || !signed?.signedUrl) return new Response("No fue posible abrir el comprobante.", { status: 503 });
 
-  return Response.redirect(signed.signedUrl, 302);
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: signed.signedUrl,
+      "Cache-Control": "private, no-store, max-age=0",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
+    },
+  });
 }

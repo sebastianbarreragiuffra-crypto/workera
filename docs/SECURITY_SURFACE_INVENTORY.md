@@ -27,9 +27,10 @@ El registro cubre las 20 superficies HTTP actuales y declara para cada una:
   requieren observabilidad hospedada y alertas reales.
 - La importación bancaria de Rendiciones ya tiene sesión, tenant, permiso,
   same-origin, límite de 2 MiB, cuota durable e idempotencia en base de datos.
-- Las descargas y exportaciones siguen con deuda explícita: rate limit de
-  aplicación y auditoría de acceso/exportación. Las laborales, además, siguen
-  limitadas a ARCOTEX hasta completar el aislamiento multiempresa.
+- Las cuatro entregas de Rendiciones ya revalidan empresa/recurso en la base,
+  consumen un límite distribuido y escriben auditoría atómica. Las descargas
+  laborales aún tienen esa deuda y, además, siguen limitadas a ARCOTEX hasta
+  completar el aislamiento multiempresa.
 - Los callbacks de identidad dependen de controles de Auth hospedados que aún
   deben verificarse; la configuración local no es evidencia de producción.
 

@@ -89,6 +89,17 @@ test("toda brecha de rate limit queda marcada como bloqueo y no puede esconderse
   }
 });
 
+test("los limites de aplicacion declarados tienen evidencia directa en el handler", () => {
+  for (const surface of REQUEST_SURFACES.filter((item) => item.abuseControl === "DATABASE_RATE_LIMIT")) {
+    const sourcePath = path.join(REPO_ROOT, surface.source);
+    const source = readFileSync(sourcePath, "utf8");
+    const evidence = [source, ...directLocalSources(sourcePath, source)].join("\n");
+    assert.match(evidence, /authorizeExpenseDataAccess/, `${requestSurfaceKey(surface)} no consume el limite`);
+    assert.equal(surface.auditControl, "DATA_ACCESS_LEDGER", `${requestSurfaceKey(surface)} debe auditar el acceso`);
+    assert.equal(surface.blockers.length, 0, `${requestSurfaceKey(surface)} conserva un bloqueo ya resuelto`);
+  }
+});
+
 test("datos empresariales nunca usan un tenant NONE", () => {
   for (const surface of REQUEST_SURFACES.filter((item) => !["PUBLIC", "AUTH"].includes(item.dataClass))) {
     assert.notEqual(surface.tenantScope, "NONE", `${requestSurfaceKey(surface)} carece de alcance tenant`);

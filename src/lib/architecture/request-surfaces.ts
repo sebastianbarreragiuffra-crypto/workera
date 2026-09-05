@@ -27,6 +27,7 @@ export type RequestAbuseControl =
   | "AUTH_PROVIDER_UNVERIFIED"
   | "CRON_SECRET_AND_LEASE"
   | "DATABASE_QUOTA"
+  | "DATABASE_RATE_LIMIT"
   | "PROVIDER_LEDGER_AND_QUOTA"
   | "READ_ONLY_NO_LIMIT"
   | "MISSING"
@@ -34,6 +35,7 @@ export type RequestAbuseControl =
 export type RequestAuditControl =
   | "AUTH_PROVIDER"
   | "BUSINESS_LEDGER"
+  | "DATA_ACCESS_LEDGER"
   | "JOB_LEDGER"
   | "PROVIDER_LEDGER"
   | "MISSING"
@@ -204,33 +206,29 @@ export const REQUEST_SURFACES = [
     source: "src/app/(expenses)/empresas/[companySlug]/rendiciones/contabilidad/[exportId]/csv/route.ts", route: "/empresas/[companySlug]/rendiciones/contabilidad/[exportId]/csv", method: "GET", kind: "DOWNLOAD",
     domain: "expenses", authentication: "SESSION", tenantScope: "EXPLICIT_COMPANY",
     authorization: "Contexto tenant, canReconcile, UUID y company_id en la consulta.",
-    mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "MISSING",
-    auditControl: "MISSING", featureFlag: null, dataClass: "FINANCIAL",
-    blockers: ["APPLICATION_RATE_LIMIT", "EXPORT_AUDIT"],
+    mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "DATABASE_RATE_LIMIT",
+    auditControl: "DATA_ACCESS_LEDGER", featureFlag: null, dataClass: "FINANCIAL", blockers: [],
   },
   {
     source: "src/app/(expenses)/empresas/[companySlug]/rendiciones/comprobantes/[receiptId]/route.ts", route: "/empresas/[companySlug]/rendiciones/comprobantes/[receiptId]", method: "GET", kind: "DOWNLOAD",
     domain: "expenses", authentication: "SESSION", tenantScope: "EXPLICIT_COMPANY",
     authorization: "Contexto tenant, UUID, company_id, RLS y URL privada firmada por 60 segundos.",
-    mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "MISSING",
-    auditControl: "MISSING", featureFlag: null, dataClass: "FINANCIAL",
-    blockers: ["APPLICATION_RATE_LIMIT", "EXPORT_AUDIT", "ANTIMALWARE_PROVIDER"],
+    mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "DATABASE_RATE_LIMIT",
+    auditControl: "DATA_ACCESS_LEDGER", featureFlag: null, dataClass: "FINANCIAL", blockers: [],
   },
   {
     source: "src/app/(expenses)/empresas/[companySlug]/rendiciones/conciliacion/exportar/route.ts", route: "/empresas/[companySlug]/rendiciones/conciliacion/exportar", method: "GET", kind: "DOWNLOAD",
     domain: "expenses", authentication: "SESSION", tenantScope: "EXPLICIT_COMPANY",
     authorization: "Contexto tenant, canReconcile y queries company-scoped.",
-    mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "MISSING",
-    auditControl: "MISSING", featureFlag: null, dataClass: "FINANCIAL",
-    blockers: ["APPLICATION_RATE_LIMIT", "EXPORT_AUDIT"],
+    mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "DATABASE_RATE_LIMIT",
+    auditControl: "DATA_ACCESS_LEDGER", featureFlag: null, dataClass: "FINANCIAL", blockers: [],
   },
   {
     source: "src/app/(expenses)/empresas/[companySlug]/rendiciones/comprobantes/capturas/[captureId]/route.ts", route: "/empresas/[companySlug]/rendiciones/comprobantes/capturas/[captureId]", method: "GET", kind: "DOWNLOAD",
     domain: "expenses", authentication: "SESSION", tenantScope: "EXPLICIT_COMPANY",
     authorization: "Contexto tenant con canSubmit, propietario, estado PENDING, company_id y URL firmada.",
-    mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "MISSING",
-    auditControl: "MISSING", featureFlag: null, dataClass: "FINANCIAL",
-    blockers: ["APPLICATION_RATE_LIMIT", "EXPORT_AUDIT", "ANTIMALWARE_PROVIDER"],
+    mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "DATABASE_RATE_LIMIT",
+    auditControl: "DATA_ACCESS_LEDGER", featureFlag: null, dataClass: "FINANCIAL", blockers: [],
   },
 ] as const satisfies readonly RequestSurface[];
 

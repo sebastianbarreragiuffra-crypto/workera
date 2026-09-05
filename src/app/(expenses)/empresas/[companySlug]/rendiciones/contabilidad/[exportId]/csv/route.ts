@@ -3,6 +3,7 @@ import { z } from "zod";
 import { buildExpenseAccountingCsv } from "@/lib/expense-accounting/csv";
 import { parseExpenseAccountingPayload } from "@/lib/expense-accounting/payload";
 import { getExpenseCompanyContextFromClient } from "@/lib/expenses/access";
+import { authorizeExpenseDataAccess, expenseDataAccessFailureResponse } from "@/lib/expenses/data-access-guard";
 import { createClient } from "@/lib/supabase/server";
 
 const input = z.object({
@@ -16,6 +17,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ com
   const supabase = await createClient();
   const context = await getExpenseCompanyContextFromClient(supabase, parsed.data.companySlug);
   if (!context?.canReconcile) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+
+  const access = await authorizeExpenseDataAccess(supabase, context, "accounting.export", parsed.data.exportId);
+  const accessFailure = expenseDataAccessFailureResponse(access);
+  if (accessFailure) return accessFailure;
 
   const { data, error } = await supabase.from("expense_accounting_exports")
     .select("payload").eq("company_id", context.id).eq("id", parsed.data.exportId).maybeSingle();

@@ -226,13 +226,14 @@ Fronteras:
 - Riesgo: una cuenta con permisos válidos realiza descargas/exportaciones
   masivas, consulta PII fuera de su finalidad o combina funciones para crear y
   aprobar fraude; RLS correcta no impide el abuso dentro del alcance concedido.
-- Evidencia: capacidades server-side, aprobación humana y algunos logs; no hay
-  segregación maker-checker demostrada en todos los flujos, recertificación
-  periódica, límites de volumen ni detección de anomalías.
+- Evidencia: capacidades server-side, aprobación humana y algunos logs.
+  Rendiciones limita y audita en base sus cuatro entregas financieras por
+  empresa+actor; no hay todavía cobertura laboral, recertificación periódica ni
+  detección de anomalías hospedada.
 - Estado: `UNVERIFIED` / `BLOCKED` para staging con PII y piloto.
 - Control requerido: matriz de segregación y conflictos, doble control para
-  pagos/contabilidad, recertificación y caducidad de accesos, límites y alertas
-  por descarga/exportación, detección de volumen/comportamiento anómalo y
+  pagos/contabilidad, recertificación y caducidad de accesos, extender límites a
+  laboral, alertas por descarga/exportación, detección de volumen anómalo y
   revisión de un sink tamper-evident independiente.
 - Owner requerido: Security/Finance/Privacy. Residual: no aceptado.
 

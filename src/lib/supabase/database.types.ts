@@ -2437,6 +2437,48 @@ export type Database = {
           },
         ]
       }
+      expense_data_access_limits: {
+        Row: {
+          actor_id: string
+          company_id: string
+          request_count: number
+          scope: string
+          updated_at: string
+          window_started_at: string
+        }
+        Insert: {
+          actor_id: string
+          company_id: string
+          request_count: number
+          scope: string
+          updated_at: string
+          window_started_at: string
+        }
+        Update: {
+          actor_id?: string
+          company_id?: string
+          request_count?: number
+          scope?: string
+          updated_at?: string
+          window_started_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_data_access_limits_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_data_access_limits_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expense_items: {
         Row: {
           category_id: string | null
@@ -5587,6 +5629,19 @@ export type Database = {
       attach_expense_receipt_capture: {
         Args: { p_capture_id: string; p_item_id: string }
         Returns: string
+      }
+      authorize_expense_data_access: {
+        Args: {
+          p_company_id: string
+          p_resource_id?: string | null
+          p_scope: string
+        }
+        Returns: {
+          allowed: boolean
+          remaining: number
+          request_limit: number
+          retry_after_seconds: number
+        }[]
       }
       begin_expense_receipt_whatsapp_pairing: {
         Args: {

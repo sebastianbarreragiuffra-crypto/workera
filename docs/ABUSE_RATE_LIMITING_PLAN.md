@@ -1,12 +1,16 @@
-# Rate Limiting y Protección contra Abuso — plan (propuesta, no implementada)
+# Rate Limiting y Protección contra Abuso
 
-Estado: `PLANNED`. **Ningún límite descrito aquí está implementado en código.** Los valores numéricos son propuestas provisionales marcadas explícitamente `TBD`/`PROPOSED` — no son una decisión final, requieren confirmación (ver `docs/DECISIONS_PENDING.md`). Hoy, la única protección real y verificable son los rate limits **por defecto del proyecto local de Supabase CLI** (`supabase/config.toml`), que son configuración de desarrollo, no una decisión de producto para producción.
+Estado: `PARTIALLY_IMPLEMENTED`. Rendiciones ya posee cuotas durables para
+ingreso bancario y conectores, además de autorización + rate limit + auditoría
+atómica para sus cuatro entregas financieras. Login, descargas laborales,
+Server Actions administrativas y el borde público conservan brechas explícitas.
+Los valores marcados `TBD`/`PROPOSED` siguen sin ser decisiones finales.
 
 Fuentes oficiales consultadas: [Supabase Auth Rate Limits](https://supabase.com/docs/guides/auth/rate-limits) (documentación oficial, consultada en este gate), [OWASP API Security Top 10 — API4:2023 Unrestricted Resource Consumption](https://owasp.org/API-Security/editions/2023/en/0x11-t10/) (verificado contra el documento oficial en este gate de hardening), RFC 6585 (`429 Too Many Requests`), RFC 9110 §10.2.3 (`Retry-After`).
 
 Ver también: `docs/THREAT_MODEL.md` (T-11, T-12, T-15), `docs/API_SECURITY_STANDARD.md`.
 
-## 1. Estado actual verificado (`IMPLEMENTED`, solo entorno local)
+## 1. Estado actual verificado
 
 `supabase/config.toml`, sección `[auth.rate_limit]`, valores por defecto del CLI local:
 
@@ -20,9 +24,38 @@ Ver también: `docs/THREAT_MODEL.md` (T-11, T-12, T-15), `docs/API_SECURITY_STAN
 | Verificación de OTP | 30/5min |
 | Web3 | 30/5min |
 
-Estos valores son de la **configuración local de desarrollo**, no de un proyecto Supabase hosted real (no existe todavía). `[auth.captcha]` está presente en `config.toml` pero **deshabilitado** (comentado). Sin MFA. Sin rate limiting propio de aplicación en ningún punto del código.
+Estos valores son de la **configuración local de desarrollo**, no evidencia del
+proyecto hospedado. `[auth.captcha]` está presente pero deshabilitado.
 
-## 2. Diseño propuesto por operación (`PLANNED` — `TBD` donde se indica)
+### 1.1 Rendiciones (`IMPLEMENTED_LOCAL`)
+
+`authorize_expense_data_access()` revalida identidad, empresa, módulo, permiso,
+recurso y cuarentena; luego actualiza atómicamente un contador compartido y
+escribe `expense_audit_events` en la misma transacción. Los contadores son por
+`company_id + actor_id + scope`, mantienen una sola fila por combinación y por
+eso funcionan aunque Next.js escale a múltiples instancias.
+
+| Superficie | Límite inicial | Ventana |
+|---|---:|---:|
+| Abrir comprobante registrado | 60 | 5 min |
+| Abrir captura propia | 60 | 5 min |
+| Exportar conciliación mensual | 10 | 1 h |
+| Descargar snapshot contable | 20 | 1 h |
+
+Al excederlo se responde `429` con `Retry-After`; si el control no puede
+confirmar la autorización, la entrega falla cerrada con `503`. El evento guarda
+actor, empresa, alcance y UUID técnico, nunca archivo, pathname, filtro, IP ni
+contenido financiero. La migración y sus 35 invariantes están en
+`20260905110000_expense_data_access_guard.sql` y
+`073_expense_data_access_guard.sql`.
+Cada acceso permitido se audita; del tráfico ya bloqueado se conserva una señal
+por ventana para impedir que el propio ledger se convierta en un vector de DoS.
+
+También están implementadas las cuotas horarias de la importación bancaria y
+las cuotas/ledgers de correo y WhatsApp. Estas últimas no autorizan activar los
+conectores: siguen faltando rate limit de borde y proveedor antimalware.
+
+## 2. Brechas y diseño restante (`PLANNED` — `TBD` donde se indica)
 
 Para cada operación: clave de identidad, ventana, límite propuesto, justificación, respuesta 429, `Retry-After`, auditoría, alertas, riesgo NAT/proxy, headers confiables, almacenamiento, comportamiento ante caída, protección anti-bypass.
 
@@ -51,36 +84,37 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
 - **Riesgo NAT/proxy**: bajo (clave es el email, no la IP).
 - **Anti-bypass**: no permitir enumerar si un email existe a partir de la respuesta (mismo criterio ya aplicado en `login/actions.ts`: mensaje genérico).
 
-### 2.3 Futuras APIs (`/api/*`, hoy inexistentes)
-- **Clave**: `TBD` — propuesta: usuario autenticado (via `sub` del claim) para rutas protegidas; IP para las pocas rutas públicas que pudieran existir.
+### 2.3 Otras APIs y Route Handlers
+- **Clave**: inventariada por ruta en `src/lib/architecture/request-surfaces.ts`;
+  falta cerrar las superficies que aún figuran con `MISSING`.
 - **Ventana**: `TBD` por endpoint, a definir junto con cada ruta nueva siguiendo `docs/API_SECURITY_STANDARD.md`.
-- **Límite propuesto**: `TBD` — ninguna ruta existe todavía para calibrar un límite razonable.
-- **Justificación**: mitigar abuso de recursos (OWASP API4:2023) una vez que existan endpoints reales.
+- **Límite propuesto**: `TBD` para cada superficie que el inventario marca pendiente; calibrar con volumen sintético y marcha blanca.
+- **Justificación**: mitigar abuso de recursos (OWASP API4:2023) en endpoints existentes y futuros.
 - **Respuesta 429 / `Retry-After`**: mismo estándar que el resto.
 - **Auditoría/alertas**: `TBD`, depende de la observabilidad elegida.
 - **Anti-bypass**: rate limiting debe aplicarse server-side, nunca solo en el cliente.
 
-### 2.4 Acciones de aprobación (overtime, atrasos, ausencias — futuras)
+### 2.4 Acciones de aprobación (overtime, atrasos, ausencias)
 - **Clave**: usuario (`sub`) que aprueba.
 - **Ventana**: `TBD` — probablemente más laxa que login (son acciones legítimas frecuentes de un supervisor durante su jornada), pero con un límite superior razonable para detectar automatización anómala.
 - **Límite propuesto**: `TBD` — requiere entender el volumen operacional real (cuántos trabajadores por supervisor) antes de proponer un número, para no bloquear uso legítimo.
 - **Justificación**: detectar un script automatizando aprobaciones masivas fuera del patrón humano esperado (T-25, insider threat).
 - **Auditoría**: cada aprobación ya debe quedar en `audit_log` (regla de `ARCHITECTURE.md`) — el rate limit es una capa adicional de detección, no el mecanismo de auditoría en sí.
 
-### 2.5 Exportación Excel (futura)
+### 2.5 Exportaciones laborales legacy
 - **Clave**: usuario.
 - **Ventana**: `TBD` — propuesta inicial: pocas exportaciones por hora son normales (es un reporte semanal/mensual, no una acción de alta frecuencia).
 - **Límite propuesto**: `TBD`.
 - **Justificación**: mitiga T-12 (abuso de exportaciones para exfiltración masiva de datos de remuneración).
-- **Auditoría**: cada exportación queda registrada en `excel_exports` (tabla ya existente) — el rate limit complementa, no reemplaza, ese registro.
+- **Auditoría**: existe `excel_exports`, pero el inventario HTTP aún marca rutas laborales sin cobertura integral de acceso; el rate limit complementa, no reemplaza, ese registro.
 
-### 2.6 Upload de documentos (futuro, cuando exista Storage)
+### 2.6 Upload de documentos
 - **Clave**: usuario.
 - **Ventana**: `TBD`.
 - **Límite propuesto**: `TBD`, junto con el límite de tamaño por archivo (ver `docs/API_SECURITY_STANDARD.md`, `413`).
-- **Justificación**: mitiga T-13/T-15 (carga maliciosa, payloads grandes repetidos).
+- **Justificación**: los topes de tamaño, MIME/magic bytes, Storage privado y cuarentena ya reducen T-13/T-15; falta limitar frecuencia/bytes acumulados de las cargas web.
 
-### 2.7 Sincronización con Workera (futura, hoy bloqueada)
+### 2.7 Sincronización con Workera (implementada pero apagada)
 - **Clave**: N/A (proceso server-to-server, no un usuario final) — control por diseño del cron/job, no por rate limit de usuario.
 - **Ventana/límite**: `TBD` — depende enteramente de los rate limits que la propia Workera imponga, que hoy son desconocidos (sin documentación oficial). El intento manual previo que recibió `HTTP 429` de Workera confirma que Workera **sí aplica rate limiting del lado servidor**, pero no revela su umbral exacto ni su ventana.
 - **Justificación**: evitar que un reintento mal configurado sature la API de Workera y active sus propios límites o bloqueos.
@@ -94,11 +128,18 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
 
 ## 3. Consideraciones transversales
 
-- **Almacenamiento distribuido**: si la app se despliega en múltiples instancias (serverless/edge), un contador en memoria local no sirve — se requiere un store compartido (Redis/Upstash u otro). Decisión de infraestructura futura, no tomada aquí.
-- **Comportamiento ante caída del rate limiter**: debe decidirse explícitamente fail-open vs. fail-closed por tipo de operación (propuesta: fail-closed para login/acciones sensibles, fail-open tolerable para operaciones de solo lectura de bajo riesgo) — no implementado, no decidido.
+- **Almacenamiento distribuido**: Rendiciones usa Postgres compartido y no
+  requiere afinidad de instancia. Login/borde puede necesitar un store dedicado
+  según el hosting y la latencia que se midan.
+- **Comportamiento ante caída del rate limiter**: las entregas financieras de
+  Rendiciones ya son fail-closed. Falta decidirlo para login, borde y flujos
+  laborales.
 - **Protección contra bypass**: el rate limiting nunca debe ser la única defensa (ver capas ya implementadas: RLS, guard de sesión, validación de contraseña de Supabase Auth); nunca confiar en un header de IP sin verificar la cadena de confianza del proxy que lo generó.
 - **Encabezados confiables**: cualquier IP usada para limitar debe venir de una fuente verificada por la plataforma de hosting (no aceptar `X-Forwarded-For` arbitrario de un cliente no confiable) — mismo principio que Supabase exige para habilitar `Sb-Forwarded-For`.
 
-## 4. Qué NO está implementado (recordatorio explícito)
+## 4. Qué todavía NO está implementado
 
-Ningún límite de este documento existe en código. La única protección real hoy son los defaults de Supabase Auth **en el entorno local de desarrollo**, que no deben asumirse válidos para un proyecto de producción sin confirmarlos explícitamente contra el plan Supabase que se contrate.
+No hay aún control propio para login/recuperación, rate limit de borde para
+webhooks, ni protección de volumen para descargas laborales o acciones
+administrativas. Los defaults de Auth local no deben asumirse válidos en
+producción: deben confirmarse y ensayarse en el proyecto hospedado.
