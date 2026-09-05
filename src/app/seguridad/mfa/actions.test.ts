@@ -52,6 +52,14 @@ test("ni el secreto TOTP ni el QR se escriben en el log", () => {
   }
 });
 
+test("usa directamente el data URI validado por el normalizador", () => {
+  const body = bodyOf(readSource(), "startMfaEnrollmentAction");
+
+  assert.match(body, /normalizeMfaQrCodeDataUri\(data\.totp\.qr_code\)/);
+  assert.doesNotMatch(body, /encodeURIComponent\(data\.totp\.qr_code\)/);
+  assert.doesNotMatch(body, /`data:image\/svg\+xml/);
+});
+
 test("la confirmación encadena challenge y luego verify, y solo registra ENROLLED si verify no falló", () => {
   const body = bodyOf(readSource(), "confirmMfaEnrollmentAction");
   const challengeIdx = body.indexOf("supabase.auth.mfa.challenge(");

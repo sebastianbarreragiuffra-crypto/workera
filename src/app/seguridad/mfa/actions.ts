@@ -5,6 +5,7 @@ import { z } from "zod";
 import { recordMfaEvent } from "@/lib/admin/mfa-audit";
 import { getMfaAccountState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
+import { normalizeMfaQrCodeDataUri } from "./qr-code";
 
 /**
  * Inscripción de un segundo factor TOTP (sección 6.1 del diseño).
@@ -126,15 +127,21 @@ export async function startMfaEnrollmentAction(
     );
   }
 
+  let qrCodeDataUri: string;
+  try {
+    qrCodeDataUri = normalizeMfaQrCodeDataUri(data.totp.qr_code);
+  } catch {
+    return error("No pudimos generar un código QR seguro. Descarta este intento y vuelve a probar.");
+  }
+
   return {
     status: "enrolling",
     message: "",
     enrollment: {
       factorId: data.id,
-      // El QR llega como SVG en crudo. Se codifica antes de armar el data
-      // URI: un `#` o unas comillas sin escapar truncan la imagen en el
-      // navegador y dejan la pantalla sin código que escanear.
-      qrCodeDataUri: `data:image/svg+xml;utf-8,${encodeURIComponent(data.totp.qr_code)}`,
+      // auth-js ya antepone el data URI al SVG; volver a codificarlo rompe la
+      // imagen porque también transforma el propio prefijo.
+      qrCodeDataUri,
       secret: data.totp.secret,
     },
   };
