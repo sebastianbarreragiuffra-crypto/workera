@@ -18,7 +18,7 @@ Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base d
 - **Región**: `sa-east-1` (São Paulo)
 - **Ref**: ver tu `.env.staging` local (nunca en este doc — este archivo se sube a Git)
 - **Migraciones remotas verificadas**: local y staging coinciden hasta
-  `20260905190000_expense_assistant_retention_audit.sql`; `supabase migration
+  `20260905212000_arcotex_privileged_authority_consistency.sql`; `supabase migration
   list --linked` no muestra versiones pendientes ni divergentes el 5 de
   septiembre de 2026. La antigua advertencia de “21 pendientes” quedó
   reemplazada por este estado y no debe usarse para preparar otro corte MFA.
@@ -30,7 +30,7 @@ Proyecto Supabase Cloud creado para que PC1 y PC2 prueben contra la misma base d
   `/login/mfa`; el OWNER dispone de dos factores verificados. El inventario
   remoto del 5 de septiembre de 2026 encontró una sola identidad activa que
   requiere MFA, sin factores pendientes, bloqueos ni identidades Auth ausentes.
-- **Aplicación alojada verificada**: el commit `138288d` está desplegado en
+- **Aplicación alojada verificada**: el corte funcional `2f5ecad` está desplegado en
   `https://arcotex-workera-staging.vercel.app`; Producción y Preview tienen
   `APP_PUBLIC_ORIGIN` canónico y `MFA_ENFORCEMENT_ENABLED=true`. El túnel
   temporal usado para la prueba móvil fue detenido y retirado de la allowlist

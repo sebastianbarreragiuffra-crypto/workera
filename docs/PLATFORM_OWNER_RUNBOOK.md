@@ -139,7 +139,7 @@ El orden importa y no es intercambiable.
 > por `account_requires_mfa()` y que no tiene enrolamientos incompletos. Vercel
 > quedó configurado para Producción y Preview con el origen canónico
 > `https://arcotex-workera-staging.vercel.app` y
-> `MFA_ENFORCEMENT_ENABLED=true`; el commit `138288d` quedó desplegado en
+> `MFA_ENFORCEMENT_ENABLED=true`; el corte funcional `2f5ecad` quedó desplegado en
 > Producción y Google OAuth llegó al desafío `/login/mfa` sin volver al túnel
 > ni a `localhost`. No volver a preparar la antigua rama temporal ni intentar
 > reaplicar migraciones. Una identidad privilegiada que se agregue en el
