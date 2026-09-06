@@ -71,7 +71,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <KpiRow kpis={dashboard.kpis} date={date} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <DescargarAsistenciaCard />
+        {dashboard.kind === "ADMIN" && <DescargarAsistenciaCard />}
         <AttendanceReadinessCard readiness={readiness} />
       </div>
 

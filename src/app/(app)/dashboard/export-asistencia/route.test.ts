@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { requireYearMonth } from "./route";
+import { canDownloadPayrollWorkbook, requireYearMonth } from "./route";
 
 /**
  * `mes` llega por query string y los resolvers de período hacen aritmética
@@ -35,4 +35,11 @@ test("requireYearMonth: rechaza formas casi correctas", () => {
   assert.throws(() => requireYearMonth("26-09"), /YYYY-MM/, "año de dos dígitos");
   assert.throws(() => requireYearMonth("2026-09-01"), /YYYY-MM/, "con día");
   assert.throws(() => requireYearMonth(" 2026-09"), /YYYY-MM/, "con espacio");
+});
+
+test("canDownloadPayrollWorkbook: la pre-nómina queda solo para RRHH y owner", () => {
+  assert.equal(canDownloadPayrollWorkbook("SUPER_ADMIN"), true);
+  assert.equal(canDownloadPayrollWorkbook("ADMIN_RRHH"), true);
+  assert.equal(canDownloadPayrollWorkbook("SUPERVISOR_PRODUCTION"), false);
+  assert.equal(canDownloadPayrollWorkbook("SUPERVISOR_INSTALLATION"), false);
 });

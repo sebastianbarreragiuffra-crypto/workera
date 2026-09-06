@@ -40,10 +40,20 @@ export function requireYearMonth(value: string | null): string {
   return value;
 }
 
+export function canDownloadPayrollWorkbook(role: string): boolean {
+  return role === "SUPER_ADMIN" || role === "ADMIN_RRHH";
+}
+
 export async function GET(request: NextRequest) {
   const profile = await getCurrentProfile();
   if (!profile?.role) {
     return NextResponse.json({ error: "No autorizado." }, { status: 401 });
+  }
+  // El libro 2026 contiene RUT, ajustes y variables de pre-nómina. La vista
+  // diaria de supervisión sigue disponible en la aplicación, pero descargar
+  // este artefacto financiero queda reservado a RR. HH. y al owner.
+  if (!canDownloadPayrollWorkbook(profile.role)) {
+    return NextResponse.json({ error: "No tienes permisos para descargar la pre-nómina." }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);

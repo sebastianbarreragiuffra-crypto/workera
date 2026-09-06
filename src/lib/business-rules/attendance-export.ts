@@ -3,59 +3,31 @@ import * as XLSX from "xlsx-js-style";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 import { areasVisibleToRole, type AreaCode, type CallerRole } from "../access/scope";
+import { applyXlsxPresentation } from "../excel/xlsx-postprocess";
 import type { AttendanceExportPeriod } from "./attendance-export-periods";
 import { loadHolidaySet } from "./holidays";
 
 /**
- * Exportador de asistencia con el formato REAL de la planilla de ARCOTEX.
+ * Exportador de pre-nómina de asistencia, estándar 2026.
  *
- * La primera versión (Fase 9) generaba una lista plana de cuatro columnas
- * (Trabajador | Área | Fecha | Estado), imposible de comparar contra la
- * planilla que RRHH usa a diario. El formato real, confirmado leyendo el libro
- * vigente y documentado en docs/EXCEL_WORKFLOW_ANALYSIS.md, es una MATRIZ:
+ * Sustituye definitivamente el libro histórico de diez filas por trabajador
+ * por tres tablas sin celdas combinadas en su área de datos:
+ * `RESUMEN_NOMINA` (una fila por persona), `CONTROL_PENDIENTES` (excepciones
+ * accionables) y `MATRIZ_DIARIA_SABANA` (una fila por persona y una columna
+ * por fecha). El corte de pago es siempre 16–15.
  *
- *   - leyenda de códigos arriba (P, F, F-P, F-J, P-L, P-M, V, L, L-M, R, ?)
- *   - una COLUMNA por día calendario del período (fines de semana en blanco)
- *   - un BLOQUE de filas por trabajador, con su nombre combinado en la col. A
- *   - la columna C con el total del período de cada fila
- *
- * Se generan 10 filas por trabajador: Asistencia, Faltas, Vacaciones,
- * Licencia, Atrasos, Salida anticipada, HH 50%, HH 100%, Bono HE y VIATICOS.
- * Las dos últimas conservan importes separados de las horas: el bono viene de
- * la política automática y viáticos queda vacío hasta tener una fuente.
- *
- * El libro se construye SIEMPRE desde cero. Hubo un intento de reutilizar el
- * .xls que entrega RRHH como plantilla, y se descartó: ese camino rellena los
- * bloques que el archivo ya trae y no sabe agregar filas, así que no puede
- * representar a nadie contratado después de haberlo recibido. Además el
- * archivo lleva nombres reales, no puede versionarse, y su ausencia hacía que
- * el mismo período saliera distinto en cada ambiente. Generar es la única
- * forma de que el padrón salga completo y reproducible.
- *
- * NUNCA se inventa un estado: un día sin fila vigente en
- * `attendance_status_records` sale como "?" (TARJETA NO MARCADA O CON
- * PROBLEMAS), que es exactamente el código que el catálogo ya define para ese
- * caso -- nunca un P o un F supuesto.
+ * El libro se genera desde datos vivos para incluir el padrón completo. Nunca
+ * inventa un estado: un día exigible sin dato definitivo sale `?`, nunca P/F
+ * supuesto. El cierre inmutable debe persistirse como snapshot en una fase
+ * posterior; este archivo editable es el artefacto operativo de pre-nómina.
  */
 
 const MISSING_STATUS_CODE = "?";
 
-/** Códigos que cuentan en cada fila de conteo. Cada uno vale 1.00 en su día. */
-const FALTA_CODES = new Set(["F"]);
-const VACACIONES_CODES = new Set(["V"]);
-/** `L-M` (licencia mutual) también es licencia: ambas descuentan del total de Asistencia. */
-const LICENCIA_CODES = new Set(["L", "L-M"]);
-const PERMISSION_CODES = new Set(["F-P", "F-J", "P-L", "P-M"]);
 /** `R` todavía no tiene un efecto de nómina aprobado; debe fallar cerrado. */
 const STATUS_CODES_REQUIRING_PAYROLL_REVIEW = new Set(["R"]);
 const OVERTIME_50_CODE = "OVERTIME_50";
 const OVERTIME_100_CODE = "OVERTIME_100";
-
-const AREA_LABEL: Record<AreaCode, string> = {
-  PRODUCTION: "Producción",
-  INSTALLATION: "Instalación",
-  ADMINISTRATION: "Administración",
-};
 
 /**
  * PostgREST limita cada respuesta hospedada a 1.000 filas. Una planilla de
@@ -111,8 +83,6 @@ function statusRequiresPayrollReview(code: string): boolean {
   return code !== MISSING_STATUS_CODE &&
     (!KNOWN_STATUS_CODES.has(code) || STATUS_CODES_REQUIRING_PAYROLL_REVIEW.has(code));
 }
-
-const MONTH_SHORT = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"];
 
 interface EmployeeRow {
   id: string;
@@ -172,6 +142,17 @@ interface RuleEngineRunRow {
   work_date: string;
   status: "RUNNING" | "SUCCEEDED" | "PARTIAL" | "FAILED";
   started_at: string;
+}
+
+interface OrganizationAssignmentRow {
+  employee_id: string;
+  effective_from: string;
+  effective_to: string | null;
+  is_primary: boolean;
+  organization_units:
+    | { code: string; name: string }
+    | { code: string; name: string }[]
+    | null;
 }
 
 async function loadRuleEngineRuns(
@@ -353,6 +334,12 @@ export interface AttendanceExportWorker {
   employeeRut: string | null;
   workerName: string;
   area: AreaCode;
+  /**
+   * Unidad organizacional primaria vigente al cierre del período. Es la
+   * fuente maestra que GESTORA también expone como centro de costo; nunca se
+   * rellena con el grupo operacional por semejanza de nombre.
+   */
+  costCenter: string | null;
   /** Indexado por fecha `YYYY-MM-DD`. Un día ausente equivale a "sin novedad". */
   days: Map<string, AttendanceExportDay>;
   /**
@@ -492,6 +479,7 @@ export async function buildAttendanceExportData(
     employeeRut: e.employeeRut,
     workerName: e.displayName,
     area: e.area,
+    costCenter: null,
     days: new Map(),
     hireDate: e.hireDate,
     currentlyActive: e.active,
@@ -527,7 +515,15 @@ export async function buildAttendanceExportData(
   }
 
   const employeeIdBatches = chunksOf(employeeIds, EMPLOYEE_ID_BATCH_SIZE);
-  const [statusPages, latePages, earlyDeparturePages, overtimePages, missingPunchPages, absencePages] = await Promise.all([
+  const [
+    statusPages,
+    latePages,
+    earlyDeparturePages,
+    overtimePages,
+    missingPunchPages,
+    absencePages,
+    organizationAssignmentPages,
+  ] = await Promise.all([
     Promise.all(
       employeeIdBatches.map((ids) =>
         fetchAllPages<StatusRow>("buildAttendanceExportData: fallo leyendo estados", (from, to) =>
@@ -640,6 +636,27 @@ export async function buildAttendanceExportData(
         )
       )
     ),
+    Promise.all(
+      employeeIdBatches.map((ids) =>
+        fetchAllPages<OrganizationAssignmentRow>(
+          "buildAttendanceExportData: fallo leyendo centros de costo",
+          (from, to) =>
+            supabase
+              .from("employee_org_assignments")
+              .select(
+                "employee_id, effective_from, effective_to, is_primary, organization_units!employee_org_assignments_company_id_org_unit_id_fkey(code, name)"
+              )
+              .eq("company_id", companyId)
+              .eq("is_primary", true)
+              .in("employee_id", ids)
+              .lte("effective_from", period.endDate)
+              .order("employee_id")
+              .order("effective_from", { ascending: false })
+              .order("id")
+              .range(from, to) as unknown as PromiseLike<PageResponse<OrganizationAssignmentRow>>
+        )
+      )
+    ),
   ]);
 
   const statusRows = statusPages.flat();
@@ -648,6 +665,18 @@ export async function buildAttendanceExportData(
   const overtimeRows = overtimePages.flat();
   const missingPunchRows = missingPunchPages.flat();
   const absenceRows = absencePages.flat();
+
+  // Centro de costo al último día del corte. El grupo PRODUCTION/INSTALLATION
+  // clasifica reglas de asistencia, pero no es un maestro contable y por eso
+  // jamás se usa como sustituto. Si falta una asignación primaria vigente, el
+  // Excel de pago queda bloqueado de forma explícita.
+  for (const row of organizationAssignmentPages.flat()) {
+    if (!row.is_primary || (row.effective_to !== null && row.effective_to < period.endDate)) continue;
+    const worker = byId.get(row.employee_id);
+    if (!worker || worker.costCenter !== null) continue;
+    const unit = unwrap(row.organization_units);
+    if (unit) worker.costCenter = `${unit.code} — ${unit.name}`;
+  }
 
   for (const row of statusRows) {
     const code = unwrap(row.attendance_statuses)?.code;
@@ -877,44 +906,12 @@ function minutesToExcelDuration(minutes: number): number {
   return minutes / (24 * 60);
 }
 
-const BLOCK_ROWS = [
-  "Asistencia",
-  "Faltas",
-  "Vacaciones",
-  "Licencia",
-  "Atrasos",
-  "Salida anticipada",
-  "HH 50%",
-  "HH 100%",
-  "Bono HE",
-  "VIATICOS",
-] as const;
-const DURATION_ROWS = new Set<string>(["Atrasos", "Salida anticipada", "HH 50%", "HH 100%"]);
-/** Filas que cuentan días. En la planilla de RRHH se ven como `1.00`, no como `1`. */
-const COUNT_ROWS = new Set<string>(["Asistencia", "Faltas", "Vacaciones", "Licencia"]);
-const MONEY_ROWS = new Set<string>(["Bono HE", "VIATICOS"]);
-
-/**
- * Formatos copiados del libro que usa RRHH.
- *
- * El archivo original no es consistente consigo mismo: algunas celdas de
- * Atrasos quedaron con `[$-F400]h:mm:ss AM/PM`, que muestra dos minutos de
- * atraso como "12:02:00 AM". Eso es un error de la planilla, no un formato a
- * imitar, así que se toma la variante correcta, que es la mayoritaria.
- *
- * `h:mm:ss;@` en vez de `[h]:mm:ss`: son equivalentes bajo 24 horas, que es
- * todo lo que puede acumular un atraso o una hora extra diaria, y es el que
- * trae el libro real.
- */
-const COUNT_FORMAT = "#,##0.00;[Red]#,##0.00";
-const DURATION_DAY_FORMAT = "h:mm:ss;@";
 /** Los totales del período pueden superar 24 horas y nunca deben volver a cero. */
-const DURATION_TOTAL_FORMAT = "[h]:mm:ss";
+const DURATION_TOTAL_FORMAT = "[h]:mm";
 const MONEY_FORMAT = '"$"#,##0';
-
-/** Columna donde arrancan los días: A=nombre, B=etiqueta, C=total. */
-const FIRST_DAY_COL = 3;
-const HEADER_ROWS = 14; // título + 11 de leyenda + fila de meses + fila de días
+const INTEGER_FORMAT = "#,##0;[Red]-#,##0";
+const MATRIX_FIRST_DAY_COL = 5;
+const DATA_FIRST_ROW = 5; // índice base 0; en Excel los datos comienzan en la fila 6.
 
 const solidFill = (rgb: string) => ({ fill: { patternType: "solid", fgColor: { rgb }, bgColor: { rgb: "000000" } } });
 
@@ -929,29 +926,12 @@ function applyWhiteCanvas(sheet: XLSX.WorkSheet, rowCount: number, columnCount: 
   }
 }
 
-/**
- * Los rellenos de la planilla de RRHH, leídos del libro real.
- *
- * La versión anterior tenía la regla al revés: pintaba de naranja cualquier
- * celda con dato y de verde cualquiera sin dato, así que salía un tablero de
- * ajedrez. En el libro real un día hábil trabajado **no lleva relleno**, y el
- * color se reserva para lo que es excepción.
- */
-const WEEKEND_STYLE = solidFill("FFF2CC");
-const HOLIDAY_STYLE = solidFill("E4DFEC");
-/** Días anteriores al ingreso de la persona: no estaba, no corresponde marcar. */
-const BEFORE_HIRE_STYLE = solidFill("E7E6E6");
-const DAY_OFF_STYLE = solidFill("F2F2F2");
-const MISSING_SCHEDULE_STYLE = solidFill("FFF2CC");
-const REVIEW_STYLE = solidFill("FCE4D6");
+const INPUT_STYLE = solidFill("DDEBF7");
 const HEADER_STYLE = {
   ...solidFill("1F4E78"),
   font: { bold: true, color: { rgb: "FFFFFF" } },
   alignment: { horizontal: "center", vertical: "center", wrapText: true },
 };
-const UNKNOWN_LEGEND_STYLE = solidFill("FCE4D6");
-const BONUS_STYLE = solidFill("E2F0D9");
-const VIATICOS_STYLE = solidFill("FFF2CC");
 const THIN_BOTTOM_BORDER = { bottom: { style: "thin", color: { rgb: "B4C6E7" } } };
 
 function beforeHire(worker: AttendanceExportWorker, date: string): boolean {
@@ -982,28 +962,23 @@ function dayHasAttendanceFact(day: AttendanceExportDay): boolean {
     day.absenceDecisionPending;
 }
 
-/** Valor visible, pero deliberadamente no sumable, para un hecho pre-ingreso. */
-function preHireMatrixValue(label: (typeof BLOCK_ROWS)[number], day: AttendanceExportDay): Cell {
-  if (!dayHasAttendanceFact(day)) return null;
-  if (label === "Asistencia") return day.statusCode === MISSING_STATUS_CODE ? "PEND." : day.statusCode;
-  if (label === "Faltas" && FALTA_CODES.has(day.statusCode)) return "PEND.";
-  if (label === "Vacaciones" && VACACIONES_CODES.has(day.statusCode)) return "PEND.";
-  if (label === "Licencia" && LICENCIA_CODES.has(day.statusCode)) return "PEND.";
-  if (label === "Atrasos" && (day.lateDetectedMinutes > 0 || day.lateMinutes > 0 || day.lateDecisionPending)) return "PEND.";
-  if (
-    label === "Salida anticipada" &&
-    (day.earlyDepartureDetectedMinutes > 0 || day.earlyDepartureMinutes > 0 || day.earlyDepartureDecisionPending)
-  ) return "PEND.";
-  if (
-    label === "HH 50%" &&
-    (day.overtime50CandidateMinutes > 0 || day.overtime50Minutes > 0 || day.overtime50DecisionPending)
-  ) return "PEND.";
-  if (
-    label === "HH 100%" &&
-    (day.overtime100CandidateMinutes > 0 || day.overtime100Minutes > 0 || day.overtime100DecisionPending)
-  ) return "PEND.";
-  if (label === "Bono HE" && day.bonusAmount > 0) return "PEND.";
-  return null;
+/**
+ * Código diario seguro para la sábana. Si el dato no es definitivo, muestra
+ * `?`: así las fórmulas nunca transforman una licencia en trámite o una fila
+ * de una corrida fallida en un valor pagable.
+ */
+function dailyMatrixCode(
+  worker: AttendanceExportWorker,
+  date: string,
+  day: AttendanceExportDay,
+  data: AttendanceExportData
+): string {
+  if (beforeHire(worker, date)) return dayHasAttendanceFact(day) ? MISSING_STATUS_CODE : "";
+  const engineUnreliable = data.ruleEngineProblemDates.has(date) &&
+    (expectedWorkDate(worker, date, data.holidays) || worker.days.has(date));
+  if (engineUnreliable || day.missingPunchPending || day.absenceDecisionPending) return MISSING_STATUS_CODE;
+  if (day.statusCode !== MISSING_STATUS_CODE) return day.statusCode;
+  return expectedWorkDate(worker, date, data.holidays) ? MISSING_STATUS_CODE : "";
 }
 
 /**
@@ -1030,44 +1005,19 @@ function expectedWorkDate(
   return !worker.exemptDates.has(date) && scheduledWorkDate(worker, date, holidays);
 }
 
-function payrollBaseDays(worker: AttendanceExportWorker, data: AttendanceExportData): number | null {
-  if (!worker.currentlyActive) return null;
-  if (data.period.type === "PAGO") {
-    // El libro real usa una base mensual de 30 días. Para un ingreso dentro
-    // del ciclo, solo se consideran los días calendario desde el alta.
-    if (worker.hireDate !== null && worker.hireDate > data.period.startDate) {
-      return Math.min(30, calendarDaysBetween(worker.hireDate, data.period.endDate).length);
-    }
-    return 30;
-  }
-  return data.days.filter((date) => scheduledWorkDate(worker, date, data.holidays)).length;
-}
-
 interface WorkerExportSummary {
-  baseDays: number | null;
-  payableDays: number | null;
-  absences: number;
-  vacations: number;
-  licenses: number;
-  permissions: number;
   lateMinutes: number;
   earlyDepartureMinutes: number;
   overtime50Minutes: number;
   overtime100Minutes: number;
-  deductionMinutes: number;
   bonusDays: number;
   bonusAmount: number;
   bonusDates: string[];
   reviewDates: string[];
-  status: "SIN PENDIENTES" | "REVISAR";
   observations: string;
 }
 
 function summarizeWorker(worker: AttendanceExportWorker, data: AttendanceExportData): WorkerExportSummary {
-  let absences = 0;
-  let vacations = 0;
-  let licenses = 0;
-  let permissions = 0;
   let lateMinutes = 0;
   let earlyDepartureMinutes = 0;
   let overtime50Minutes = 0;
@@ -1094,14 +1044,6 @@ function summarizeWorker(worker: AttendanceExportWorker, data: AttendanceExportD
       }
       // Ningún hecho anterior al alta puede pagar, descontar ni otorgar bono.
       continue;
-    }
-    // Una ausencia todavía disputada o a la espera de respaldo se informa,
-    // pero no modifica días pagables hasta que el workflow quede definitivo.
-    if (!day.absenceDecisionPending) {
-      if (FALTA_CODES.has(day.statusCode)) absences += 1;
-      if (VACACIONES_CODES.has(day.statusCode)) vacations += 1;
-      if (LICENCIA_CODES.has(day.statusCode)) licenses += 1;
-      if (PERMISSION_CODES.has(day.statusCode)) permissions += 1;
     }
     lateMinutes += day.lateMinutes;
     earlyDepartureMinutes += day.earlyDepartureMinutes;
@@ -1169,30 +1111,26 @@ function summarizeWorker(worker: AttendanceExportWorker, data: AttendanceExportD
   if (pendingEarlyDeparture > 0) reviewNotes.push(`Salidas anticipadas por decidir: ${pendingEarlyDeparture}`);
   if (pendingOvertime > 0) reviewNotes.push(`Horas extra por decidir: ${pendingOvertime}`);
 
-  const baseDays = payrollBaseDays(worker, data);
   return {
-    baseDays,
-    payableDays: baseDays === null ? null : Math.max(0, baseDays - absences - licenses),
-    absences,
-    vacations,
-    licenses,
-    permissions,
     lateMinutes,
     earlyDepartureMinutes,
     overtime50Minutes,
     overtime100Minutes,
-    deductionMinutes: lateMinutes + earlyDepartureMinutes,
     bonusDays: bonusDates.size,
     bonusAmount,
     bonusDates: [...bonusDates].sort(),
     reviewDates: [...reviewDates].sort(),
-    status: reviewNotes.length === 0 ? "SIN PENDIENTES" : "REVISAR",
     observations: [...informationNotes, ...reviewNotes].join(" · "),
   };
 }
 
-function exportStatusLabel(data: AttendanceExportData, summaries: WorkerExportSummary[]): string {
-  const pendingWorkers = summaries.filter((summary) => summary.status === "REVISAR").length;
+function exportStatusLabel(data: AttendanceExportData, pendingItems: PendingExportRow[]): string {
+  const pendingWorkers = new Set(
+    pendingItems
+      .filter((item) => item.scope === "PERSONA")
+      .map((item) => item.employeeCode || item.employeeRut || item.workerName)
+  ).size;
+  const pendingTotal = pendingItems.length;
   const engineProblemDates = ruleEngineProblemDatesAffectingPayroll(data);
   const engineNote = engineProblemDates.length > 0
     ? `; procesamiento incompleto en ${engineProblemDates.length} fecha(s)`
@@ -1203,7 +1141,9 @@ function exportStatusLabel(data: AttendanceExportData, summaries: WorkerExportSu
   if (engineProblemDates.length > 0) {
     return `REVISAR — procesamiento incompleto en ${engineProblemDates.length} fecha(s)${pendingWorkers > 0 ? ` y ${pendingWorkers} persona(s) con pendientes propios` : ""}`;
   }
-  if (pendingWorkers > 0) return `REVISAR — ${pendingWorkers} persona(s) tienen datos pendientes`;
+  if (pendingTotal > 0) {
+    return `REVISAR — ${pendingTotal} incidencia(s)${pendingWorkers > 0 ? ` en ${pendingWorkers} persona(s)` : " global(es)"}`;
+  }
   return data.period.type === "PAGO"
     ? "CONTROL — período cerrado, sin pendientes detectados"
     : "VISTA DE CONTROL — sin pendientes detectados";
@@ -1227,10 +1167,11 @@ function shortReviewDates(dates: string[]): string {
 
 interface PendingExportRow {
   scope: "GLOBAL" | "PERSONA";
+  employeeId: string;
   employeeCode: string;
   employeeRut: string;
   workerName: string;
-  area: string;
+  costCenter: string;
   date: string;
   issue: string;
   quantity: number | null;
@@ -1251,10 +1192,11 @@ function buildPendingExportRows(data: AttendanceExportData): PendingExportRow[] 
   const global = (date: string, issue: string, action: string): void => {
     rows.push({
       scope: "GLOBAL",
+      employeeId: "",
       employeeCode: "",
       employeeRut: "",
       workerName: "",
-      area: "",
+      costCenter: "",
       date,
       issue,
       quantity: null,
@@ -1265,6 +1207,23 @@ function buildPendingExportRows(data: AttendanceExportData): PendingExportRow[] 
 
   if (data.period.type === "PAGO" && data.reportingPeriodStatus !== "CLOSED") {
     global("", "Período de pago abierto", "Cerrar el período cuando los demás pendientes estén resueltos.");
+  }
+  if (data.period.type === "PAGO") {
+    for (const [label, values] of [
+      ["RUT", data.workers.map((worker) => worker.employeeRut ?? "")],
+      ["Código Workera", data.workers.map((worker) => worker.employeeCode.trim())],
+    ] as const) {
+      const seen = new Set<string>();
+      const duplicates = new Set<string>();
+      for (const value of values) {
+        if (value === "") continue;
+        if (seen.has(value)) duplicates.add(value);
+        seen.add(value);
+      }
+      if (duplicates.size > 0) {
+        global("", `${label} duplicado en ${duplicates.size} valor(es)`, `Corregir la unicidad de ${label.toLowerCase()} antes de liquidar.`);
+      }
+    }
   }
 
   for (const date of ruleEngineProblemDatesAffectingPayroll(data)) {
@@ -1281,10 +1240,11 @@ function buildPendingExportRows(data: AttendanceExportData): PendingExportRow[] 
   ): void => {
     rows.push({
       scope: "PERSONA",
+      employeeId: worker.employeeId,
       employeeCode: worker.employeeCode,
       employeeRut: worker.employeeRut ?? "",
       workerName: worker.workerName,
-      area: AREA_LABEL[worker.area],
+      costCenter: worker.costCenter ?? "",
       date,
       issue,
       quantity,
@@ -1294,6 +1254,22 @@ function buildPendingExportRows(data: AttendanceExportData): PendingExportRow[] 
   };
 
   for (const worker of data.workers) {
+    if (data.period.type === "PAGO" && !worker.employeeRut) {
+      addPerson(worker, "", "RUT ausente", null, "", "Completar el identificador legal antes de liquidar.");
+    }
+    if (data.period.type === "PAGO" && worker.employeeCode.trim() === "") {
+      addPerson(worker, "", "Código Workera ausente", null, "", "Completar el identificador de conciliación antes de liquidar.");
+    }
+    if (data.period.type === "PAGO" && worker.costCenter === null) {
+      addPerson(
+        worker,
+        "",
+        "Centro de costo ausente",
+        null,
+        "",
+        "Asignar la unidad organizacional primaria vigente al cierre del período."
+      );
+    }
     if (!worker.currentlyActive) {
       addPerson(worker, "", "Persona inactiva en el padrón actual", null, "", "Confirmar fecha de salida antes de liquidar.");
     }
@@ -1384,305 +1360,311 @@ function calendarDateToExcelSerial(date: string): number {
   return Date.parse(`${date}T00:00:00Z`) / 86_400_000 + 25_569;
 }
 
+const SUMMARY_HEADERS_2026 = [
+  "RUT",
+  "Nombre_Completo",
+  "Horario_Jornada",
+  "Centro_Costo",
+  "Codigo_Workera",
+  "Dias_Codigo_P_No_Pagables",
+  "Dias_Falta_F",
+  "Dias_Licencia_Comun_L",
+  "Dias_Licencia_Mutual_LM",
+  "Dias_Vacaciones_V",
+  "Total_HH_50",
+  "Ajuste_50_Minutos",
+  "HH50_Final",
+  "Motivo_Ajuste_50",
+  "Total_HH_100",
+  "Ajuste_100_Minutos",
+  "HH100_Final",
+  "Motivo_Ajuste_100",
+  "Total_Atrasos",
+  "Total_Salidas_Anticipadas",
+  "Total_Viaticos_Bonos",
+  "Ajuste_Bonos_CLP",
+  "Bonos_Final",
+  "Motivo_Ajuste_Bonos",
+  "Dias_Con_Bono",
+  "Fechas_Bono",
+  "Pendientes_Workera",
+  "Fechas_Pendientes",
+  "Semaforo_Cierre",
+  "Observaciones",
+] as const;
+
+const PENDING_HEADERS_2026 = [
+  "Alcance",
+  "Codigo_Workera",
+  "RUT",
+  "Nombre_Completo",
+  "Centro_Costo",
+  "Fecha",
+  "Incidencia",
+  "Cantidad",
+  "Unidad",
+  "Accion_Requerida",
+] as const;
+
+function styleHeaderRow(sheet: XLSX.WorkSheet, row: number, columns: number): void {
+  for (let column = 0; column < columns; column += 1) {
+    const cell = sheet[XLSX.utils.encode_cell({ r: row, c: column })];
+    if (cell) cell.s = HEADER_STYLE;
+  }
+}
+
+function formulaRangeForMatrixRow(days: string[], workerCount: number, excelRow: number): string {
+  const first = XLSX.utils.encode_col(MATRIX_FIRST_DAY_COL);
+  const last = XLSX.utils.encode_col(MATRIX_FIRST_DAY_COL + Math.max(0, days.length - 1));
+  const lastWorkerRow = 5 + workerCount;
+  return `INDEX('MATRIZ_DIARIA_SABANA'!$${first}$6:$${last}$${lastWorkerRow},MATCH($E${excelRow},'MATRIZ_DIARIA_SABANA'!$B$6:$B$${lastWorkerRow},0),0)`;
+}
+
+function pendingCountByEmployee(rows: PendingExportRow[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (row.scope !== "PERSONA") continue;
+    counts.set(row.employeeId, (counts.get(row.employeeId) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function safeSummaryStatus(
+  data: AttendanceExportData,
+  pendingCount: number,
+  globalPendingCount: number
+): "APROBADO PARA PAGO" | "BLOQUEADO POR PENDIENTES" | "SOLO CONTROL - NO PAGO" {
+  if (data.period.type !== "PAGO") return "SOLO CONTROL - NO PAGO";
+  return pendingCount > 0 || globalPendingCount > 0
+    ? "BLOQUEADO POR PENDIENTES"
+    : "APROBADO PARA PAGO";
+}
+
+/**
+ * Excel de pre-nómina 2026: una fila por persona, una cola de excepciones y
+ * una sábana diaria pura. Los valores automáticos permanecen separados de los
+ * ajustes manuales para mantener la trazabilidad Workera → RR. HH. → pago.
+ */
 export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8Array {
-  const { days, workers, period, holidays } = data;
+  const { workers, days, period } = data;
   const summaries = workers.map((worker) => summarizeWorker(worker, data));
-  const overallStatus = exportStatusLabel(data, summaries);
+  const pendingItems = buildPendingExportRows(data);
+  const pendingCountsByEmployee = pendingCountByEmployee(pendingItems);
+  const globalPendingCount = pendingItems.filter((item) => item.scope === "GLOBAL").length;
+  const overallStatus = exportStatusLabel(data, pendingItems);
+  const matrixCodesByWorker = workers.map((worker) =>
+    days.map((date) => dailyMatrixCode(worker, date, worker.days.get(date) ?? emptyDay(), data))
+  );
+  const periodScopeLabel = period.type === "PAGO"
+    ? `Período de novedades: ${period.label} (corte estricto 16-15)`
+    : `Ventana de control: ${period.label}`;
+  const countMatrixCode = (workerIndex: number, codes: readonly string[]): number =>
+    matrixCodesByWorker[workerIndex].filter((code) => codes.includes(code)).length;
 
   // -----------------------------------------------------------------------
-  // Hoja 1: valores que RR. HH. necesita para liquidar remuneraciones.
-
-  const SUMMARY_COLUMNS = 22;
+  // Hoja 1: una fila por persona, preparada para pre-nómina e importación.
 
   const summaryRows: Cell[][] = [
-    ["NÓMINA DE ASISTENCIA PARA REMUNERACIONES"],
-    [`Período: ${period.label}`],
+    ["RESUMEN DE PRE-NÓMINA · ESTÁNDAR 2026"],
+    [periodScopeLabel],
     [overallStatus],
     [
-      "Días a pagar descuenta faltas y licencias. Atrasos, salidas y HH 50%/100% incluyen solo decisiones definitivas. Bono HE lee el monto automático de la política vigente. No edites este libro para corregir: resuelve en GESTORA y vuelve a generarlo. El archivo refleja los datos actuales y todavía no es una copia inmutable del cierre.",
+      "Las horas y bonos automáticos provienen solo de decisiones definitivas. Los días P son códigos de presencia, no días pagables. Centro_Costo corresponde a la unidad organizacional primaria vigente al día 15. Ajuste_50/100 se ingresa en minutos enteros (+/-); bonos se ajustan en CLP. Todo ajuste exige motivo. 'Sin pendientes' no reemplaza el cierre formal ni un snapshot inmutable.",
     ],
-    [
-      "Código Workera",
-      "RUT",
-      "Trabajador",
-      "Área",
-      "Días base",
-      "Faltas",
-      "Licencias",
-      "Días a pagar",
-      "Vacaciones",
-      "Permisos / justificadas",
-      "Atrasos a descontar",
-      "Salidas a descontar",
-      "Total tiempo a descontar",
-      "HH 50% aprobadas",
-      "HH 100% aprobadas",
-      "Días con bono HE",
-      "Bono HE (CLP)",
-      "Fechas con bono",
-      "Estado",
-      "Días por revisar",
-      "Observaciones",
-      "Horario",
-    ],
+    [...SUMMARY_HEADERS_2026],
   ];
 
+  const pendingCounts: number[] = [];
+  const cachedStatuses: ReturnType<typeof safeSummaryStatus>[] = [];
   for (let index = 0; index < workers.length; index += 1) {
     const worker = workers[index];
     const summary = summaries[index];
+    const presentDays = countMatrixCode(index, ["P"]);
+    const pendingCount = pendingCountsByEmployee.get(worker.employeeId) ?? 0;
+    const status = safeSummaryStatus(data, pendingCount, globalPendingCount);
+    pendingCounts.push(pendingCount);
+    cachedStatuses.push(status);
     summaryRows.push([
-      worker.employeeCode,
-      worker.employeeRut,
+      worker.employeeRut ?? "",
       worker.workerName,
-      AREA_LABEL[worker.area],
-      summary.baseDays,
-      summary.absences,
-      summary.licenses,
-      summary.payableDays,
-      summary.vacations,
-      summary.permissions,
+      scheduleText(worker, data),
+      worker.costCenter ?? "",
+      worker.employeeCode,
+      presentDays, // valor cacheado; la fórmula auditable se asigna abajo.
+      countMatrixCode(index, ["F"]),
+      countMatrixCode(index, ["L"]),
+      countMatrixCode(index, ["L-M"]),
+      countMatrixCode(index, ["V"]),
+      minutesToExcelDuration(summary.overtime50Minutes),
+      0,
+      minutesToExcelDuration(summary.overtime50Minutes),
+      "",
+      minutesToExcelDuration(summary.overtime100Minutes),
+      0,
+      minutesToExcelDuration(summary.overtime100Minutes),
+      "",
       minutesToExcelDuration(summary.lateMinutes),
       minutesToExcelDuration(summary.earlyDepartureMinutes),
-      minutesToExcelDuration(summary.deductionMinutes),
-      minutesToExcelDuration(summary.overtime50Minutes),
-      minutesToExcelDuration(summary.overtime100Minutes),
-      summary.bonusDays,
       summary.bonusAmount,
+      0,
+      summary.bonusAmount,
+      "",
+      summary.bonusDays,
       shortReviewDates(summary.bonusDates),
-      summary.status === "REVISAR" ? "Revisar" : "Sin pendientes",
+      pendingCount,
       shortReviewDates(summary.reviewDates),
+      status,
       summary.observations,
-      scheduleText(worker, data),
     ]);
   }
 
-  const total = summaries.reduce(
-    (acc, summary) => ({
-      baseDays: acc.baseDays + (summary.baseDays ?? 0),
-      absences: acc.absences + summary.absences,
-      licenses: acc.licenses + summary.licenses,
-      payableDays: acc.payableDays + (summary.payableDays ?? 0),
-      vacations: acc.vacations + summary.vacations,
-      permissions: acc.permissions + summary.permissions,
-      lateMinutes: acc.lateMinutes + summary.lateMinutes,
-      earlyDepartureMinutes: acc.earlyDepartureMinutes + summary.earlyDepartureMinutes,
-      deductionMinutes: acc.deductionMinutes + summary.deductionMinutes,
-      overtime50Minutes: acc.overtime50Minutes + summary.overtime50Minutes,
-      overtime100Minutes: acc.overtime100Minutes + summary.overtime100Minutes,
-      bonusDays: acc.bonusDays + summary.bonusDays,
-      bonusAmount: acc.bonusAmount + summary.bonusAmount,
-    }),
-    {
-      baseDays: 0,
-      absences: 0,
-      licenses: 0,
-      payableDays: 0,
-      vacations: 0,
-      permissions: 0,
-      lateMinutes: 0,
-      earlyDepartureMinutes: 0,
-      deductionMinutes: 0,
-      overtime50Minutes: 0,
-      overtime100Minutes: 0,
-      bonusDays: 0,
-      bonusAmount: 0,
-    }
-  );
-  summaryRows.push([
-    null,
-    null,
-    "TOTAL EMPRESA",
-    null,
-    total.baseDays,
-    total.absences,
-    total.licenses,
-    total.payableDays,
-    total.vacations,
-    total.permissions,
-    minutesToExcelDuration(total.lateMinutes),
-    minutesToExcelDuration(total.earlyDepartureMinutes),
-    minutesToExcelDuration(total.deductionMinutes),
-    minutesToExcelDuration(total.overtime50Minutes),
-    minutesToExcelDuration(total.overtime100Minutes),
-    total.bonusDays,
-    total.bonusAmount,
-    null,
-    null,
-    null,
-    null,
-    null,
-  ]);
-
+  const summaryTotalRowIndex = summaryRows.length;
+  summaryRows.push(["", "TOTAL EMPRESA", "", "", "", ...Array<Cell>(25).fill("")]);
   const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
-  applyWhiteCanvas(summarySheet, summaryRows.length, SUMMARY_COLUMNS);
-  const summaryDataLastRow = 5 + workers.length;
-  const summaryTotalRow = summaryRows.length - 1;
-  summarySheet["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: SUMMARY_COLUMNS - 1 } },
-    { s: { r: 1, c: 0 }, e: { r: 1, c: SUMMARY_COLUMNS - 1 } },
-    { s: { r: 2, c: 0 }, e: { r: 2, c: SUMMARY_COLUMNS - 1 } },
-    { s: { r: 3, c: 0 }, e: { r: 3, c: SUMMARY_COLUMNS - 1 } },
-  ];
+  applyWhiteCanvas(summarySheet, summaryRows.length, SUMMARY_HEADERS_2026.length);
   summarySheet["!cols"] = [
-    { wch: 16 },
-    { wch: 15 },
-    { wch: 29 },
-    { wch: 16 },
-    { wch: 10 },
-    { wch: 9 },
-    { wch: 10 },
-    { wch: 12 },
-    { wch: 11 },
-    { wch: 18 },
-    { wch: 18 },
-    { wch: 19 },
-    { wch: 21 },
-    { wch: 18 },
-    { wch: 19 },
-    { wch: 16 },
-    { wch: 16 },
-    { wch: 18 },
-    { wch: 16 },
-    { wch: 18 },
-    { wch: 46 },
-    { wch: 34 },
+    { wch: 15 }, { wch: 30 }, { wch: 32 }, { wch: 18 }, { wch: 17 },
+    { wch: 18 }, { wch: 15 }, { wch: 17 }, { wch: 19 }, { wch: 24 },
+    { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 31 }, { wch: 16 },
+    { wch: 21 }, { wch: 16 }, { wch: 32 }, { wch: 17 }, { wch: 26 },
+    { wch: 23 }, { wch: 20 }, { wch: 17 }, { wch: 32 }, { wch: 15 },
+    { wch: 23 }, { wch: 20 }, { wch: 22 }, { wch: 29 }, { wch: 52 },
   ];
-  summarySheet["!rows"] = [{ hpt: 24 }, { hpt: 20 }, { hpt: 22 }, { hpt: 38 }, { hpt: 34 }];
-  summarySheet["!autofilter"] = { ref: `A5:V${Math.max(5, summaryDataLastRow)}` };
-  summarySheet["!freeze"] = { xSplit: 3, ySplit: 5 };
+  summarySheet["!rows"] = [{ hpt: 26 }, { hpt: 20 }, { hpt: 22 }, { hpt: 48 }, { hpt: 42 }];
+  summarySheet["!merges"] = [0, 1, 2, 3].map((row) => ({ s: { r: row, c: 0 }, e: { r: row, c: SUMMARY_HEADERS_2026.length - 1 } }));
+  const summaryDataLastExcelRow = workers.length > 0 ? 5 + workers.length : 5;
+  summarySheet["!autofilter"] = { ref: `A5:AD${summaryDataLastExcelRow}` };
 
   const summaryTitle = summarySheet.A1;
-  if (summaryTitle) {
-    summaryTitle.s = {
-      ...solidFill("FFFFFF"),
-      font: { bold: true, sz: 15, color: { rgb: "1F1F1F" } },
-      alignment: { vertical: "center" },
-    };
-  }
+  if (summaryTitle) summaryTitle.s = { ...solidFill("FFFFFF"), font: { bold: true, sz: 16, color: { rgb: "17365D" } } };
   for (const ref of ["A2", "A4"]) {
     const cell = summarySheet[ref];
-    if (cell) {
-      cell.s = {
-        ...solidFill("FFFFFF"),
-        font: { color: { rgb: "595959" }, italic: ref === "A4" },
-        alignment: { wrapText: true, vertical: "center" },
-      };
-    }
+    if (cell) cell.s = { ...solidFill("FFFFFF"), font: { color: { rgb: "595959" }, italic: ref === "A4" }, alignment: { wrapText: true, vertical: "center" } };
   }
   const statusCell = summarySheet.A3;
-  if (statusCell) {
-    statusCell.s = {
-      ...solidFill(overallStatus.startsWith("BORRADOR") || overallStatus.startsWith("REVISAR") ? "FFF2CC" : "E2F0D9"),
-      font: { bold: true, color: { rgb: "1F1F1F" } },
-      alignment: { vertical: "center" },
-    };
-  }
-  for (let column = 0; column < SUMMARY_COLUMNS; column += 1) {
-    const cell = summarySheet[XLSX.utils.encode_cell({ r: 4, c: column })];
-    if (cell) cell.s = HEADER_STYLE;
-  }
-  for (let row = 5; row < summaryTotalRow; row += 1) {
-    const summary = summaries[row - 5];
-    const fill = row % 2 === 0 ? "F7F9FC" : "FFFFFF";
-    for (let column = 0; column < SUMMARY_COLUMNS; column += 1) {
-      const ref = XLSX.utils.encode_cell({ r: row, c: column });
-      const cell = summarySheet[ref] ?? (summarySheet[ref] = { v: "", t: "s" });
-      cell.s = {
-        ...solidFill(fill),
-        alignment: {
-          vertical: "center",
-          horizontal: column >= 4 && column <= 19 ? "center" : "left",
-          wrapText: column === 20 || column === 21,
-        },
-        border: THIN_BOTTOM_BORDER,
-      };
-    }
-    for (const column of [10, 11, 12, 13, 14]) {
-      const cell = summarySheet[XLSX.utils.encode_cell({ r: row, c: column })];
-      if (cell) cell.z = DURATION_TOTAL_FORMAT;
-    }
-    for (const column of [4, 5, 6, 7, 8, 9]) {
-      const cell = summarySheet[XLSX.utils.encode_cell({ r: row, c: column })];
-      if (cell && typeof cell.v === "number") cell.z = COUNT_FORMAT;
-    }
-    const bonusDaysCell = summarySheet[XLSX.utils.encode_cell({ r: row, c: 15 })];
-    if (bonusDaysCell && typeof bonusDaysCell.v === "number") bonusDaysCell.z = "#,##0";
+  if (statusCell) statusCell.s = {
+    ...solidFill(overallStatus.startsWith("CONTROL") ? "E2F0D9" : "FFF2CC"),
+    font: { bold: true, color: { rgb: overallStatus.startsWith("CONTROL") ? "375623" : "9C5700" } },
+  };
+  styleHeaderRow(summarySheet, 4, SUMMARY_HEADERS_2026.length);
+
+  const durationColumns = new Set([10, 12, 14, 16, 18, 19]);
+  const moneyColumns = new Set([20, 21, 22]);
+  const integerColumns = new Set([5, 6, 7, 8, 9, 11, 15, 24, 26]);
+  for (let index = 0; index < workers.length; index += 1) {
+    const row = DATA_FIRST_ROW + index;
     const excelRow = row + 1;
-    const payableCell = summarySheet[XLSX.utils.encode_cell({ r: row, c: 7 })];
-    if (payableCell && summary.payableDays !== null) payableCell.f = `MAX(0,E${excelRow}-F${excelRow}-G${excelRow})`;
-    const deductionCell = summarySheet[XLSX.utils.encode_cell({ r: row, c: 12 })];
-    if (deductionCell) deductionCell.f = `K${excelRow}+L${excelRow}`;
-    const bonusCell = summarySheet[XLSX.utils.encode_cell({ r: row, c: 16 })];
-    if (bonusCell) bonusCell.z = MONEY_FORMAT;
-    const state = summarySheet[XLSX.utils.encode_cell({ r: row, c: 18 })];
-    if (state) {
-      state.s = {
-        ...solidFill(summary.status === "REVISAR" ? "FFF2CC" : "E2F0D9"),
-        font: { bold: true, color: { rgb: summary.status === "REVISAR" ? "9C5700" : "375623" } },
-        alignment: { horizontal: "center", vertical: "center" },
+    const range = formulaRangeForMatrixRow(days, workers.length, excelRow);
+    const summary = summaries[index];
+    const formulas: Array<[number, string, number | string]> = [
+      [5, `COUNTIF(${range},"P")`, countMatrixCode(index, ["P"])],
+      [6, `COUNTIF(${range},"F")`, countMatrixCode(index, ["F"])],
+      [7, `COUNTIF(${range},"L")`, countMatrixCode(index, ["L"])],
+      [8, `COUNTIF(${range},"L-M")`, countMatrixCode(index, ["L-M"])],
+      [9, `COUNTIF(${range},"V")`, countMatrixCode(index, ["V"])],
+      [12, `K${excelRow}+L${excelRow}/1440`, minutesToExcelDuration(summary.overtime50Minutes)],
+      [16, `O${excelRow}+P${excelRow}/1440`, minutesToExcelDuration(summary.overtime100Minutes)],
+      [22, `U${excelRow}+V${excelRow}`, summary.bonusAmount],
+    ];
+    for (const [column, formula, value] of formulas) {
+      const cell = summarySheet[XLSX.utils.encode_cell({ r: row, c: column })];
+      if (cell) {
+        cell.f = formula;
+        cell.v = value;
+        cell.t = typeof value === "number" ? "n" : "s";
+      }
+    }
+
+    const statusFormula = period.type !== "PAGO"
+      ? '"SOLO CONTROL - NO PAGO"'
+      : `IF(OR($AA${excelRow}>0,COUNTIF('CONTROL_PENDIENTES'!$A$5:$A$${Math.max(5, 4 + pendingItems.length)},"GLOBAL")>0,COUNTIF(${range},"~?")>0,AND($L${excelRow}<>0,LEN(TRIM($N${excelRow}))=0),AND($P${excelRow}<>0,LEN(TRIM($R${excelRow}))=0),AND($V${excelRow}<>0,LEN(TRIM($X${excelRow}))=0),$M${excelRow}<0,$Q${excelRow}<0,$W${excelRow}<0),"BLOQUEADO POR PENDIENTES","APROBADO PARA PAGO")`;
+    const semaforoCell = summarySheet[XLSX.utils.encode_cell({ r: row, c: 28 })];
+    if (semaforoCell) {
+      semaforoCell.f = statusFormula;
+      semaforoCell.v = cachedStatuses[index];
+      semaforoCell.t = "str";
+    }
+
+    for (let column = 0; column < SUMMARY_HEADERS_2026.length; column += 1) {
+      const cell = summarySheet[XLSX.utils.encode_cell({ r: row, c: column })] ??
+        (summarySheet[XLSX.utils.encode_cell({ r: row, c: column })] = { v: "", t: "s" });
+      const input = column === 11 || column === 13 || column === 15 || column === 17 || column === 21 || column === 23;
+      cell.s = {
+        ...(input ? INPUT_STYLE : solidFill(row % 2 === 0 ? "F7F9FC" : "FFFFFF")),
+        alignment: { vertical: "center", horizontal: column >= 5 && column <= 28 ? "center" : "left", wrapText: [2, 13, 17, 23, 25, 27, 28, 29].includes(column) },
         border: THIN_BOTTOM_BORDER,
       };
+      if (durationColumns.has(column) && typeof cell.v === "number") cell.z = DURATION_TOTAL_FORMAT;
+      if (moneyColumns.has(column) && typeof cell.v === "number") cell.z = MONEY_FORMAT;
+      if (integerColumns.has(column) && typeof cell.v === "number") cell.z = INTEGER_FORMAT;
     }
   }
 
-  if (workers.length > 0) {
-    const firstExcelRow = 6;
-    const lastExcelRow = 5 + workers.length;
-    for (const column of [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]) {
-      const totalCell = summarySheet[XLSX.utils.encode_cell({ r: summaryTotalRow, c: column })];
-      if (!totalCell) continue;
-      const letter = XLSX.utils.encode_col(column);
-      totalCell.f = `SUM(${letter}${firstExcelRow}:${letter}${lastExcelRow})`;
-    }
-  }
-  for (let column = 0; column < SUMMARY_COLUMNS; column += 1) {
-    const ref = XLSX.utils.encode_cell({ r: summaryTotalRow, c: column });
+  const summaryTotalExcelRow = summaryTotalRowIndex + 1;
+  const firstDataExcelRow = DATA_FIRST_ROW + 1;
+  const numericTotalColumns = [5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 18, 19, 20, 21, 22, 24, 26];
+  for (let column = 0; column < SUMMARY_HEADERS_2026.length; column += 1) {
+    const ref = XLSX.utils.encode_cell({ r: summaryTotalRowIndex, c: column });
     const cell = summarySheet[ref] ?? (summarySheet[ref] = { v: "", t: "s" });
-    cell.s = {
-      ...solidFill("D9EAF7"),
-      font: { bold: true, color: { rgb: "1F1F1F" } },
-      alignment: { horizontal: column >= 4 && column <= 19 ? "center" : "left", vertical: "center" },
-      border: THIN_BOTTOM_BORDER,
-    };
+    cell.s = { ...solidFill("D9EAF7"), font: { bold: true, color: { rgb: "17365D" } }, border: THIN_BOTTOM_BORDER, alignment: { vertical: "center", horizontal: column >= 5 ? "center" : "left" } };
+    if (workers.length > 0 && numericTotalColumns.includes(column)) {
+      const letter = XLSX.utils.encode_col(column);
+      cell.f = `SUM(${letter}${firstDataExcelRow}:${letter}${summaryDataLastExcelRow})`;
+      cell.v = summaries.reduce((total, summary, workerIndex) => {
+        if (column === 5) return total + countMatrixCode(workerIndex, ["P"]);
+        if (column === 6) return total + countMatrixCode(workerIndex, ["F"]);
+        if (column === 7) return total + countMatrixCode(workerIndex, ["L"]);
+        if (column === 8) return total + countMatrixCode(workerIndex, ["L-M"]);
+        if (column === 9) return total + countMatrixCode(workerIndex, ["V"]);
+        if ([10, 12].includes(column)) return total + minutesToExcelDuration(summary.overtime50Minutes);
+        if ([14, 16].includes(column)) return total + minutesToExcelDuration(summary.overtime100Minutes);
+        if (column === 18) return total + minutesToExcelDuration(summary.lateMinutes);
+        if (column === 19) return total + minutesToExcelDuration(summary.earlyDepartureMinutes);
+        if ([20, 22].includes(column)) return total + summary.bonusAmount;
+        if (column === 24) return total + summary.bonusDays;
+        if (column === 26) return total + pendingCounts[workerIndex];
+        return total;
+      }, 0);
+      cell.t = "n";
+    }
+    if (durationColumns.has(column) && typeof cell.v === "number") cell.z = DURATION_TOTAL_FORMAT;
+    if (moneyColumns.has(column) && typeof cell.v === "number") cell.z = MONEY_FORMAT;
+    if (integerColumns.has(column) && typeof cell.v === "number") cell.z = INTEGER_FORMAT;
   }
-  for (const column of [4, 5, 6, 7, 8, 9]) {
-    const cell = summarySheet[XLSX.utils.encode_cell({ r: summaryTotalRow, c: column })];
-    if (cell) cell.z = COUNT_FORMAT;
+  const totalStatus = cachedStatuses.some((status) => status === "BLOQUEADO POR PENDIENTES")
+    ? "BLOQUEADO POR PENDIENTES"
+    : period.type === "PAGO" && workers.length > 0
+      ? "APROBADO PARA PAGO"
+      : "SOLO CONTROL - NO PAGO";
+  const totalStatusCell = summarySheet[`AC${summaryTotalExcelRow}`];
+  if (totalStatusCell) {
+    totalStatusCell.v = totalStatus;
+    totalStatusCell.t = "str";
+    if (workers.length > 0) totalStatusCell.f = `IF(COUNTIF(AC${firstDataExcelRow}:AC${summaryDataLastExcelRow},"BLOQUEADO*")>0,"BLOQUEADO POR PENDIENTES",IF(COUNTIF(AC${firstDataExcelRow}:AC${summaryDataLastExcelRow},"APROBADO PARA PAGO")=${workers.length},"APROBADO PARA PAGO","SOLO CONTROL - NO PAGO"))`;
   }
-  for (const column of [10, 11, 12, 13, 14]) {
-    const cell = summarySheet[XLSX.utils.encode_cell({ r: summaryTotalRow, c: column })];
-    if (cell) cell.z = DURATION_TOTAL_FORMAT;
-  }
-  const totalBonusDaysCell = summarySheet[XLSX.utils.encode_cell({ r: summaryTotalRow, c: 15 })];
-  if (totalBonusDaysCell) totalBonusDaysCell.z = "#,##0";
-  const totalBonusCell = summarySheet[XLSX.utils.encode_cell({ r: summaryTotalRow, c: 16 })];
-  if (totalBonusCell) totalBonusCell.z = MONEY_FORMAT;
 
   // -----------------------------------------------------------------------
-  // Hoja 2: lista corta de lo que debe resolverse antes de pagar.
+  // Hoja 2: excepciones que bloquean el cierre o requieren evidencia.
 
-  const pendingItems = buildPendingExportRows(data);
   const pendingRows: Cell[][] = [
-    ["PENDIENTES ANTES DE LIQUIDAR"],
-    [`Período: ${period.label}`],
-    [
-      pendingItems.length > 0
-        ? `${pendingItems.length} pendiente(s). Filtra por fecha, persona o incidencia y resuélvelos en GESTORA antes de usar la nómina.`
-        : "No hay pendientes operativos detectados.",
-    ],
-    ["Alcance", "Código Workera", "RUT", "Trabajador", "Área", "Fecha", "Incidencia", "Cantidad", "Unidad", "Acción requerida"],
+    ["CONTROL DE PENDIENTES DE PRE-CIERRE"],
+    [periodScopeLabel],
+    [pendingItems.length > 0
+      ? `${pendingItems.length} incidencia(s) detectada(s). Deben resolverse en GESTORA y luego regenerar el libro.`
+      : "Sin bloqueos detectados por las reglas configuradas. Esto no sustituye el cierre del período ni el snapshot histórico."],
+    [...PENDING_HEADERS_2026],
   ];
   if (pendingItems.length === 0) {
-    pendingRows.push([null, null, null, null, null, null, "No hay pendientes operativos detectados.", null, null, null]);
+    pendingRows.push(["", "", "", "", "", "", "Sin bloqueos detectados", "", "", "Confirmar cierre formal y conservar snapshot."]);
   } else {
     for (const item of pendingItems) {
       pendingRows.push([
-        item.scope === "GLOBAL" ? "Global" : "Persona",
+        item.scope,
         item.employeeCode,
         item.employeeRut,
         item.workerName,
-        item.area,
-        item.date ? calendarDateToExcelSerial(item.date) : null,
+        item.costCenter,
+        item.date ? calendarDateToExcelSerial(item.date) : "",
         item.issue,
         item.quantity,
         item.unit,
@@ -1690,376 +1672,149 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
       ]);
     }
   }
-
-  const pendingSheet = XLSX.utils.aoa_to_sheet(pendingRows, { cellDates: true });
-  applyWhiteCanvas(pendingSheet, pendingRows.length, 10);
-  pendingSheet["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 9 } },
-    { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } },
-    { s: { r: 2, c: 0 }, e: { r: 2, c: 9 } },
-  ];
+  const pendingSheet = XLSX.utils.aoa_to_sheet(pendingRows);
+  applyWhiteCanvas(pendingSheet, pendingRows.length, PENDING_HEADERS_2026.length);
   pendingSheet["!cols"] = [
-    { wch: 11 },
-    { wch: 16 },
-    { wch: 15 },
-    { wch: 28 },
-    { wch: 16 },
-    { wch: 13 },
-    { wch: 34 },
-    { wch: 12 },
-    { wch: 10 },
-    { wch: 48 },
+    { wch: 12 }, { wch: 17 }, { wch: 15 }, { wch: 30 }, { wch: 18 },
+    { wch: 13 }, { wch: 38 }, { wch: 12 }, { wch: 10 }, { wch: 52 },
   ];
-  pendingSheet["!rows"] = [{ hpt: 24 }, { hpt: 20 }, { hpt: 28 }, { hpt: 30 }];
-  pendingSheet["!freeze"] = { xSplit: 4, ySplit: 4 };
-  if (pendingItems.length > 0) pendingSheet["!autofilter"] = { ref: `A4:J${4 + pendingItems.length}` };
-  const pendingTitle = pendingSheet.A1;
-  if (pendingTitle) {
-    pendingTitle.s = { ...solidFill("FFFFFF"), font: { bold: true, sz: 15, color: { rgb: "1F1F1F" } } };
-  }
+  pendingSheet["!rows"] = [{ hpt: 26 }, { hpt: 20 }, { hpt: 34 }, { hpt: 34 }];
+  pendingSheet["!merges"] = [0, 1, 2].map((row) => ({ s: { r: row, c: 0 }, e: { r: row, c: PENDING_HEADERS_2026.length - 1 } }));
+  pendingSheet["!autofilter"] = { ref: `A4:J${Math.max(4, pendingRows.length)}` };
+  if (pendingSheet.A1) pendingSheet.A1.s = { ...solidFill("FFFFFF"), font: { bold: true, sz: 16, color: { rgb: "17365D" } } };
   for (const ref of ["A2", "A3"]) {
     const cell = pendingSheet[ref];
-    if (cell) {
-      cell.s = {
-        ...solidFill(ref === "A3" && pendingItems.length > 0 ? "FFF2CC" : "FFFFFF"),
-        font: { color: { rgb: "595959" }, italic: ref === "A3" },
-        alignment: { wrapText: true, vertical: "center" },
-      };
-    }
+    if (cell) cell.s = { ...solidFill(ref === "A3" && pendingItems.length > 0 ? "FFF2CC" : "FFFFFF"), font: { color: { rgb: "595959" }, italic: ref === "A3" }, alignment: { wrapText: true, vertical: "center" } };
   }
-  for (let column = 0; column < 10; column += 1) {
-    const cell = pendingSheet[XLSX.utils.encode_cell({ r: 3, c: column })];
-    if (cell) cell.s = HEADER_STYLE;
-  }
+  styleHeaderRow(pendingSheet, 3, PENDING_HEADERS_2026.length);
   for (let row = 4; row < pendingRows.length; row += 1) {
-    const isGlobal = pendingRows[row][0] === "Global";
-    for (let column = 0; column < 10; column += 1) {
+    const isGlobal = pendingRows[row][0] === "GLOBAL";
+    for (let column = 0; column < PENDING_HEADERS_2026.length; column += 1) {
       const ref = XLSX.utils.encode_cell({ r: row, c: column });
       const cell = pendingSheet[ref] ?? (pendingSheet[ref] = { v: "", t: "s" });
-      cell.s = {
-        ...solidFill(isGlobal ? "FFF2CC" : row % 2 === 0 ? "F7F9FC" : "FFFFFF"),
-        alignment: { vertical: "center", horizontal: column === 7 ? "right" : "left", wrapText: column === 6 || column === 9 },
-        border: THIN_BOTTOM_BORDER,
-      };
+      cell.s = { ...solidFill(isGlobal ? "FFF2CC" : row % 2 === 0 ? "F7F9FC" : "FFFFFF"), alignment: { vertical: "center", horizontal: column === 7 ? "right" : "left", wrapText: column === 6 || column === 9 }, border: THIN_BOTTOM_BORDER };
     }
     const dateCell = pendingSheet[XLSX.utils.encode_cell({ r: row, c: 5 })];
     if (dateCell && typeof dateCell.v === "number") dateCell.z = "dd/mm/yyyy";
     const quantityCell = pendingSheet[XLSX.utils.encode_cell({ r: row, c: 7 })];
-    if (quantityCell && typeof quantityCell.v === "number") quantityCell.z = "#,##0";
+    if (quantityCell && typeof quantityCell.v === "number") quantityCell.z = INTEGER_FORMAT;
   }
 
   // -----------------------------------------------------------------------
-  // Hoja 3: matriz diaria familiar para RR. HH.
+  // Hoja 3: datos puros, una fila por persona y una columna por día 16-15.
 
-  const rows: Cell[][] = [];
-
-  rows.push(["PLANILLA DE ASISTENCIA DEL PERSONAL", null, `${period.label} · ${overallStatus}`]);
-  for (const [code, meaning] of LEGEND) rows.push([code, meaning]);
-
-  // Fila de meses: la etiqueta se escribe solo donde cambia el mes, igual que
-  // en la planilla original.
-  const monthRow: Cell[] = [null, null, null];
-  const dayRow: Cell[] = [null, null, null];
-  let lastMonth = "";
-  for (const date of days) {
-    const [, m, d] = date.split("-");
-    const label = MONTH_SHORT[Number(m) - 1];
-    monthRow.push(label !== lastMonth ? label : null);
-    lastMonth = label;
-    dayRow.push(Number(d));
-  }
-  rows.push(monthRow);
-  rows.push(dayRow);
-
-  const merges: XLSX.Range[] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
-    { s: { r: 0, c: 2 }, e: { r: 0, c: FIRST_DAY_COL + days.length - 1 } },
+  const matrixHeaders: Cell[] = ["RUT", "Codigo_Workera", "Nombre_Completo", "Horario_Jornada", "Centro_Costo"];
+  for (const date of days) matrixHeaders.push(calendarDateToExcelSerial(date));
+  const matrixRows: Cell[][] = [
+    ["MATRIZ DIARIA DE ASISTENCIA · RESPALDO"],
+    [`Período: ${period.label} · ${overallStatus}`],
+    [`Códigos oficiales: ${LEGEND.map(([code, meaning]) => `${code}=${meaning}`).join(" | ")}`],
+    ["Una fila por trabajador. '?' identifica un dato no definitivo y siempre bloquea el pago."],
+    matrixHeaders,
   ];
-
   for (let workerIndex = 0; workerIndex < workers.length; workerIndex += 1) {
     const worker = workers[workerIndex];
-    const summary = summaries[workerIndex];
-    const blockStart = rows.length;
-
-    for (const label of BLOCK_ROWS) {
-      // La planilla de RRHH pone el horario bajo el nombre, en la misma celda
-      // combinada. Sin eso no se puede saber, mirando la fila, si un día en
-      // blanco es una marcación que falta o un día que esa persona no trabaja.
-      const workerDetails = [
-        worker.employeeRut ?? worker.employeeCode,
-        AREA_LABEL[worker.area],
-        scheduleText(worker, data),
-      ].filter((part) => part.length > 0).join(" · ");
-      const nameCell = `${worker.workerName}\n${workerDetails}`;
-      const line: Cell[] = [label === "Asistencia" ? nameCell : null, label, null];
-      let total = 0;
-
-      for (const date of days) {
-        const day = worker.days.get(date) ?? emptyDay();
-        let value: Cell = null;
-
-        if (beforeHire(worker, date)) {
-          // Se muestra como inconsistencia, pero al ser texto `PEND.` nunca
-          // entra en SUM ni en los totales de remuneraciones.
-          value = preHireMatrixValue(label, day);
-        } else if (label === "Asistencia") {
-          // Un fin de semana, feriado, día libre o fecha anterior al ingreso
-          // queda en blanco SOLO si no existe un hecho. Si sí hubo trabajo,
-          // licencia u otra novedad, se conserva el código.
-          value = day.statusCode !== MISSING_STATUS_CODE
-            ? day.statusCode
-            : expectedWorkDate(worker, date, holidays)
-              ? MISSING_STATUS_CODE
-              : null;
-        } else if (label === "Faltas") {
-          if (day.absenceDecisionPending && FALTA_CODES.has(day.statusCode)) value = "PEND.";
-          else if (FALTA_CODES.has(day.statusCode)) { value = 1; total += 1; }
-        } else if (label === "Vacaciones") {
-          if (day.absenceDecisionPending && VACACIONES_CODES.has(day.statusCode)) value = "PEND.";
-          else if (VACACIONES_CODES.has(day.statusCode)) { value = 1; total += 1; }
-        } else if (label === "Licencia") {
-          if (day.absenceDecisionPending && LICENCIA_CODES.has(day.statusCode)) value = "PEND.";
-          else if (LICENCIA_CODES.has(day.statusCode)) { value = 1; total += 1; }
-        } else if (label === "Atrasos") {
-          if (day.lateDecisionPending && day.lateDetectedMinutes > 0) value = "PEND.";
-          else if (day.lateMinutes > 0) { value = minutesToExcelDuration(day.lateMinutes); total += day.lateMinutes; }
-        } else if (label === "Salida anticipada") {
-          if (day.earlyDepartureDecisionPending && day.earlyDepartureDetectedMinutes > 0) value = "PEND.";
-          else if (day.earlyDepartureMinutes > 0) {
-            value = minutesToExcelDuration(day.earlyDepartureMinutes);
-            total += day.earlyDepartureMinutes;
-          }
-        } else if (label === "HH 50%") {
-          if (day.overtime50DecisionPending && day.overtime50CandidateMinutes > 0) value = "PEND.";
-          else if (day.overtime50Minutes > 0) { value = minutesToExcelDuration(day.overtime50Minutes); total += day.overtime50Minutes; }
-        } else if (label === "HH 100%") {
-          if (day.overtime100DecisionPending && day.overtime100CandidateMinutes > 0) value = "PEND.";
-          else if (day.overtime100Minutes > 0) { value = minutesToExcelDuration(day.overtime100Minutes); total += day.overtime100Minutes; }
-        } else if (label === "Bono HE") {
-          if (day.bonusAmount > 0) { value = day.bonusAmount; total += day.bonusAmount; }
-        }
-
-        line.push(value);
-      }
-
-      // Asistencia: base del período menos faltas y licencia. Vacaciones se
-      // informan aparte, tal como lo hace la fórmula vigente de RR. HH.
-      if (label === "Asistencia") {
-        line[2] = summary.baseDays === null ? null : Math.max(0, summary.baseDays - summary.absences - summary.licenses);
-      } else if (label === "VIATICOS") {
-        // Cero sería un dato inventado. La fila se mantiene porque RR. HH. la
-        // reconoce, pero queda vacía hasta integrar una fuente autorizada.
-        line[2] = null;
-      } else {
-        line[2] = DURATION_ROWS.has(label) ? minutesToExcelDuration(total) : total;
-      }
-
-      rows.push(line);
-    }
-
-    // Nombre combinado sobre todo el bloque, como en la planilla original.
-    merges.push({ s: { r: blockStart, c: 0 }, e: { r: blockStart + BLOCK_ROWS.length - 1, c: 0 } });
+    const row: Cell[] = [worker.employeeRut ?? "", worker.employeeCode, worker.workerName, scheduleText(worker, data), worker.costCenter ?? ""];
+    row.push(...matrixCodesByWorker[workerIndex]);
+    matrixRows.push(row);
   }
-
-  const sheet = XLSX.utils.aoa_to_sheet(rows);
-  applyWhiteCanvas(sheet, rows.length, FIRST_DAY_COL + days.length);
-
-  // La planilla original deja las celdas sin dato en verde y resalta en
-  // naranja cualquier marcación/valor que sí deba revisar RRHH. Viáticos usa
-  // el amarillo de su encabezado de sección.
-  // A12 es la última fila de la leyenda ("?"). Se resuelve por su posición
-  // real para que agregar o quitar un código no rompa la exportación.
-  const unknownLegendCell = sheet[XLSX.utils.encode_cell({ r: LEGEND.length, c: 0 })];
-  if (unknownLegendCell) unknownLegendCell.s = UNKNOWN_LEGEND_STYLE;
-  for (let c = FIRST_DAY_COL; c < FIRST_DAY_COL + days.length; c += 1) {
-    const monthRef = XLSX.utils.encode_cell({ r: 12, c });
-    const dayRef = XLSX.utils.encode_cell({ r: 13, c });
-    if (sheet[monthRef]) sheet[monthRef].s = HEADER_STYLE;
-    if (sheet[dayRef]) sheet[dayRef].s = HEADER_STYLE;
-  }
-
-  const titleCell = sheet.A1;
-  if (titleCell) {
-    titleCell.s = {
-      ...solidFill("FFFFFF"),
-      font: { bold: true, sz: 13, color: { rgb: "1F1F1F" } },
-    };
-  }
-  const periodCell = sheet.C1;
-  if (periodCell) {
-    periodCell.s = {
-      ...solidFill(overallStatus.startsWith("BORRADOR") || overallStatus.startsWith("REVISAR") ? "FFF2CC" : "E2F0D9"),
-      font: { bold: true },
-      alignment: { wrapText: true },
-    };
-  }
-
-  // Fórmulas auditables en la columna de totales, siguiendo el patrón del
-  // mockup: asistencia = días base - faltas - licencia; el resto suma su
-  // fila diaria. Se conserva también el valor calculado para que Excel y
-  // lectores que no recalculan fórmulas muestren el total inmediatamente.
-  for (let workerIndex = 0; workerIndex < workers.length; workerIndex += 1) {
-    const blockStart = HEADER_ROWS + workerIndex * BLOCK_ROWS.length;
-    const assistanceTotal = XLSX.utils.encode_cell({ r: blockStart, c: 2 });
-    const absencesTotal = XLSX.utils.encode_cell({ r: blockStart + 1, c: 2 });
-    const licenseTotal = XLSX.utils.encode_cell({ r: blockStart + 3, c: 2 });
-    const assistanceCell = sheet[assistanceTotal];
-    const baseDays = summaries[workerIndex].baseDays;
-    if (assistanceCell && baseDays !== null) assistanceCell.f = `MAX(0,${baseDays}-${absencesTotal}-${licenseTotal})`;
-    for (let offset = 1; offset < BLOCK_ROWS.length; offset += 1) {
-      const totalCell = sheet[XLSX.utils.encode_cell({ r: blockStart + offset, c: 2 })];
-      if (totalCell && BLOCK_ROWS[offset] !== "VIATICOS") {
-        totalCell.f = `SUM(${XLSX.utils.encode_cell({ r: blockStart + offset, c: FIRST_DAY_COL })}:${XLSX.utils.encode_cell({ r: blockStart + offset, c: FIRST_DAY_COL + days.length - 1 })})`;
-      }
-    }
-
-    for (let offset = 0; offset < BLOCK_ROWS.length; offset += 1) {
-      const row = blockStart + offset;
-      const label = BLOCK_ROWS[offset];
-      const labelCell = sheet[XLSX.utils.encode_cell({ r: row, c: 1 })];
-      if (labelCell && label === "VIATICOS") labelCell.s = VIATICOS_STYLE;
-      if (labelCell && label === "Bono HE") labelCell.s = BONUS_STYLE;
-      const worker = workers[workerIndex];
-
-      for (let c = FIRST_DAY_COL; c < FIRST_DAY_COL + days.length; c += 1) {
-        const ref = XLSX.utils.encode_cell({ r: row, c });
-        const dayDate = days[c - FIRST_DAY_COL];
-        const day = worker.days.get(dayDate) ?? emptyDay();
-        const preHireValue = beforeHire(worker, dayDate) ? preHireMatrixValue(label, day) : null;
-        const pendingForRow =
-          preHireValue !== null ||
-          (label === "Atrasos" && day.lateDecisionPending) ||
-          (label === "Salida anticipada" && day.earlyDepartureDecisionPending) ||
-          (label === "HH 50%" && day.overtime50DecisionPending) ||
-          (label === "HH 100%" && day.overtime100DecisionPending) ||
-          (label === "Asistencia" && day.absenceDecisionPending) ||
-          (label === "Faltas" && day.absenceDecisionPending && FALTA_CODES.has(day.statusCode)) ||
-          (label === "Vacaciones" && day.absenceDecisionPending && VACACIONES_CODES.has(day.statusCode)) ||
-          (label === "Licencia" && day.absenceDecisionPending && LICENCIA_CODES.has(day.statusCode)) ||
-          (label === "Asistencia" && day.missingPunchPending) ||
-          (label === "Asistencia" && statusRequiresPayrollReview(day.statusCode)) ||
-          (label === "Asistencia" && data.ruleEngineProblemDates.has(dayDate) &&
-            (expectedWorkDate(worker, dayDate, holidays) || worker.days.has(dayDate))) ||
-          (label === "Asistencia" && expectedWorkDate(worker, dayDate, holidays) && day.statusCode === MISSING_STATUS_CODE);
-
-        // Una incidencia pendiente siempre gana visualmente. Los colores de
-        // calendario son suaves y documentados; no se reutilizan los siete
-        // colores históricos cuyo significado nunca fue confirmado.
-        const style = pendingForRow
-          ? REVIEW_STYLE
-          : beforeHire(worker, dayDate)
-            ? BEFORE_HIRE_STYLE
-            : worker.exemptDates.has(dayDate)
-              ? DAY_OFF_STYLE
-              : holidays.has(dayDate)
-                ? HOLIDAY_STYLE
-                : worker.scheduleCoveredDates.has(dayDate) && !worker.scheduledDates.has(dayDate)
-                  ? DAY_OFF_STYLE
-                  : !worker.scheduleCoveredDates.has(dayDate) && !isWeekend(dayDate)
-                    ? MISSING_SCHEDULE_STYLE
-                    : isWeekend(dayDate)
-                      ? WEEKEND_STYLE
-                      : null;
-
-        // Un día hábil trabajado no lleva relleno. Si además no tiene valor,
-        // no se crea la celda: en el libro real esa celda no existe.
-        if (style === null) continue;
-        const target = sheet[ref] ?? (sheet[ref] = { v: "", t: "s" });
-        target.s = style;
-      }
-
-      if (labelCell) {
-        labelCell.s = {
-          ...(label === "VIATICOS" ? VIATICOS_STYLE : label === "Bono HE" ? BONUS_STYLE : solidFill("FFFFFF")),
-          font: { bold: label === "Asistencia" },
-          alignment: { vertical: "center" },
-        };
-      }
-    }
-
-    const nameCell = sheet[XLSX.utils.encode_cell({ r: blockStart, c: 0 })];
-    if (nameCell) {
-      nameCell.s = {
-        ...solidFill("FFFFFF"),
-        font: { bold: true, color: { rgb: "1F1F1F" } },
-        alignment: { vertical: "center", wrapText: true },
-        border: THIN_BOTTOM_BORDER,
-      };
-    }
-    const lastRow = blockStart + BLOCK_ROWS.length - 1;
-    for (let column = 1; column < FIRST_DAY_COL + days.length; column += 1) {
-      const ref = XLSX.utils.encode_cell({ r: lastRow, c: column });
-      const cell = sheet[ref] ?? (sheet[ref] = { v: "", t: "s" });
-      cell.s = { ...(cell.s ?? {}), border: THIN_BOTTOM_BORDER };
-    }
-  }
-
-  // Formato numérico de cada fila, incluida su celda de total. Las filas de
-  // conteo van con dos decimales y las de tiempo como duración, igual que el
-  // libro de RRHH: un total que sale "20" donde la planilla dice "20.00" es la
-  // diferencia que hace que las dos no se puedan comparar de un vistazo.
-  for (let r = HEADER_ROWS; r < rows.length; r += 1) {
-    const label = rows[r][1];
-    if (typeof label !== "string") continue;
-    const format = DURATION_ROWS.has(label)
-      ? DURATION_DAY_FORMAT
-      : COUNT_ROWS.has(label)
-        ? COUNT_FORMAT
-        : MONEY_ROWS.has(label)
-          ? MONEY_FORMAT
-          : null;
-    if (!format) continue;
-    for (let c = 2; c < FIRST_DAY_COL + days.length; c += 1) {
-      const ref = XLSX.utils.encode_cell({ r, c });
-      const target = sheet[ref];
-      // Las celdas diarias de Asistencia llevan el código de estado, que es
-      // texto: aplicarles un formato numérico no cambia nada y sería ruido.
-      if (target && typeof target.v === "number") target.z = format;
-    }
-
-    if (DURATION_ROWS.has(label)) {
-      const total = sheet[XLSX.utils.encode_cell({ r, c: 2 })];
-      if (total && typeof total.v === "number") total.z = DURATION_TOTAL_FORMAT;
-    }
-  }
-
-  // Las filas monetarias se expresan en CLP. Viáticos permanece vacío hasta
-  // integrar una fuente autorizada; Bono HE sí viene del motor de políticas.
-  for (let workerIndex = 0; workerIndex < workers.length; workerIndex += 1) {
-    for (const label of MONEY_ROWS) {
-      const offset = BLOCK_ROWS.indexOf(label as (typeof BLOCK_ROWS)[number]);
-      if (offset < 0) continue;
-      const row = HEADER_ROWS + workerIndex * BLOCK_ROWS.length + offset;
-      const total = sheet[XLSX.utils.encode_cell({ r: row, c: 2 })];
-      if (total) total.z = MONEY_FORMAT;
-    }
-  }
-
-  sheet["!merges"] = merges;
-  // La matriz mantiene la forma conocida, pero deja visibles el nombre, área
-  // y horario para que RR. HH. no dependa de abrir cada celda.
-  sheet["!cols"] = [
-    { wch: 34 },
-    { wch: 18 },
-    { wch: 10.33 },
-    ...days.map(() => ({ wch: 7.33 })),
+  const matrixSheet = XLSX.utils.aoa_to_sheet(matrixRows);
+  applyWhiteCanvas(matrixSheet, matrixRows.length, MATRIX_FIRST_DAY_COL + days.length);
+  matrixSheet["!cols"] = [
+    { wch: 15 }, { wch: 17 }, { wch: 30 }, { wch: 32 }, { wch: 18 },
+    ...days.map(() => ({ wch: 7.5 })),
   ];
-  sheet["!freeze"] = { xSplit: 3, ySplit: HEADER_ROWS };
-  sheet["!rows"] = [{ hpt: 24 }, ...Array.from({ length: HEADER_ROWS - 1 }, () => ({ hpt: 18 }))];
-
-  // El libro de RRHH nombra cada hoja por su mes, "NOV25". Se deriva del cierre
-  // del período, que es el mes al que se imputa la planilla.
-  const [endYear, endMonth] = period.endDate.split("-");
-  const sheetName = `${MONTH_SHORT[Number(endMonth) - 1]}${endYear.slice(2)}`;
+  matrixSheet["!rows"] = [{ hpt: 26 }, { hpt: 22 }, { hpt: 44 }, { hpt: 22 }, { hpt: 44 }];
+  matrixSheet["!merges"] = [0, 1, 2, 3].map((row) => ({ s: { r: row, c: 0 }, e: { r: row, c: MATRIX_FIRST_DAY_COL + days.length - 1 } }));
+  matrixSheet["!autofilter"] = { ref: `A5:${XLSX.utils.encode_col(MATRIX_FIRST_DAY_COL + days.length - 1)}${summaryDataLastExcelRow}` };
+  if (matrixSheet.A1) matrixSheet.A1.s = { ...solidFill("FFFFFF"), font: { bold: true, sz: 16, color: { rgb: "17365D" } } };
+  for (const ref of ["A2", "A3", "A4"]) {
+    const cell = matrixSheet[ref];
+    if (cell) cell.s = { ...solidFill("FFFFFF"), font: { color: { rgb: "595959" }, italic: ref === "A4" }, alignment: { wrapText: true, vertical: "center" } };
+  }
+  styleHeaderRow(matrixSheet, 4, MATRIX_FIRST_DAY_COL + days.length);
+  for (let column = MATRIX_FIRST_DAY_COL; column < MATRIX_FIRST_DAY_COL + days.length; column += 1) {
+    const header = matrixSheet[XLSX.utils.encode_cell({ r: 4, c: column })];
+    if (header) {
+      header.z = "dd-mmm";
+      header.s = { ...HEADER_STYLE, alignment: { horizontal: "center", vertical: "center", textRotation: 90 } };
+    }
+  }
+  for (let workerIndex = 0; workerIndex < workers.length; workerIndex += 1) {
+    const row = DATA_FIRST_ROW + workerIndex;
+    const worker = workers[workerIndex];
+    for (let column = 0; column < MATRIX_FIRST_DAY_COL + days.length; column += 1) {
+      const ref = XLSX.utils.encode_cell({ r: row, c: column });
+      const cell = matrixSheet[ref] ?? (matrixSheet[ref] = { v: "", t: "s" });
+      let fill = row % 2 === 0 ? "F7F9FC" : "FFFFFF";
+      if (column >= MATRIX_FIRST_DAY_COL) {
+        const date = days[column - MATRIX_FIRST_DAY_COL];
+        const code = String(cell.v ?? "");
+        fill = code === MISSING_STATUS_CODE || statusRequiresPayrollReview(code)
+          ? "FCE4D6"
+          : beforeHire(worker, date)
+            ? "E7E6E6"
+            : worker.exemptDates.has(date) || (worker.scheduleCoveredDates.has(date) && !worker.scheduledDates.has(date))
+              ? "F2F2F2"
+              : data.holidays.has(date)
+                ? "E4DFEC"
+                : isWeekend(date)
+                  ? "FFF2CC"
+                  : !worker.scheduleCoveredDates.has(date)
+                    ? "FFF2CC"
+                    : fill;
+      }
+      cell.s = { ...solidFill(fill), alignment: { vertical: "center", horizontal: column >= MATRIX_FIRST_DAY_COL ? "center" : "left", wrapText: column === 2 || column === 3 }, border: THIN_BOTTOM_BORDER };
+    }
+  }
 
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, summarySheet, "RESUMEN");
-  XLSX.utils.book_append_sheet(workbook, pendingSheet, "PENDIENTES");
-  XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+  XLSX.utils.book_append_sheet(workbook, summarySheet, "RESUMEN_NOMINA");
+  XLSX.utils.book_append_sheet(workbook, pendingSheet, "CONTROL_PENDIENTES");
+  XLSX.utils.book_append_sheet(workbook, matrixSheet, "MATRIZ_DIARIA_SABANA");
   workbook.Props = {
-    Title: `Asistencia ${period.label}`,
-    Subject: "Nómina de asistencia, pendientes y respaldo diario para remuneraciones",
+    Title: `Pre-nómina asistencia ${period.label}`,
+    Subject: period.type === "PAGO"
+      ? "Resumen de pre-nómina, pendientes y respaldo diario 16-15"
+      : "Control de asistencia, pendientes y respaldo diario",
     Company: "GESTORA",
+    Comments: "Archivo editable de control. El snapshot histórico debe persistirse al cerrar el período.",
   };
-  return XLSX.write(workbook, { type: "array", bookType: "xlsx", compression: true }) as Uint8Array;
+
+  const written = XLSX.write(workbook, { type: "array", bookType: "xlsx", compression: true }) as Uint8Array | ArrayBuffer;
+  const raw = written instanceof Uint8Array ? written : new Uint8Array(written);
+  const lastWorkerExcelRow = 5 + workers.length;
+  const matrixDailyRange = `${XLSX.utils.encode_col(MATRIX_FIRST_DAY_COL)}6:${XLSX.utils.encode_col(MATRIX_FIRST_DAY_COL + days.length - 1)}${lastWorkerExcelRow}`;
+  return applyXlsxPresentation(raw, [
+    {
+      sheetIndex: 1,
+      freeze: { xSplit: 5, ySplit: 5, topLeftCell: "F6" },
+      conditionalFormats: workers.length === 0 ? [] : [
+        { sqref: `L6:L${lastWorkerExcelRow}`, formula: "L6<>0", fillRgb: "FFF2CC", fontRgb: "9C5700" },
+        { sqref: `P6:P${lastWorkerExcelRow}`, formula: "P6<>0", fillRgb: "FFF2CC", fontRgb: "9C5700" },
+        { sqref: `V6:V${lastWorkerExcelRow}`, formula: "V6<>0", fillRgb: "FFF2CC", fontRgb: "9C5700" },
+        { sqref: `N6:N${lastWorkerExcelRow}`, formula: "AND($L6<>0,LEN(TRIM($N6))=0)", fillRgb: "F4CCCC", fontRgb: "9C0006" },
+        { sqref: `R6:R${lastWorkerExcelRow}`, formula: "AND($P6<>0,LEN(TRIM($R6))=0)", fillRgb: "F4CCCC", fontRgb: "9C0006" },
+        { sqref: `X6:X${lastWorkerExcelRow}`, formula: "AND($V6<>0,LEN(TRIM($X6))=0)", fillRgb: "F4CCCC", fontRgb: "9C0006" },
+        { sqref: `M6:M${lastWorkerExcelRow}`, formula: "M6<0", fillRgb: "F4CCCC", fontRgb: "9C0006" },
+        { sqref: `Q6:Q${lastWorkerExcelRow}`, formula: "Q6<0", fillRgb: "F4CCCC", fontRgb: "9C0006" },
+        { sqref: `W6:W${lastWorkerExcelRow}`, formula: "W6<0", fillRgb: "F4CCCC", fontRgb: "9C0006" },
+        { sqref: `AC6:AC${lastWorkerExcelRow}`, formula: '$AC6="BLOQUEADO POR PENDIENTES"', fillRgb: "F4CCCC", fontRgb: "9C0006" },
+        { sqref: `AC6:AC${lastWorkerExcelRow}`, formula: '$AC6="APROBADO PARA PAGO"', fillRgb: "E2F0D9", fontRgb: "375623" },
+      ],
+    },
+    { sheetIndex: 2, freeze: { xSplit: 4, ySplit: 4, topLeftCell: "E5" } },
+    {
+      sheetIndex: 3,
+      freeze: { xSplit: 5, ySplit: 5, topLeftCell: "F6" },
+      conditionalFormats: workers.length === 0 ? [] : [
+        { sqref: matrixDailyRange, formula: 'F6="?"', fillRgb: "FCE4D6", fontRgb: "9C0006" },
+        { sqref: matrixDailyRange, formula: 'F6="R"', fillRgb: "FFF2CC", fontRgb: "9C5700" },
+        { sqref: matrixDailyRange, formula: 'F6="F"', fillRgb: "F4CCCC", fontRgb: "9C0006" },
+        { sqref: matrixDailyRange, formula: 'OR(F6="L",F6="L-M")', fillRgb: "E4DFEC", fontRgb: "7030A0" },
+        { sqref: matrixDailyRange, formula: 'F6="V"', fillRgb: "DDEBF7", fontRgb: "1F4E78" },
+        { sqref: matrixDailyRange, formula: 'OR(F6="F-P",F6="F-J",F6="P-L",F6="P-M")', fillRgb: "DDEBF7", fontRgb: "1F4E78" },
+      ],
+    },
+  ]);
 }

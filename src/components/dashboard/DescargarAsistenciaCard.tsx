@@ -4,8 +4,8 @@ import { useMemo, useState } from "react";
 
 /**
  * Exportador operacional respaldado por `attendance_status_records`. Mantiene
- * cuatro ventanas controladas y genera un libro con nómina, pendientes
- * accionables y la matriz diaria familiar de RR. HH.
+ * cuatro ventanas controladas y genera el libro de pre-nómina 2026 con una
+ * fila por persona, pendientes accionables y sábana diaria.
  */
 
 type ExportType = "PAGO" | "SEMANAL" | "QUINCENAL" | "MENSUAL";
@@ -125,7 +125,7 @@ export function DescargarAsistenciaCard({ now = new Date() }: { now?: Date }) {
       )}
 
       <p className="mt-3 text-xs leading-relaxed text-slate-500">
-        Incluye nómina lista para revisar, una cola de pendientes y respaldo diario. HH 50%, HH 100%, descuentos y bonos se completan desde decisiones del sistema; un dato pendiente no se paga ni descuenta por error.
+        Incluye resumen de una fila por persona, control de pendientes y sábana diaria. HH 50%, HH 100% y bonos vienen de decisiones definitivas; RR. HH. puede registrar ajustes con motivo sin perder la trazabilidad.
       </p>
 
       <a
