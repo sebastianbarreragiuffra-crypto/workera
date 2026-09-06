@@ -44,6 +44,50 @@ const FALTA_CODES = new Set(["F"]);
 const VACACIONES_CODES = new Set(["V"]);
 /** `L-M` (licencia mutual) también es licencia: ambas descuentan del total de Asistencia. */
 const LICENCIA_CODES = new Set(["L", "L-M"]);
+const PERMISSION_CODES = new Set(["F-P", "F-J", "P-L", "P-M"]);
+const OVERTIME_50_CODE = "OVERTIME_50";
+const OVERTIME_100_CODE = "OVERTIME_100";
+
+const AREA_LABEL: Record<AreaCode, string> = {
+  PRODUCTION: "Producción",
+  INSTALLATION: "Instalación",
+  ADMINISTRATION: "Administración",
+};
+
+/**
+ * PostgREST limita cada respuesta hospedada a 1.000 filas. Una planilla de
+ * 97 personas por 22 días ya supera ese límite, así que toda consulta usada
+ * por remuneraciones debe paginar explícitamente y con un orden estable.
+ */
+const PAGE_SIZE = 1_000;
+const EMPLOYEE_ID_BATCH_SIZE = 150;
+
+interface PageResponse<T> {
+  data: T[] | null;
+  error: { message: string } | null;
+}
+
+async function fetchAllPages<T>(
+  context: string,
+  fetchPage: (from: number, to: number) => PromiseLike<PageResponse<T>>
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await fetchPage(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(`${context}: ${error.message}`);
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) return rows;
+  }
+}
+
+function chunksOf<T>(values: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    result.push(values.slice(index, index + size));
+  }
+  return result;
+}
 
 const LEGEND: [string, string][] = [
   ["P", "PRESENTE"],
@@ -64,7 +108,130 @@ const MONTH_SHORT = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SE
 interface EmployeeRow {
   id: string;
   display_name: string;
+  hire_date: string | null;
+  active: boolean;
   employee_groups: { code: AreaCode } | { code: AreaCode }[] | null;
+}
+
+interface StatusRow {
+  employee_id: string;
+  work_date: string;
+  attendance_statuses: { code: string } | { code: string }[] | null;
+}
+
+interface LateRow {
+  employee_id: string;
+  work_date: string;
+  detected_minutes: number;
+  late_arrival_decisions: { payroll_minutes: number; is_current: boolean }[] | null;
+}
+
+interface EarlyDepartureRow {
+  employee_id: string;
+  work_date: string;
+  detected_minutes: number;
+  early_departure_decisions:
+    | {
+        payroll_minutes: number;
+        payroll_effect: string;
+        is_current: boolean;
+      }[]
+    | null;
+}
+
+interface MissingPunchRow {
+  employee_id: string;
+  work_date: string;
+  status: Database["public"]["Enums"]["missing_punch_status"];
+}
+
+interface AbsenceRow {
+  employee_id: string;
+  start_date: string;
+  end_date: string;
+  absence_decisions:
+    | {
+        decision_status: string;
+        is_current: boolean;
+      }[]
+    | null;
+}
+
+interface RuleEngineRunRow {
+  work_date: string;
+  status: "RUNNING" | "SUCCEEDED" | "PARTIAL" | "FAILED";
+  started_at: string;
+}
+
+async function loadRuleEngineRuns(
+  supabase: SupabaseClient<Database>,
+  companyId: string,
+  period: AttendanceExportPeriod
+): Promise<RuleEngineRunRow[]> {
+  return fetchAllPages<RuleEngineRunRow>(
+    "buildAttendanceExportData: fallo leyendo corridas del motor",
+    (from, to) =>
+      supabase
+        .from("rule_engine_runs")
+        .select("work_date, status, started_at")
+        .eq("company_id", companyId)
+        .gte("work_date", period.startDate)
+        .lte("work_date", period.endDate)
+        .order("work_date")
+        .order("started_at", { ascending: false })
+        .range(from, to) as unknown as PromiseLike<PageResponse<RuleEngineRunRow>>
+  );
+}
+
+function latestRuleEngineRunByDate(rows: RuleEngineRunRow[]): Map<string, RuleEngineRunRow> {
+  const latest = new Map<string, RuleEngineRunRow>();
+  for (const run of rows) {
+    const current = latest.get(run.work_date);
+    if (!current || run.started_at > current.started_at) latest.set(run.work_date, run);
+  }
+  return latest;
+}
+
+interface OvertimeRow {
+  employee_id: string;
+  work_date: string;
+  overtime_types: { code: string } | { code: string }[] | null;
+  overtime_decisions:
+    | {
+        approved_minutes: number;
+        decision_status: Database["public"]["Enums"]["overtime_decision_status"];
+        is_current: boolean;
+      }[]
+    | null;
+}
+
+interface ScheduleAssignmentRow {
+  employee_id: string;
+  effective_from: string;
+  effective_to: string | null;
+  work_schedules:
+    | {
+        work_schedule_rules: {
+          day_of_week: number;
+          scheduled_start: string | null;
+          scheduled_end: string | null;
+        }[];
+      }
+    | {
+        work_schedule_rules: {
+          day_of_week: number;
+          scheduled_start: string | null;
+          scheduled_end: string | null;
+        }[];
+      }[]
+    | null;
+}
+
+interface TimeControlPolicyRow {
+  employee_id: string;
+  effective_from: string;
+  effective_to: string | null;
+  policy_code: string;
 }
 
 function areaOf(row: EmployeeRow): AreaCode | null {
@@ -143,8 +310,15 @@ export function describeSchedule(
 export interface AttendanceExportDay {
   statusCode: string;
   lateMinutes: number;
+  earlyDepartureMinutes: number;
   overtime50Minutes: number;
   overtime100Minutes: number;
+  lateDecisionPending: boolean;
+  earlyDepartureDecisionPending: boolean;
+  overtime50DecisionPending: boolean;
+  overtime100DecisionPending: boolean;
+  missingPunchPending: boolean;
+  absenceDecisionPending: boolean;
 }
 
 export interface AttendanceExportWorker {
@@ -158,12 +332,20 @@ export interface AttendanceExportWorker {
    * una persona que entró el 17 no tiene por qué aparecer ausente el 16.
    */
   hireDate: string | null;
+  /** El padrón actual puede desactivar personas que sí tuvieron datos en un período histórico. */
+  currentlyActive: boolean;
   /**
    * Días de la semana que cubre su horario, en la convención de
    * `Date.getUTCDay()`: 0 domingo, 1 lunes. Vacío cuando no tiene horario
    * asignado en el período.
    */
   scheduledWeekdays: Set<number>;
+  /** Fechas exactas cubiertas por alguna asignación de horario vigente. */
+  scheduleCoveredDates: Set<string>;
+  /** Fechas exactas en que la jornada vigente exige trabajar. */
+  scheduledDates: Set<string>;
+  /** Fechas en que la persona estaba exenta de marcar asistencia. */
+  exemptDates: Set<string>;
   /** Texto del horario que la planilla escribe bajo el nombre. */
   scheduleLabel: string | null;
 }
@@ -172,40 +354,92 @@ export interface AttendanceExportData {
   period: AttendanceExportPeriod;
   days: string[];
   workers: AttendanceExportWorker[];
-  /** Feriados legales dentro del período -- su columna va en blanco, igual que un fin de semana. */
+  /** Feriados legales: quedan en blanco si no hubo hechos y conservan cualquier trabajo/licencia real. */
   holidays: ReadonlySet<string>;
+  /** Estado administrativo del ciclo 16-15; null si no aplica o aún no está configurado. */
+  reportingPeriodStatus: Database["public"]["Enums"]["reporting_period_status"] | null;
+  /** Fechas cuya última corrida no terminó correctamente; no pueden presentarse como listas para pagar. */
+  ruleEngineProblemDates: ReadonlySet<string>;
 }
 
 function emptyDay(): AttendanceExportDay {
-  return { statusCode: MISSING_STATUS_CODE, lateMinutes: 0, overtime50Minutes: 0, overtime100Minutes: 0 };
+  return {
+    statusCode: MISSING_STATUS_CODE,
+    lateMinutes: 0,
+    earlyDepartureMinutes: 0,
+    overtime50Minutes: 0,
+    overtime100Minutes: 0,
+    lateDecisionPending: false,
+    earlyDepartureDecisionPending: false,
+    overtime50DecisionPending: false,
+    overtime100DecisionPending: false,
+    missingPunchPending: false,
+    absenceDecisionPending: false,
+  };
 }
 
 export async function buildAttendanceExportData(
   supabase: SupabaseClient<Database>,
   callerRole: CallerRole,
-  period: AttendanceExportPeriod
+  period: AttendanceExportPeriod,
+  companyId: string
 ): Promise<AttendanceExportData> {
   const allowedAreas = areasVisibleToRole(callerRole);
 
-  const { data: employees, error: employeesError } = await supabase
-    .from("employees")
-    .select("id, display_name, hire_date, employee_groups!employees_company_group_fkey!inner(code)")
-    .eq("active", true)
-    .in("employee_groups.code", allowedAreas)
-    .order("display_name");
-  if (employeesError) throw new Error(`buildAttendanceExportData: fallo listando empleados: ${employeesError.message}`);
+  const employees = await fetchAllPages<EmployeeRow>(
+    "buildAttendanceExportData: fallo listando empleados",
+    (from, to) =>
+      supabase
+        .from("employees")
+        .select("id, display_name, hire_date, active, employee_groups!employees_company_group_fkey!inner(code)")
+        .eq("company_id", companyId)
+        .in("employee_groups.code", allowedAreas)
+        .order("id")
+        .range(from, to) as unknown as PromiseLike<PageResponse<EmployeeRow>>
+  );
 
-  const scoped = (employees ?? [])
+  const scoped = employees
     .map((row) => ({
       id: row.id,
       displayName: row.display_name,
-      hireDate: (row as { hire_date?: string | null }).hire_date ?? null,
-      area: areaOf(row as unknown as EmployeeRow),
+      hireDate: row.hire_date,
+      active: row.active,
+      area: areaOf(row),
     }))
-    .filter((e): e is { id: string; displayName: string; hireDate: string | null; area: AreaCode } => e.area !== null);
+    .filter(
+      (employee): employee is {
+        id: string;
+        displayName: string;
+        hireDate: string | null;
+        active: boolean;
+        area: AreaCode;
+      } => employee.area !== null && (employee.hireDate === null || employee.hireDate <= period.endDate)
+    );
 
   const days = calendarDaysBetween(period.startDate, period.endDate);
-  const holidays = await loadHolidaySet(supabase, period.startDate, period.endDate).catch(() => new Set<string>());
+  // Una falla de calendario no puede convertir silenciosamente un feriado en
+  // día laboral dentro de un artefacto usado para remuneraciones.
+  const holidays = await loadHolidaySet(supabase, period.startDate, period.endDate);
+
+  // Una fila P o un candidato de una corrida anterior puede seguir vigente si
+  // el reproceso más reciente falló a mitad de camino. La exportación de
+  // remuneraciones debe ver la última corrida por fecha y fallar cerrado: una
+  // fecha RUNNING/PARTIAL/FAILED queda explícitamente en revisión.
+  const initialRunsByDate = latestRuleEngineRunByDate(await loadRuleEngineRuns(supabase, companyId, period));
+
+  let reportingPeriodStatus: AttendanceExportData["reportingPeriodStatus"] = null;
+  if (period.type === "PAGO") {
+    const { data: reportingPeriod, error: reportingPeriodError } = await supabase
+      .from("reporting_periods")
+      .select("status")
+      .eq("period_start", period.startDate)
+      .eq("period_end", period.endDate)
+      .maybeSingle();
+    if (reportingPeriodError) {
+      throw new Error(`buildAttendanceExportData: fallo leyendo el estado del período: ${reportingPeriodError.message}`);
+    }
+    reportingPeriodStatus = reportingPeriod?.status ?? null;
+  }
 
   const workers: AttendanceExportWorker[] = scoped.map((e) => ({
     employeeId: e.id,
@@ -213,7 +447,11 @@ export async function buildAttendanceExportData(
     area: e.area,
     days: new Map(),
     hireDate: e.hireDate,
+    currentlyActive: e.active,
     scheduledWeekdays: new Set<number>(),
+    scheduleCoveredDates: new Set<string>(),
+    scheduledDates: new Set<string>(),
+    exemptDates: new Set<string>(),
     scheduleLabel: null,
   }));
   const byId = new Map(workers.map((w) => [w.employeeId, w]));
@@ -230,38 +468,142 @@ export async function buildAttendanceExportData(
   };
 
   const employeeIds = workers.map((worker) => worker.employeeId);
-  if (employeeIds.length === 0) return { period, days, workers, holidays };
-
-  const [statusRes, lateRes, overtimeRes] = await Promise.all([
-    supabase
-      .from("attendance_status_records")
-      .select("employee_id, work_date, attendance_statuses(code)")
-      .in("employee_id", employeeIds)
-      .gte("work_date", period.startDate)
-      .lte("work_date", period.endDate)
-      .eq("is_current", true),
-    supabase
-      .from("late_arrival_records")
-      .select("employee_id, work_date, detected_minutes, late_arrival_decisions(payroll_minutes, is_current)")
-      .in("employee_id", employeeIds)
-      .gte("work_date", period.startDate)
-      .lte("work_date", period.endDate)
-      .eq("is_current", true),
-    supabase
-      .from("overtime_records")
-      .select("employee_id, work_date, overtime_types(code), overtime_decisions(approved_minutes, decision_status, is_current)")
-      .in("employee_id", employeeIds)
-      .gte("work_date", period.startDate)
-      .lte("work_date", period.endDate)
-      .eq("is_current", true),
-  ]);
-
-  for (const res of [statusRes, lateRes, overtimeRes]) {
-    if (res.error) throw new Error(`buildAttendanceExportData: fallo leyendo datos del período: ${res.error.message}`);
+  if (employeeIds.length === 0) {
+    return {
+      period,
+      days,
+      workers,
+      holidays,
+      reportingPeriodStatus,
+      ruleEngineProblemDates: new Set(days),
+    };
   }
 
-  for (const row of statusRes.data ?? []) {
-    const code = unwrap(row.attendance_statuses as { code: string } | { code: string }[] | null)?.code;
+  const employeeIdBatches = chunksOf(employeeIds, EMPLOYEE_ID_BATCH_SIZE);
+  const [statusPages, latePages, earlyDeparturePages, overtimePages, missingPunchPages, absencePages] = await Promise.all([
+    Promise.all(
+      employeeIdBatches.map((ids) =>
+        fetchAllPages<StatusRow>("buildAttendanceExportData: fallo leyendo estados", (from, to) =>
+          supabase
+            .from("attendance_status_records")
+            .select("employee_id, work_date, attendance_statuses(code)")
+            .in("employee_id", ids)
+            .gte("work_date", period.startDate)
+            .lte("work_date", period.endDate)
+            .eq("is_current", true)
+            .order("employee_id")
+            .order("work_date")
+            .order("id")
+            .range(from, to) as unknown as PromiseLike<PageResponse<StatusRow>>
+        )
+      )
+    ),
+    Promise.all(
+      employeeIdBatches.map((ids) =>
+        fetchAllPages<LateRow>("buildAttendanceExportData: fallo leyendo atrasos", (from, to) =>
+          supabase
+            .from("late_arrival_records")
+            .select(
+              "employee_id, work_date, detected_minutes, attendance_records!inner(is_current), late_arrival_decisions(payroll_minutes, is_current)"
+            )
+            .in("employee_id", ids)
+            .gte("work_date", period.startDate)
+            .lte("work_date", period.endDate)
+            .eq("is_current", true)
+            .eq("attendance_records.is_current", true)
+            .order("employee_id")
+            .order("work_date")
+            .order("id")
+            .range(from, to) as unknown as PromiseLike<PageResponse<LateRow>>
+        )
+      )
+    ),
+    Promise.all(
+      employeeIdBatches.map((ids) =>
+        fetchAllPages<EarlyDepartureRow>("buildAttendanceExportData: fallo leyendo salidas anticipadas", (from, to) =>
+          supabase
+            .from("early_departure_records")
+            .select(
+              "employee_id, work_date, detected_minutes, attendance_records!inner(is_current), early_departure_decisions(payroll_minutes, payroll_effect, is_current)"
+            )
+            .in("employee_id", ids)
+            .gte("work_date", period.startDate)
+            .lte("work_date", period.endDate)
+            .eq("is_current", true)
+            .eq("attendance_records.is_current", true)
+            .order("employee_id")
+            .order("work_date")
+            .order("id")
+            .range(from, to) as unknown as PromiseLike<PageResponse<EarlyDepartureRow>>
+        )
+      )
+    ),
+    Promise.all(
+      employeeIdBatches.map((ids) =>
+        fetchAllPages<OvertimeRow>("buildAttendanceExportData: fallo leyendo horas extra", (from, to) =>
+          supabase
+            .from("overtime_records")
+            .select(
+              "employee_id, work_date, attendance_records!inner(is_current), overtime_types(code), overtime_decisions(approved_minutes, decision_status, is_current)"
+            )
+            .in("employee_id", ids)
+            .gte("work_date", period.startDate)
+            .lte("work_date", period.endDate)
+            .eq("is_current", true)
+            .eq("attendance_records.is_current", true)
+            .order("employee_id")
+            .order("work_date")
+            .order("id")
+            .range(from, to) as unknown as PromiseLike<PageResponse<OvertimeRow>>
+        )
+      )
+    ),
+    Promise.all(
+      employeeIdBatches.map((ids) =>
+        fetchAllPages<MissingPunchRow>("buildAttendanceExportData: fallo leyendo marcaciones incompletas", (from, to) =>
+          supabase
+            .from("attendance_missing_punch_flags")
+            .select("employee_id, work_date, status, attendance_records!inner(is_current)")
+            .in("employee_id", ids)
+            .gte("work_date", period.startDate)
+            .lte("work_date", period.endDate)
+            .eq("attendance_records.is_current", true)
+            .in("status", ["PENDING_CONTACT", "CONTACTED"])
+            .order("employee_id")
+            .order("work_date")
+            .order("id")
+            .range(from, to) as unknown as PromiseLike<PageResponse<MissingPunchRow>>
+        )
+      )
+    ),
+    Promise.all(
+      employeeIdBatches.map((ids) =>
+        fetchAllPages<AbsenceRow>("buildAttendanceExportData: fallo leyendo ausencias", (from, to) =>
+          supabase
+            .from("absence_records")
+            .select("employee_id, start_date, end_date, absence_decisions(decision_status, is_current)")
+            .in("employee_id", ids)
+            .lte("start_date", period.endDate)
+            .gte("end_date", period.startDate)
+            .eq("is_current", true)
+            .order("employee_id")
+            .order("start_date")
+            .order("id")
+            .range(from, to) as unknown as PromiseLike<PageResponse<AbsenceRow>>
+        )
+      )
+    ),
+  ]);
+
+  const statusRows = statusPages.flat();
+  const lateRows = latePages.flat();
+  const earlyDepartureRows = earlyDeparturePages.flat();
+  const overtimeRows = overtimePages.flat();
+  const missingPunchRows = missingPunchPages.flat();
+  const absenceRows = absencePages.flat();
+
+  for (const row of statusRows) {
+    const code = unwrap(row.attendance_statuses)?.code;
     const day = cell(row.employee_id, row.work_date);
     if (day && code) day.statusCode = code;
   }
@@ -269,25 +611,73 @@ export async function buildAttendanceExportData(
   // Atraso: si ya hay decisión vigente manda lo que efectivamente va a
   // liquidación (un atraso justificado descuenta 0); si todavía no se decide,
   // se muestran los minutos detectados -- que es justo lo que está pendiente.
-  for (const row of lateRes.data ?? []) {
-    const decisions = (row.late_arrival_decisions ?? []) as { payroll_minutes: number; is_current: boolean }[];
+  for (const row of lateRows) {
+    const decisions = row.late_arrival_decisions ?? [];
     const current = decisions.find((d) => d.is_current);
     const day = cell(row.employee_id, row.work_date);
-    if (day) day.lateMinutes = current ? current.payroll_minutes : row.detected_minutes;
+    if (day) {
+      day.lateMinutes = current ? current.payroll_minutes : row.detected_minutes;
+      day.lateDecisionPending = current === undefined;
+    }
+  }
+
+  // Salida anticipada sigue el mismo criterio de nómina que el atraso: con
+  // decisión se usa payroll_minutes; sin decisión se muestra lo detectado y
+  // se marca la persona para revisión. NEEDS_REVIEW/documento pendiente no
+  // puede presentarse como resuelto.
+  for (const row of earlyDepartureRows) {
+    const decisions = row.early_departure_decisions ?? [];
+    const current = decisions.find((decision) => decision.is_current);
+    const day = cell(row.employee_id, row.work_date);
+    if (!day) continue;
+    day.earlyDepartureMinutes = current ? current.payroll_minutes : row.detected_minutes;
+    day.earlyDepartureDecisionPending = current === undefined || current.payroll_effect === "NEEDS_REVIEW";
+  }
+
+  for (const row of missingPunchRows) {
+    const day = cell(row.employee_id, row.work_date);
+    if (day) day.missingPunchPending = true;
+  }
+
+  // Una ausencia se refleja en el código diario cuando ya está consolidada,
+  // pero su workflow de RR. HH. puede seguir abierto. Sin este control una
+  // licencia PENDING_DOCUMENT o una ausencia DISPUTED podía aparecer como
+  // "Sin pendientes" aunque todavía bloqueara el cierre operativo.
+  for (const row of absenceRows) {
+    const decisions = row.absence_decisions ?? [];
+    const current = decisions.find((decision) => decision.is_current);
+    const requiresReview =
+      current === undefined || current.decision_status === "PENDING_DOCUMENT" || current.decision_status === "DISPUTED";
+    if (!requiresReview) continue;
+
+    const firstDate = row.start_date < period.startDate ? period.startDate : row.start_date;
+    const lastDate = row.end_date > period.endDate ? period.endDate : row.end_date;
+    for (const date of calendarDaysBetween(firstDate, lastDate)) {
+      const day = cell(row.employee_id, date);
+      if (day) day.absenceDecisionPending = true;
+    }
   }
 
   // Horas extra: SOLO las aprobadas. Un candidato sin decisión todavía no es
   // hora extra pagable, y esta planilla es la que se compara contra la de
   // remuneraciones -- mostrar candidatos ahí inflaría el número.
-  for (const row of overtimeRes.data ?? []) {
-    const typeCode = unwrap(row.overtime_types as { code: string } | { code: string }[] | null)?.code;
-    const decisions = (row.overtime_decisions ?? []) as { approved_minutes: number; decision_status: string; is_current: boolean }[];
+  for (const row of overtimeRows) {
+    const typeCode = unwrap(row.overtime_types)?.code;
+    if (typeCode !== OVERTIME_50_CODE && typeCode !== OVERTIME_100_CODE) {
+      throw new Error(`buildAttendanceExportData: tipo de hora extra no soportado (${typeCode ?? "sin código"}).`);
+    }
+    const decisions = row.overtime_decisions ?? [];
     const current = decisions.find((d) => d.is_current);
-    if (!current || current.approved_minutes <= 0) continue;
 
     const day = cell(row.employee_id, row.work_date);
     if (!day) continue;
-    if (typeCode === "OVERTIME_100") day.overtime100Minutes += current.approved_minutes;
+    if (!current) {
+      if (typeCode === OVERTIME_100_CODE) day.overtime100DecisionPending = true;
+      else day.overtime50DecisionPending = true;
+      continue;
+    }
+    if (current.approved_minutes <= 0) continue;
+    if (typeCode === OVERTIME_100_CODE) day.overtime100Minutes += current.approved_minutes;
     else day.overtime50Minutes += current.approved_minutes;
   }
 
@@ -295,19 +685,25 @@ export async function buildAttendanceExportData(
   // la planilla muestra y hoy faltaban: el texto bajo el nombre y qué días
   // cubre realmente, que es lo que decide el resaltado de quien no trabaja de
   // lunes a viernes.
-  const { data: assignments, error: assignmentsError } = await supabase
-    .from("schedule_assignments")
-    .select(
-      "employee_id, effective_from, effective_to, work_schedules(work_schedule_rules(day_of_week, scheduled_start, scheduled_end))"
+  const schedulePages = await Promise.all(
+    employeeIdBatches.map((ids) =>
+      fetchAllPages<ScheduleAssignmentRow>("buildAttendanceExportData: fallo leyendo horarios", (from, to) =>
+        supabase
+          .from("schedule_assignments")
+          .select(
+            "employee_id, effective_from, effective_to, work_schedules(work_schedule_rules(day_of_week, scheduled_start, scheduled_end))"
+          )
+          .in("employee_id", ids)
+          .lte("effective_from", period.endDate)
+          .order("employee_id")
+          .order("effective_from")
+          .order("id")
+          .range(from, to) as unknown as PromiseLike<PageResponse<ScheduleAssignmentRow>>
+      )
     )
-    .in("employee_id", employeeIds)
-    .lte("effective_from", period.endDate);
+  );
 
-  if (assignmentsError) {
-    throw new Error(`buildAttendanceExportData: fallo leyendo horarios: ${assignmentsError.message}`);
-  }
-
-  for (const row of assignments ?? []) {
+  for (const row of schedulePages.flat()) {
     // Una asignación que terminó antes de que empezara el período no describe
     // este período.
     const endsBefore = row.effective_to !== null && row.effective_to < period.startDate;
@@ -316,24 +712,87 @@ export async function buildAttendanceExportData(
     const worker = byId.get(row.employee_id);
     if (!worker) continue;
 
-    const schedule = unwrap(
-      row.work_schedules as { work_schedule_rules: unknown } | { work_schedule_rules: unknown }[] | null
-    );
-    const rules = ((schedule?.work_schedule_rules ?? []) as {
-      day_of_week: number;
-      scheduled_start: string;
-      scheduled_end: string;
-    }[]).map((rule) => ({
-      dayOfWeek: rule.day_of_week,
-      start: rule.scheduled_start,
-      end: rule.scheduled_end,
-    }));
+    const schedule = unwrap(row.work_schedules);
+    const rawRules = schedule?.work_schedule_rules ?? [];
+    const workingRules = rawRules
+      .filter(
+        (rule): rule is { day_of_week: number; scheduled_start: string; scheduled_end: string } =>
+          rule.scheduled_start !== null && rule.scheduled_end !== null
+      )
+      .map((rule) => ({
+        dayOfWeek: rule.day_of_week,
+        start: rule.scheduled_start,
+        end: rule.scheduled_end,
+      }));
 
-    for (const rule of rules) worker.scheduledWeekdays.add(rule.dayOfWeek);
-    worker.scheduleLabel = describeSchedule(rules) ?? worker.scheduleLabel;
+    for (const date of days) {
+      if (date < row.effective_from || (row.effective_to !== null && date > row.effective_to)) continue;
+      worker.scheduleCoveredDates.add(date);
+      if (workingRules.some((rule) => rule.dayOfWeek === weekdayOf(date))) {
+        worker.scheduledDates.add(date);
+      }
+    }
+
+    for (const rule of workingRules) worker.scheduledWeekdays.add(rule.dayOfWeek);
+    const nextLabel = describeSchedule(workingRules);
+    if (nextLabel && worker.scheduleLabel !== nextLabel) {
+      worker.scheduleLabel = worker.scheduleLabel ? `${worker.scheduleLabel}\n${nextLabel}` : nextLabel;
+    }
   }
 
-  return { period, days, workers, holidays };
+  // La ausencia de marcación no es una incidencia cuando existe una exención
+  // vigente. Se carga la vigencia exacta (no solo el estado actual) para que
+  // un Excel histórico no cambie si la política termina después.
+  const timeControlPolicyPages = await Promise.all(
+    employeeIdBatches.map((ids) =>
+      fetchAllPages<TimeControlPolicyRow>("buildAttendanceExportData: fallo leyendo exenciones", (from, to) =>
+        supabase
+          .from("employee_time_control_policies")
+          .select("employee_id, effective_from, effective_to, policy_code")
+          .in("employee_id", ids)
+          .lte("effective_from", period.endDate)
+          .order("employee_id")
+          .order("effective_from")
+          .order("id")
+          .range(from, to) as unknown as PromiseLike<PageResponse<TimeControlPolicyRow>>
+      )
+    )
+  );
+
+  for (const row of timeControlPolicyPages.flat()) {
+    if (row.policy_code !== "EXEMPT_FROM_TIME_CONTROL") continue;
+    if (row.effective_to !== null && row.effective_to < period.startDate) continue;
+    const worker = byId.get(row.employee_id);
+    if (!worker) continue;
+
+    for (const date of days) {
+      if (date < row.effective_from || (row.effective_to !== null && date > row.effective_to)) continue;
+      worker.exemptDates.add(date);
+    }
+  }
+
+  // Personas hoy inactivas siguen perteneciendo al histórico cuando tienen
+  // hechos dentro del período. Sin esta regla, una desvinculación posterior
+  // cambia retroactivamente un Excel viejo. Si no tienen ningún dato en el
+  // rango, se excluyen porque el modelo aún no guarda fecha de término.
+  const includedWorkers = workers
+    .filter((worker) => worker.currentlyActive || worker.days.size > 0)
+    .sort((left, right) => left.workerName.localeCompare(right.workerName, "es"));
+
+  // Segunda lectura: si una corrida empezó, cambió de estado o terminó
+  // mientras se armaban las consultas, el conjunto podría mezclar versiones.
+  // Se marca para revisión aunque la corrida haya terminado SUCCEEDED, porque
+  // esta descarga no dispone todavía de un snapshot transaccional único.
+  const finalRunsByDate = latestRuleEngineRunByDate(await loadRuleEngineRuns(supabase, companyId, period));
+  const ruleEngineProblemDates = new Set<string>();
+  for (const date of days) {
+    const initial = initialRunsByDate.get(date);
+    const final = finalRunsByDate.get(date);
+    const changedDuringExport = initial?.started_at !== final?.started_at || initial?.status !== final?.status;
+    if (!final || final.status !== "SUCCEEDED" || changedDuringExport) ruleEngineProblemDates.add(date);
+  }
+
+  return { period, days, workers: includedWorkers, holidays, reportingPeriodStatus, ruleEngineProblemDates };
 }
 
 // ---------------------------------------------------------------------------
@@ -362,7 +821,9 @@ const COUNT_ROWS = new Set<string>(["Asistencia", "Faltas", "Vacaciones", "Licen
  * trae el libro real.
  */
 const COUNT_FORMAT = "#,##0.00;[Red]#,##0.00";
-const DURATION_FORMAT = "h:mm:ss;@";
+const DURATION_DAY_FORMAT = "h:mm:ss;@";
+/** Los totales del período pueden superar 24 horas y nunca deben volver a cero. */
+const DURATION_TOTAL_FORMAT = "[h]:mm:ss";
 const MONEY_FORMAT = '"$"#,##0';
 
 /** Columna donde arrancan los días: A=nombre, B=etiqueta, C=total. */
@@ -370,6 +831,17 @@ const FIRST_DAY_COL = 3;
 const HEADER_ROWS = 14; // título + 11 de leyenda + fila de meses + fila de días
 
 const solidFill = (rgb: string) => ({ fill: { patternType: "solid", fgColor: { rgb }, bgColor: { rgb: "000000" } } });
+
+/** Fondo explícito: mantiene la hoja legible también en visores con tema oscuro. */
+function applyWhiteCanvas(sheet: XLSX.WorkSheet, rowCount: number, columnCount: number): void {
+  for (let row = 0; row < rowCount; row += 1) {
+    for (let column = 0; column < columnCount; column += 1) {
+      const ref = XLSX.utils.encode_cell({ r: row, c: column });
+      const cell = sheet[ref] ?? (sheet[ref] = { v: "", t: "s" });
+      cell.s = solidFill("FFFFFF");
+    }
+  }
+}
 
 /**
  * Los rellenos de la planilla de RRHH, leídos del libro real.
@@ -379,31 +851,366 @@ const solidFill = (rgb: string) => ({ fill: { patternType: "solid", fgColor: { r
  * ajedrez. En el libro real un día hábil trabajado **no lleva relleno**, y el
  * color se reserva para lo que es excepción.
  */
-const WEEKEND_STYLE = solidFill("FFFF00");
-const HOLIDAY_STYLE = solidFill("FF00FF");
+const WEEKEND_STYLE = solidFill("FFF2CC");
+const HOLIDAY_STYLE = solidFill("E4DFEC");
 /** Días anteriores al ingreso de la persona: no estaba, no corresponde marcar. */
-const BEFORE_HIRE_STYLE = solidFill("99CC00");
-/** Días que cubre el horario de quien no trabaja de lunes a viernes. */
-const PARTIAL_SCHEDULE_STYLE = solidFill("FF9900");
-const HEADER_STYLE = solidFill("CCFFFF");
-const UNKNOWN_LEGEND_STYLE = solidFill("00CCFF");
-const VIATICOS_STYLE = solidFill("FFCC00");
+const BEFORE_HIRE_STYLE = solidFill("E7E6E6");
+const DAY_OFF_STYLE = solidFill("F2F2F2");
+const MISSING_SCHEDULE_STYLE = solidFill("FFF2CC");
+const REVIEW_STYLE = solidFill("FCE4D6");
+const HEADER_STYLE = {
+  ...solidFill("1F4E78"),
+  font: { bold: true, color: { rgb: "FFFFFF" } },
+  alignment: { horizontal: "center", vertical: "center", wrapText: true },
+};
+const UNKNOWN_LEGEND_STYLE = solidFill("FCE4D6");
+const VIATICOS_STYLE = solidFill("FFF2CC");
+const THIN_BOTTOM_BORDER = { bottom: { style: "thin", color: { rgb: "B4C6E7" } } };
 
-/** Lunes a viernes. Quien los cubre todos es el caso estándar y no se resalta. */
-const FULL_WEEK = [1, 2, 3, 4, 5];
+function beforeHire(worker: AttendanceExportWorker, date: string): boolean {
+  return worker.hireDate !== null && date < worker.hireDate;
+}
 
-function hasPartialSchedule(worker: AttendanceExportWorker): boolean {
-  if (worker.scheduledWeekdays.size === 0) return false;
-  return !FULL_WEEK.every((dow) => worker.scheduledWeekdays.has(dow));
+/**
+ * Si existe asignación para la fecha, manda la jornada real. Si falta la
+ * asignación, se usa lunes-viernes solo para hacer visible el hueco como dato
+ * pendiente; nunca se interpreta como una jornada confirmada.
+ */
+function scheduledWorkDate(
+  worker: AttendanceExportWorker,
+  date: string,
+  holidays: ReadonlySet<string>
+): boolean {
+  if (beforeHire(worker, date) || holidays.has(date)) return false;
+  if (worker.scheduleCoveredDates.has(date)) return worker.scheduledDates.has(date);
+  return !isWeekend(date);
+}
+
+/** Una fecha puede ser parte de la jornada pagada y, a la vez, no exigir marcación. */
+function expectedWorkDate(
+  worker: AttendanceExportWorker,
+  date: string,
+  holidays: ReadonlySet<string>
+): boolean {
+  return !worker.exemptDates.has(date) && scheduledWorkDate(worker, date, holidays);
+}
+
+function payrollBaseDays(worker: AttendanceExportWorker, data: AttendanceExportData): number | null {
+  if (!worker.currentlyActive) return null;
+  if (data.period.type === "PAGO") {
+    // El libro real usa una base mensual de 30 días. Para un ingreso dentro
+    // del ciclo, solo se consideran los días calendario desde el alta.
+    if (worker.hireDate !== null && worker.hireDate > data.period.startDate) {
+      return Math.min(30, calendarDaysBetween(worker.hireDate, data.period.endDate).length);
+    }
+    return 30;
+  }
+  return data.days.filter((date) => scheduledWorkDate(worker, date, data.holidays)).length;
+}
+
+interface WorkerExportSummary {
+  baseDays: number | null;
+  absences: number;
+  vacations: number;
+  licenses: number;
+  permissions: number;
+  lateMinutes: number;
+  earlyDepartureMinutes: number;
+  overtime50Minutes: number;
+  overtime100Minutes: number;
+  reviewDates: string[];
+  status: "SIN PENDIENTES" | "REVISAR";
+  observations: string;
+}
+
+function summarizeWorker(worker: AttendanceExportWorker, data: AttendanceExportData): WorkerExportSummary {
+  let absences = 0;
+  let vacations = 0;
+  let licenses = 0;
+  let permissions = 0;
+  let lateMinutes = 0;
+  let earlyDepartureMinutes = 0;
+  let overtime50Minutes = 0;
+  let overtime100Minutes = 0;
+  let missingStatuses = 0;
+  let pendingLate = 0;
+  let pendingEarlyDeparture = 0;
+  let pendingOvertime = 0;
+  let pendingMissingPunch = 0;
+  let pendingAbsenceDays = 0;
+  let incompleteEngineDays = 0;
+  let missingScheduleDays = 0;
+  const reviewDates = new Set<string>();
+
+  for (const date of data.days) {
+    const day = worker.days.get(date) ?? emptyDay();
+    if (FALTA_CODES.has(day.statusCode)) absences += 1;
+    if (VACACIONES_CODES.has(day.statusCode)) vacations += 1;
+    if (LICENCIA_CODES.has(day.statusCode)) licenses += 1;
+    if (PERMISSION_CODES.has(day.statusCode)) permissions += 1;
+    lateMinutes += day.lateMinutes;
+    earlyDepartureMinutes += day.earlyDepartureMinutes;
+    overtime50Minutes += day.overtime50Minutes;
+    overtime100Minutes += day.overtime100Minutes;
+
+    if (
+      expectedWorkDate(worker, date, data.holidays) &&
+      day.statusCode === MISSING_STATUS_CODE &&
+      !day.missingPunchPending
+    ) {
+      missingStatuses += 1;
+      reviewDates.add(date);
+    }
+    if (
+      !beforeHire(worker, date) &&
+      !data.holidays.has(date) &&
+      !isWeekend(date) &&
+      !worker.exemptDates.has(date) &&
+      !worker.scheduleCoveredDates.has(date)
+    ) {
+      missingScheduleDays += 1;
+      reviewDates.add(date);
+    }
+    if (day.lateDecisionPending) {
+      pendingLate += 1;
+      reviewDates.add(date);
+    }
+    if (day.earlyDepartureDecisionPending) {
+      pendingEarlyDeparture += 1;
+      reviewDates.add(date);
+    }
+    if (day.overtime50DecisionPending || day.overtime100DecisionPending) {
+      pendingOvertime += 1;
+      reviewDates.add(date);
+    }
+    if (day.missingPunchPending) {
+      pendingMissingPunch += 1;
+      reviewDates.add(date);
+    }
+    if (day.absenceDecisionPending) {
+      pendingAbsenceDays += 1;
+      reviewDates.add(date);
+    }
+    if (
+      data.ruleEngineProblemDates.has(date) &&
+      (expectedWorkDate(worker, date, data.holidays) || worker.days.has(date))
+    ) {
+      incompleteEngineDays += 1;
+      reviewDates.add(date);
+    }
+  }
+
+  const informationNotes: string[] = [];
+  const reviewNotes: string[] = [];
+  if (worker.exemptDates.size > 0) informationNotes.push("Exento de marcación durante el período indicado");
+  if (!worker.currentlyActive) reviewNotes.push("Persona inactiva: revisar fecha de salida");
+  if (missingScheduleDays > 0) reviewNotes.push(`Sin horario vigente: ${missingScheduleDays} día(s)`);
+  if (missingStatuses > 0) reviewNotes.push(`Marcación/estado pendiente: ${missingStatuses} día(s)`);
+  if (pendingMissingPunch > 0) reviewNotes.push(`Marcaciones incompletas por resolver: ${pendingMissingPunch}`);
+  if (pendingAbsenceDays > 0) reviewNotes.push(`Ausencias/licencias por resolver: ${pendingAbsenceDays} día(s)`);
+  if (pendingLate > 0) reviewNotes.push(`Atrasos por decidir: ${pendingLate}`);
+  if (pendingEarlyDeparture > 0) reviewNotes.push(`Salidas anticipadas por decidir: ${pendingEarlyDeparture}`);
+  if (pendingOvertime > 0) reviewNotes.push(`Horas extra por decidir: ${pendingOvertime}`);
+  if (incompleteEngineDays > 0) reviewNotes.push(`Motor de reglas incompleto: ${incompleteEngineDays} día(s)`);
+
+  return {
+    baseDays: payrollBaseDays(worker, data),
+    absences,
+    vacations,
+    licenses,
+    permissions,
+    lateMinutes,
+    earlyDepartureMinutes,
+    overtime50Minutes,
+    overtime100Minutes,
+    reviewDates: [...reviewDates].sort(),
+    status: reviewNotes.length === 0 ? "SIN PENDIENTES" : "REVISAR",
+    observations: [...informationNotes, ...reviewNotes].join(" · "),
+  };
+}
+
+function exportStatusLabel(data: AttendanceExportData, summaries: WorkerExportSummary[]): string {
+  const pendingWorkers = summaries.filter((summary) => summary.status === "REVISAR").length;
+  if (data.period.type === "PAGO" && data.reportingPeriodStatus !== "CLOSED") {
+    return `BORRADOR — el período 16-15 no está cerrado${pendingWorkers > 0 ? ` y ${pendingWorkers} persona(s) requieren revisión` : ""}`;
+  }
+  if (pendingWorkers > 0) return `REVISAR — ${pendingWorkers} persona(s) tienen datos pendientes`;
+  return data.period.type === "PAGO"
+    ? "CONTROL — período cerrado, sin pendientes detectados"
+    : "VISTA DE CONTROL — sin pendientes detectados";
+}
+
+function scheduleText(worker: AttendanceExportWorker, data: AttendanceExportData): string {
+  const payableWorkDates = data.days.filter((date) => scheduledWorkDate(worker, date, data.holidays));
+  if (payableWorkDates.length > 0 && payableWorkDates.every((date) => worker.exemptDates.has(date))) {
+    return "Exento de marcación";
+  }
+  return worker.scheduleLabel ?? "Sin horario asignado";
+}
+
+function shortReviewDates(dates: string[]): string {
+  if (dates.length === 0) return "";
+  // El período 16-15 cruza dos meses: mostrar solo "20, 12" obliga a RR. HH.
+  // a adivinar cuál corresponde a julio y cuál a agosto.
+  const visible = dates.slice(0, 6).map((date) => `${date.slice(8, 10)}/${date.slice(5, 7)}`).join(", ");
+  return dates.length > 6 ? `${visible} (+${dates.length - 6})` : visible;
 }
 
 type Cell = string | number | null;
 
 export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8Array {
   const { days, workers, period, holidays } = data;
+  const summaries = workers.map((worker) => summarizeWorker(worker, data));
+  const overallStatus = exportStatusLabel(data, summaries);
+
+  // -----------------------------------------------------------------------
+  // Hoja 1: resumen operativo para quien prepara remuneraciones.
+
+  const summaryRows: Cell[][] = [
+    ["RESUMEN DE ASISTENCIA PARA REMUNERACIONES"],
+    [`Período: ${period.label}`],
+    [overallStatus],
+    [
+      "El detalle diario conserva la matriz conocida. Viáticos no se incluyen porque GESTORA todavía no tiene una fuente confirmada para ese dato. El archivo refleja los datos actuales; cerrar un período no crea todavía una copia inmutable.",
+    ],
+    [
+      "Trabajador",
+      "Área",
+      "Horario",
+      "Días base",
+      "Faltas",
+      "Vacaciones",
+      "Licencias",
+      "Permisos / justificadas",
+      "Atrasos",
+      "Salida anticipada",
+      "HH 50%",
+      "HH 100%",
+      "Días por revisar",
+      "Estado",
+      "Observaciones",
+    ],
+  ];
+
+  for (let index = 0; index < workers.length; index += 1) {
+    const worker = workers[index];
+    const summary = summaries[index];
+    summaryRows.push([
+      worker.workerName,
+      AREA_LABEL[worker.area],
+      scheduleText(worker, data),
+      summary.baseDays,
+      summary.absences,
+      summary.vacations,
+      summary.licenses,
+      summary.permissions,
+      minutesToExcelDuration(summary.lateMinutes),
+      minutesToExcelDuration(summary.earlyDepartureMinutes),
+      minutesToExcelDuration(summary.overtime50Minutes),
+      minutesToExcelDuration(summary.overtime100Minutes),
+      shortReviewDates(summary.reviewDates),
+      summary.status === "REVISAR" ? "Revisar" : "Sin pendientes",
+      summary.observations,
+    ]);
+  }
+
+  const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+  applyWhiteCanvas(summarySheet, summaryRows.length, 15);
+  const summaryLastRow = Math.max(5, summaryRows.length);
+  summarySheet["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 14 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 14 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 14 } },
+    { s: { r: 3, c: 0 }, e: { r: 3, c: 14 } },
+  ];
+  summarySheet["!cols"] = [
+    { wch: 30 },
+    { wch: 16 },
+    { wch: 32 },
+    { wch: 11 },
+    { wch: 10 },
+    { wch: 12 },
+    { wch: 11 },
+    { wch: 19 },
+    { wch: 12 },
+    { wch: 16 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 18 },
+    { wch: 16 },
+    { wch: 46 },
+  ];
+  summarySheet["!rows"] = [{ hpt: 24 }, { hpt: 20 }, { hpt: 22 }, { hpt: 32 }, { hpt: 32 }];
+  summarySheet["!autofilter"] = { ref: `A5:O${summaryLastRow}` };
+  summarySheet["!freeze"] = { xSplit: 1, ySplit: 5 };
+
+  const summaryTitle = summarySheet.A1;
+  if (summaryTitle) {
+    summaryTitle.s = {
+      ...solidFill("FFFFFF"),
+      font: { bold: true, sz: 15, color: { rgb: "1F1F1F" } },
+      alignment: { vertical: "center" },
+    };
+  }
+  for (const ref of ["A2", "A4"]) {
+    const cell = summarySheet[ref];
+    if (cell) {
+      cell.s = {
+        ...solidFill("FFFFFF"),
+        font: { color: { rgb: "595959" }, italic: ref === "A4" },
+        alignment: { wrapText: true, vertical: "center" },
+      };
+    }
+  }
+  const statusCell = summarySheet.A3;
+  if (statusCell) {
+    statusCell.s = {
+      ...solidFill(overallStatus.startsWith("BORRADOR") || overallStatus.startsWith("REVISAR") ? "FFF2CC" : "E2F0D9"),
+      font: { bold: true, color: { rgb: "1F1F1F" } },
+      alignment: { vertical: "center" },
+    };
+  }
+  for (let column = 0; column < 15; column += 1) {
+    const cell = summarySheet[XLSX.utils.encode_cell({ r: 4, c: column })];
+    if (cell) cell.s = HEADER_STYLE;
+  }
+  for (let row = 5; row < summaryRows.length; row += 1) {
+    const summary = summaries[row - 5];
+    const fill = row % 2 === 0 ? "F7F9FC" : "FFFFFF";
+    for (let column = 0; column < 15; column += 1) {
+      const ref = XLSX.utils.encode_cell({ r: row, c: column });
+      const cell = summarySheet[ref] ?? (summarySheet[ref] = { v: "", t: "s" });
+      cell.s = {
+        ...solidFill(fill),
+        alignment: {
+          vertical: "center",
+          horizontal: column >= 3 && column <= 13 ? "center" : "left",
+          wrapText: column === 2 || column === 14,
+        },
+        border: THIN_BOTTOM_BORDER,
+      };
+    }
+    for (const column of [8, 9, 10, 11]) {
+      const cell = summarySheet[XLSX.utils.encode_cell({ r: row, c: column })];
+      if (cell) cell.z = DURATION_TOTAL_FORMAT;
+    }
+    const state = summarySheet[XLSX.utils.encode_cell({ r: row, c: 13 })];
+    if (state) {
+      state.s = {
+        ...solidFill(summary.status === "REVISAR" ? "FFF2CC" : "E2F0D9"),
+        font: { bold: true, color: { rgb: summary.status === "REVISAR" ? "9C5700" : "375623" } },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: THIN_BOTTOM_BORDER,
+      };
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Hoja 2: matriz diaria familiar para RR. HH.
+
   const rows: Cell[][] = [];
 
-  rows.push(["PLANILLA DE ASISTENCIA PERSONAL DE PRODUCCIÓN Y ADMINISTRACIÓN", null, period.label]);
+  rows.push(["PLANILLA DE ASISTENCIA DEL PERSONAL", null, `${period.label} · ${overallStatus}`]);
   for (const [code, meaning] of LEGEND) rows.push([code, meaning]);
 
   // Fila de meses: la etiqueta se escribe solo donde cambia el mes, igual que
@@ -421,35 +1228,37 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
   rows.push(monthRow);
   rows.push(dayRow);
 
-  const merges: XLSX.Range[] = [];
+  const merges: XLSX.Range[] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
+    { s: { r: 0, c: 2 }, e: { r: 0, c: FIRST_DAY_COL + days.length - 1 } },
+  ];
 
-  for (const worker of workers) {
+  for (let workerIndex = 0; workerIndex < workers.length; workerIndex += 1) {
+    const worker = workers[workerIndex];
+    const summary = summaries[workerIndex];
     const blockStart = rows.length;
 
     for (const label of BLOCK_ROWS) {
       // La planilla de RRHH pone el horario bajo el nombre, en la misma celda
       // combinada. Sin eso no se puede saber, mirando la fila, si un día en
       // blanco es una marcación que falta o un día que esa persona no trabaja.
-      const nameCell =
-        worker.scheduleLabel === null ? worker.workerName : `${worker.workerName}\n${worker.scheduleLabel}`;
+      const nameCell = `${worker.workerName}\n${AREA_LABEL[worker.area]} · ${scheduleText(worker, data)}`;
       const line: Cell[] = [label === "Asistencia" ? nameCell : null, label, null];
       let total = 0;
 
       for (const date of days) {
-        // Fin de semana o feriado legal en blanco: la empresa no opera. Un 0
-        // ahí sugeriría una jornada de cero horas en vez de un día no laboral,
-        // y si el trabajador SÍ trabajó el feriado sus horas ya salen abajo en
-        // HH 100%.
-        if (isWeekend(date) || holidays.has(date)) {
-          line.push(null);
-          continue;
-        }
-
         const day = worker.days.get(date) ?? emptyDay();
         let value: Cell = null;
 
         if (label === "Asistencia") {
-          value = day.statusCode;
+          // Un fin de semana, feriado, día libre o fecha anterior al ingreso
+          // queda en blanco SOLO si no existe un hecho. Si sí hubo trabajo,
+          // licencia u otra novedad, se conserva el código.
+          value = day.statusCode !== MISSING_STATUS_CODE
+            ? day.statusCode
+            : expectedWorkDate(worker, date, holidays)
+              ? MISSING_STATUS_CODE
+              : null;
         } else if (label === "Faltas") {
           if (FALTA_CODES.has(day.statusCode)) { value = 1; total += 1; }
         } else if (label === "Vacaciones") {
@@ -467,23 +1276,14 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
         line.push(value);
       }
 
-      // Asistencia: días trabajados = hábiles del período menos vacaciones y
-      // licencia, misma definición que la fórmula de la planilla original.
+      // Asistencia: base del período menos faltas y licencia. Vacaciones se
+      // informan aparte, tal como lo hace la fórmula vigente de RR. HH.
       if (label === "Asistencia") {
-        // Mismo cálculo que la fórmula que se escribe más abajo: hábiles menos
-        // FALTAS menos LICENCIA, que es lo que hace `=14-C16-C18` en el libro
-        // de RRHH. Antes acá se restaban vacaciones y licencia, así que el
-        // valor guardado y la fórmula daban números distintos en cuanto
-        // alguien tenía una falta: Excel recalcula al abrir y muestra uno,
-        // cualquier lector que no recalcule muestra el otro.
-        const businessDays = days.filter((d) => !isWeekend(d) && !holidays.has(d));
-        const discounted = businessDays.filter((d) => {
-          const code = worker.days.get(d)?.statusCode ?? MISSING_STATUS_CODE;
-          return FALTA_CODES.has(code) || LICENCIA_CODES.has(code);
-        }).length;
-        line[2] = businessDays.length - discounted;
+        line[2] = summary.baseDays === null ? null : Math.max(0, summary.baseDays - summary.absences - summary.licenses);
       } else if (label === "VIATICOS") {
-        line[2] = 0;
+        // Cero sería un dato inventado. La fila se mantiene porque RR. HH. la
+        // reconoce, pero queda vacía hasta integrar una fuente autorizada.
+        line[2] = null;
       } else {
         line[2] = DURATION_ROWS.has(label) ? minutesToExcelDuration(total) : total;
       }
@@ -496,6 +1296,7 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
   }
 
   const sheet = XLSX.utils.aoa_to_sheet(rows);
+  applyWhiteCanvas(sheet, rows.length, FIRST_DAY_COL + days.length);
 
   // La planilla original deja las celdas sin dato en verde y resalta en
   // naranja cualquier marcación/valor que sí deba revisar RRHH. Viáticos usa
@@ -511,21 +1312,39 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
     if (sheet[dayRef]) sheet[dayRef].s = HEADER_STYLE;
   }
 
+  const titleCell = sheet.A1;
+  if (titleCell) {
+    titleCell.s = {
+      ...solidFill("FFFFFF"),
+      font: { bold: true, sz: 13, color: { rgb: "1F1F1F" } },
+    };
+  }
+  const periodCell = sheet.C1;
+  if (periodCell) {
+    periodCell.s = {
+      ...solidFill(overallStatus.startsWith("BORRADOR") || overallStatus.startsWith("REVISAR") ? "FFF2CC" : "E2F0D9"),
+      font: { bold: true },
+      alignment: { wrapText: true },
+    };
+  }
+
   // Fórmulas auditables en la columna de totales, siguiendo el patrón del
-  // mockup: asistencia = días hábiles - faltas - licencia; el resto suma su
+  // mockup: asistencia = días base - faltas - licencia; el resto suma su
   // fila diaria. Se conserva también el valor calculado para que Excel y
   // lectores que no recalculan fórmulas muestren el total inmediatamente.
-  const businessDays = days.filter((d) => !isWeekend(d) && !holidays.has(d)).length;
   for (let workerIndex = 0; workerIndex < workers.length; workerIndex += 1) {
     const blockStart = HEADER_ROWS + workerIndex * BLOCK_ROWS.length;
     const assistanceTotal = XLSX.utils.encode_cell({ r: blockStart, c: 2 });
     const absencesTotal = XLSX.utils.encode_cell({ r: blockStart + 1, c: 2 });
     const licenseTotal = XLSX.utils.encode_cell({ r: blockStart + 3, c: 2 });
     const assistanceCell = sheet[assistanceTotal];
-    if (assistanceCell) assistanceCell.f = `${businessDays}-${absencesTotal}-${licenseTotal}`;
+    const baseDays = summaries[workerIndex].baseDays;
+    if (assistanceCell && baseDays !== null) assistanceCell.f = `MAX(0,${baseDays}-${absencesTotal}-${licenseTotal})`;
     for (let offset = 1; offset < BLOCK_ROWS.length; offset += 1) {
       const totalCell = sheet[XLSX.utils.encode_cell({ r: blockStart + offset, c: 2 })];
-      if (totalCell) totalCell.f = `SUM(${XLSX.utils.encode_cell({ r: blockStart + offset, c: FIRST_DAY_COL })}:${XLSX.utils.encode_cell({ r: blockStart + offset, c: FIRST_DAY_COL + days.length - 1 })})`;
+      if (totalCell && BLOCK_ROWS[offset] !== "VIATICOS") {
+        totalCell.f = `SUM(${XLSX.utils.encode_cell({ r: blockStart + offset, c: FIRST_DAY_COL })}:${XLSX.utils.encode_cell({ r: blockStart + offset, c: FIRST_DAY_COL + days.length - 1 })})`;
+      }
     }
 
     for (let offset = 0; offset < BLOCK_ROWS.length; offset += 1) {
@@ -534,25 +1353,38 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
       const labelCell = sheet[XLSX.utils.encode_cell({ r: row, c: 1 })];
       if (labelCell && label === "VIATICOS") labelCell.s = VIATICOS_STYLE;
       const worker = workers[workerIndex];
-      const partial = hasPartialSchedule(worker);
 
       for (let c = FIRST_DAY_COL; c < FIRST_DAY_COL + days.length; c += 1) {
         const ref = XLSX.utils.encode_cell({ r: row, c });
         const dayDate = days[c - FIRST_DAY_COL];
+        const day = worker.days.get(dayDate) ?? emptyDay();
+        const pendingForRow =
+          (label === "Atrasos" && day.lateDecisionPending) ||
+          (label === "HH 50%" && day.overtime50DecisionPending) ||
+          (label === "HH 100%" && day.overtime100DecisionPending) ||
+          (label === "Asistencia" && day.absenceDecisionPending) ||
+          (label === "Asistencia" && data.ruleEngineProblemDates.has(dayDate) &&
+            (expectedWorkDate(worker, dayDate, holidays) || worker.days.has(dayDate))) ||
+          (label === "Asistencia" && expectedWorkDate(worker, dayDate, holidays) && day.statusCode === MISSING_STATUS_CODE);
 
-        // El orden importa y es el del libro real: el fin de semana y el
-        // feriado ganan sobre todo lo demás, porque la empresa no opera; el
-        // verde de "todavía no entraba" gana sobre el horario, porque un
-        // horario asignado no significa nada antes del ingreso.
-        const style = isWeekend(dayDate)
-          ? WEEKEND_STYLE
-          : holidays.has(dayDate)
-            ? HOLIDAY_STYLE
-            : worker.hireDate !== null && dayDate < worker.hireDate
-              ? BEFORE_HIRE_STYLE
-              : partial && worker.scheduledWeekdays.has(weekdayOf(dayDate))
-                ? PARTIAL_SCHEDULE_STYLE
-                : null;
+        // Una incidencia pendiente siempre gana visualmente. Los colores de
+        // calendario son suaves y documentados; no se reutilizan los siete
+        // colores históricos cuyo significado nunca fue confirmado.
+        const style = pendingForRow
+          ? REVIEW_STYLE
+          : beforeHire(worker, dayDate)
+            ? BEFORE_HIRE_STYLE
+            : worker.exemptDates.has(dayDate)
+              ? DAY_OFF_STYLE
+              : holidays.has(dayDate)
+                ? HOLIDAY_STYLE
+                : worker.scheduleCoveredDates.has(dayDate) && !worker.scheduledDates.has(dayDate)
+                  ? DAY_OFF_STYLE
+                  : !worker.scheduleCoveredDates.has(dayDate) && !isWeekend(dayDate)
+                    ? MISSING_SCHEDULE_STYLE
+                    : isWeekend(dayDate)
+                      ? WEEKEND_STYLE
+                      : null;
 
         // Un día hábil trabajado no lleva relleno. Si además no tiene valor,
         // no se crea la celda: en el libro real esa celda no existe.
@@ -560,6 +1392,30 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
         const target = sheet[ref] ?? (sheet[ref] = { v: "", t: "s" });
         target.s = style;
       }
+
+      if (labelCell) {
+        labelCell.s = {
+          ...(label === "VIATICOS" ? VIATICOS_STYLE : solidFill("FFFFFF")),
+          font: { bold: label === "Asistencia" },
+          alignment: { vertical: "center" },
+        };
+      }
+    }
+
+    const nameCell = sheet[XLSX.utils.encode_cell({ r: blockStart, c: 0 })];
+    if (nameCell) {
+      nameCell.s = {
+        ...solidFill("FFFFFF"),
+        font: { bold: true, color: { rgb: "1F1F1F" } },
+        alignment: { vertical: "center", wrapText: true },
+        border: THIN_BOTTOM_BORDER,
+      };
+    }
+    const lastRow = blockStart + BLOCK_ROWS.length - 1;
+    for (let column = 1; column < FIRST_DAY_COL + days.length; column += 1) {
+      const ref = XLSX.utils.encode_cell({ r: lastRow, c: column });
+      const cell = sheet[ref] ?? (sheet[ref] = { v: "", t: "s" });
+      cell.s = { ...(cell.s ?? {}), border: THIN_BOTTOM_BORDER };
     }
   }
 
@@ -571,7 +1427,7 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
     const label = rows[r][1];
     if (typeof label !== "string") continue;
     const format = DURATION_ROWS.has(label)
-      ? DURATION_FORMAT
+      ? DURATION_DAY_FORMAT
       : COUNT_ROWS.has(label)
         ? COUNT_FORMAT
         : null;
@@ -582,6 +1438,11 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
       // Las celdas diarias de Asistencia llevan el código de estado, que es
       // texto: aplicarles un formato numérico no cambia nada y sería ruido.
       if (target && typeof target.v === "number") target.z = format;
+    }
+
+    if (DURATION_ROWS.has(label)) {
+      const total = sheet[XLSX.utils.encode_cell({ r, c: 2 })];
+      if (total && typeof total.v === "number") total.z = DURATION_TOTAL_FORMAT;
     }
   }
 
@@ -594,17 +1455,16 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
   }
 
   sheet["!merges"] = merges;
-  // Anchos del libro de RRHH. La columna A queda en 17 y no en 34: con 34 los
-  // nombres entran completos, pero la planilla deja de verse igual y ese era
-  // el punto. Un nombre largo se recorta en pantalla, igual que hoy en el
-  // archivo que usan; el valor completo sigue en la celda.
+  // La matriz mantiene la forma conocida, pero deja visibles el nombre, área
+  // y horario para que RR. HH. no dependa de abrir cada celda.
   sheet["!cols"] = [
-    { wch: 17.17 },
-    { wch: 11.5 },
+    { wch: 34 },
+    { wch: 13 },
     { wch: 10.33 },
     ...days.map(() => ({ wch: 7.33 })),
   ];
   sheet["!freeze"] = { xSplit: 3, ySplit: HEADER_ROWS };
+  sheet["!rows"] = [{ hpt: 24 }, ...Array.from({ length: HEADER_ROWS - 1 }, () => ({ hpt: 18 }))];
 
   // El libro de RRHH nombra cada hoja por su mes, "NOV25". Se deriva del cierre
   // del período, que es el mes al que se imputa la planilla.
@@ -612,6 +1472,12 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
   const sheetName = `${MONTH_SHORT[Number(endMonth) - 1]}${endYear.slice(2)}`;
 
   const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, summarySheet, "RESUMEN");
   XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
-  return XLSX.write(workbook, { type: "array", bookType: "xlsx" }) as Uint8Array;
+  workbook.Props = {
+    Title: `Asistencia ${period.label}`,
+    Subject: "Control de asistencia para remuneraciones",
+    Company: "GESTORA",
+  };
+  return XLSX.write(workbook, { type: "array", bookType: "xlsx", compression: true }) as Uint8Array;
 }

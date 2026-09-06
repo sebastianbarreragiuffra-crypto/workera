@@ -27,10 +27,11 @@ import { santiagoWallClockMinutesSinceMidnight, scheduledTimeToMinutes } from ".
  *   - PRODUCTION: política confirmada (Gate D) -- genera candidato normal,
  *     usando SIEMPRE el horario efectivo del trabajador (individual o
  *     general).
- *   - INSTALLATION: reglas EXACTAS de overtime siguen pendientes (PASO 36,
- *     explícito en el encargo) -- NUNCA genera un candidato automático,
- *     aunque `overtime_policies.overtime_eligible=true` ya exista en la
- *     tabla (ese valor placeholder no es autorización para calcular).
+ *   - INSTALLATION: genera los minutos exactos, sin selector 1h/2h y sin
+ *     tope fijo de negocio. La fila de política usa 1440 solo como límite
+ *     técnico de un día, según la decisión ya cerrada en Gate D.
+ *   - Días libres/feriados trabajados: el candidato es el tramo real entre
+ *     entrada y salida, porque no existe una salida programada que restar.
  *   - ADMINISTRATION: `overtime_eligible=false` ya confirmado -- nunca
  *     elegible.
  */
@@ -43,6 +44,7 @@ export type GenerateOvertimeCandidateStatus =
   | "DAY_OFF"
   | "NO_SCHEDULE_ASSIGNED"
   | "NO_CLOCK_OUT"
+  | "NO_CLOCK_IN"
   | "NOT_ELIGIBLE"
   | "NO_POLICY"
   | "OVERTIME_POLICY_REQUIRES_CONFIRMATION";
@@ -53,12 +55,73 @@ export interface GenerateOvertimeCandidateResult {
   candidateMinutes: number | null;
 }
 
-/** Grupos con política de overtime confirmada y lista para calcular automáticamente (PASO 34-37). */
-const AUTO_GENERATE_GROUP_CODES = new Set(["PRODUCTION"]);
+interface CurrentOvertimeRecord {
+  id: string;
+  attendance_record_id: string;
+  candidate_minutes: number;
+  overtime_policy_id: string;
+  overtime_types: { code: string } | { code: string }[] | null;
+  calculation_version: number;
+}
+
+async function loadCurrentOvertimeRecord(
+  supabase: SupabaseClient<Database>,
+  employeeId: string,
+  workDate: string
+): Promise<CurrentOvertimeRecord | null> {
+  const { data, error } = await supabase
+    .from("overtime_records")
+    .select("id, attendance_record_id, candidate_minutes, overtime_policy_id, overtime_types(code), calculation_version")
+    .eq("employee_id", employeeId)
+    .eq("work_date", workDate)
+    .eq("is_current", true)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`generateOvertimeCandidate: fallo consultando overtime_records vigente: ${error.message}`);
+  }
+  return data;
+}
+
+/**
+ * Un resultado sin candidato también es un recálculo autoritativo. Mantener la
+ * versión anterior como vigente haría que la cola siguiera ofreciendo horas
+ * que la marcación/política actual ya no respalda.
+ */
+async function retireCurrentOvertimeRecord(
+  supabase: SupabaseClient<Database>,
+  employeeId: string,
+  workDate: string
+): Promise<void> {
+  const current = await loadCurrentOvertimeRecord(supabase, employeeId, workDate);
+  if (!current) return;
+
+  const { error } = await supabase
+    .from("overtime_records")
+    .update({ is_current: false })
+    .eq("id", current.id)
+    .eq("is_current", true);
+  if (error) {
+    throw new Error(`generateOvertimeCandidate: fallo retirando overtime_records vigente: ${error.message}`);
+  }
+}
+
+/** Grupos con política de overtime confirmada y lista para calcular automáticamente. */
+const AUTO_GENERATE_GROUP_CODES = new Set(["PRODUCTION", "INSTALLATION"]);
 
 /** Minutos entre la marcación de salida real y el horario de salida efectivo, en hora de pared de Santiago (ver wall-clock.ts). */
 function minutesBetween(scheduledEnd: string, clockOut: Date): number {
   return santiagoWallClockMinutesSinceMidnight(clockOut) - scheduledTimeToMinutes(scheduledEnd);
+}
+
+/** Minutos efectivamente trabajados cuando el día no tiene una salida programada. */
+function minutesBetweenInstants(clockIn: string, clockOut: string): number {
+  return Math.floor((new Date(clockOut).getTime() - new Date(clockIn).getTime()) / 60_000);
+}
+
+function relationCode(relation: CurrentOvertimeRecord["overtime_types"]): string | null {
+  if (Array.isArray(relation)) return relation[0]?.code ?? null;
+  return relation?.code ?? null;
 }
 
 export async function generateOvertimeCandidate(
@@ -66,16 +129,24 @@ export async function generateOvertimeCandidate(
   employeeId: string,
   workDate: string,
   attendanceRecordId: string,
-  clockOut: string | null
+  clockOut: string | null,
+  clockIn: string | null = null,
+  isHoliday = false
 ): Promise<GenerateOvertimeCandidateResult> {
   const schedule = await resolveEffectiveSchedule(supabase, employeeId, workDate);
 
-  if (schedule.kind === "EXEMPT") return { status: "EXEMPT", overtimeRecordId: null, candidateMinutes: null };
-  if (schedule.kind === "DAY_OFF") return { status: "DAY_OFF", overtimeRecordId: null, candidateMinutes: null };
+  if (schedule.kind === "EXEMPT") {
+    await retireCurrentOvertimeRecord(supabase, employeeId, workDate);
+    return { status: "EXEMPT", overtimeRecordId: null, candidateMinutes: null };
+  }
   if (schedule.kind === "NO_SCHEDULE_ASSIGNED") {
+    await retireCurrentOvertimeRecord(supabase, employeeId, workDate);
     return { status: "NO_SCHEDULE_ASSIGNED", overtimeRecordId: null, candidateMinutes: null };
   }
-  if (!clockOut) return { status: "NO_CLOCK_OUT", overtimeRecordId: null, candidateMinutes: null };
+  if (!clockOut) {
+    await retireCurrentOvertimeRecord(supabase, employeeId, workDate);
+    return { status: "NO_CLOCK_OUT", overtimeRecordId: null, candidateMinutes: null };
+  }
 
   const { data: employee, error: employeeError } = await supabase
     .from("employees")
@@ -98,9 +169,17 @@ export async function generateOvertimeCandidate(
 
   if (!AUTO_GENERATE_GROUP_CODES.has(groupCode)) {
     if (groupCode === "ADMINISTRATION") {
+      await retireCurrentOvertimeRecord(supabase, employeeId, workDate);
       return { status: "NOT_ELIGIBLE", overtimeRecordId: null, candidateMinutes: null };
     }
+    await retireCurrentOvertimeRecord(supabase, employeeId, workDate);
     return { status: "OVERTIME_POLICY_REQUIRES_CONFIRMATION", overtimeRecordId: null, candidateMinutes: null };
+  }
+
+  const usesWorkedSpan = schedule.kind === "DAY_OFF" || isHoliday;
+  if (usesWorkedSpan && !clockIn) {
+    await retireCurrentOvertimeRecord(supabase, employeeId, workDate);
+    return { status: "NO_CLOCK_IN", overtimeRecordId: null, candidateMinutes: null };
   }
 
   const [year, month, day] = workDate.split("-").map(Number);
@@ -118,32 +197,50 @@ export async function generateOvertimeCandidate(
   if (policyError) {
     throw new Error(`generateOvertimeCandidate: fallo consultando overtime_policies: ${policyError.message}`);
   }
-  if (!policy) return { status: "NO_POLICY", overtimeRecordId: null, candidateMinutes: null };
-  if (!policy.overtime_eligible) return { status: "NOT_ELIGIBLE", overtimeRecordId: null, candidateMinutes: null };
+  if (!policy) {
+    await retireCurrentOvertimeRecord(supabase, employeeId, workDate);
+    return { status: "NO_POLICY", overtimeRecordId: null, candidateMinutes: null };
+  }
+  if (!policy.overtime_eligible) {
+    await retireCurrentOvertimeRecord(supabase, employeeId, workDate);
+    return { status: "NOT_ELIGIBLE", overtimeRecordId: null, candidateMinutes: null };
+  }
 
-  const rawMinutes = minutesBetween(schedule.scheduledEnd, new Date(clockOut));
-  const candidateMinutes = Math.max(0, Math.min(rawMinutes, policy.max_overtime_minutes ?? rawMinutes));
+  const rawMinutes = schedule.kind === "SCHEDULED" && !isHoliday
+    ? minutesBetween(schedule.scheduledEnd, new Date(clockOut))
+    : minutesBetweenInstants(clockIn!, clockOut);
+  if (!Number.isFinite(rawMinutes)) {
+    throw new Error("generateOvertimeCandidate: marcaciones inválidas para calcular horas extra.");
+  }
+  // En Producción, un feriado usa el límite HH100 confirmado (6h), aunque la
+  // fila semanal normal de overtime_policies tenga 120 minutos.
+  const candidateLimit = groupCode === "PRODUCTION" && isHoliday
+    ? 360
+    : (policy.max_overtime_minutes ?? rawMinutes);
+  const candidateMinutes = Math.max(0, Math.min(rawMinutes, candidateLimit));
 
   if (candidateMinutes === 0) {
+    await retireCurrentOvertimeRecord(supabase, employeeId, workDate);
     return { status: "NO_OVERTIME", overtimeRecordId: null, candidateMinutes: 0 };
   }
 
-  const { data: existing, error: existingError } = await supabase
-    .from("overtime_records")
-    .select("id, candidate_minutes, calculation_version")
-    .eq("employee_id", employeeId)
-    .eq("work_date", workDate)
-    .eq("is_current", true)
-    .maybeSingle();
-
-  if (existingError) {
-    throw new Error(`generateOvertimeCandidate: fallo consultando overtime_records vigente: ${existingError.message}`);
-  }
-  if (existing && existing.candidate_minutes === candidateMinutes) {
+  const existing = await loadCurrentOvertimeRecord(supabase, employeeId, workDate);
+  const expectedTypeCode = isHoliday || workDateDow === 0 ? "OVERTIME_100" : "OVERTIME_50";
+  if (
+    existing &&
+    existing.attendance_record_id === attendanceRecordId &&
+    existing.overtime_policy_id === policy.id &&
+    relationCode(existing.overtime_types) === expectedTypeCode &&
+    existing.candidate_minutes === candidateMinutes
+  ) {
     return { status: "UNCHANGED", overtimeRecordId: existing.id, candidateMinutes };
   }
   if (existing) {
-    const { error: updateError } = await supabase.from("overtime_records").update({ is_current: false }).eq("id", existing.id);
+    const { error: updateError } = await supabase
+      .from("overtime_records")
+      .update({ is_current: false })
+      .eq("id", existing.id)
+      .eq("is_current", true);
     if (updateError) throw new Error(`generateOvertimeCandidate: fallo versionando overtime_records: ${updateError.message}`);
   }
 

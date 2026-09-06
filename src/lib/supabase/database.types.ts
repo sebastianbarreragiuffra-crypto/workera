@@ -6372,7 +6372,7 @@ export type Database = {
         Returns: number
       }
       reclaim_stale_rule_engine_runs: {
-        Args: { p_stale_after_seconds?: number }
+        Args: { p_company_id: string; p_stale_after_seconds?: number }
         Returns: number
       }
       reclaim_stale_workera_sync_runs: {

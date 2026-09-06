@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { generateEarlyDepartureCandidate } from "./early-departure";
+import { generateEarlyDepartureCandidate, retireCurrentEarlyDepartureCandidate } from "./early-departure";
 
 function createMockSupabase(handlers: {
   employee_time_control_policies?: () => { data: unknown; error: unknown };
@@ -8,20 +8,30 @@ function createMockSupabase(handlers: {
   work_schedule_rules?: () => { data: unknown; error: unknown };
   early_departure_records_existing?: () => { data: unknown; error: unknown };
   early_departure_records_insert?: () => { data: unknown; error: unknown };
+  early_departure_records_update?: (id: string | null) => { data: unknown; error: unknown };
+  onInsert?: (row: Record<string, unknown>) => void;
 }) {
   return {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     from(table: string): any {
       let isInsert = false;
+      let isUpdate = false;
+      let updatedId: string | null = null;
       const builder = {
         select() {
           return builder;
         },
-        insert() {
+        insert(row: Record<string, unknown>) {
           isInsert = true;
+          handlers.onInsert?.(row);
           return builder;
         },
-        eq() {
+        update() {
+          isUpdate = true;
+          return builder;
+        },
+        eq(column: string, value: unknown) {
+          if (column === "id") updatedId = String(value);
           return builder;
         },
         lte() {
@@ -32,13 +42,24 @@ function createMockSupabase(handlers: {
         },
         maybeSingle: async () => {
           if (table === "early_departure_records") return handlers.early_departure_records_existing?.() ?? { data: null, error: null };
-          return handlers[table as keyof typeof handlers]?.() ?? { data: null, error: null };
+          if (table === "employee_time_control_policies") {
+            return handlers.employee_time_control_policies?.() ?? { data: null, error: null };
+          }
+          if (table === "schedule_assignments") return handlers.schedule_assignments?.() ?? { data: null, error: null };
+          if (table === "work_schedule_rules") return handlers.work_schedule_rules?.() ?? { data: null, error: null };
+          return { data: null, error: null };
         },
         single: async () => {
           if (table === "early_departure_records" && isInsert) {
             return handlers.early_departure_records_insert?.() ?? { data: { id: "edr-mock" }, error: null };
           }
           return { data: null, error: null };
+        },
+        then(resolve: (value: { data: unknown; error: unknown }) => void) {
+          if (table === "early_departure_records" && isUpdate) {
+            return resolve(handlers.early_departure_records_update?.(updatedId) ?? { data: null, error: null });
+          }
+          return resolve({ data: null, error: null });
         },
       };
       return builder;
@@ -227,4 +248,243 @@ test("early departure: trabajador exento nunca genera candidato", async () => {
     "2026-08-20T16:00:00.000Z"
   );
   assert.equal(result.status, "EXEMPT");
+});
+
+const CURRENT_EARLY = {
+  id: "edr-current",
+  attendance_record_id: "att-old",
+  scheduled_end: "17:00:00",
+  actual_end: "2026-08-20T20:50:00.000Z",
+  detected_minutes: 10,
+  calculation_version: 2,
+};
+
+test("early departure: si una corrección deja la salida a tiempo retira el candidato vigente", async () => {
+  const retired: Array<string | null> = [];
+  const mock = createMockSupabase({
+    ...STANDARD_MOCKS,
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
+    work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
+    early_departure_records_existing: () => ({ data: CURRENT_EARLY, error: null }),
+    early_departure_records_update: (id) => {
+      retired.push(id);
+      return { data: null, error: null };
+    },
+  });
+
+  const result = await generateEarlyDepartureCandidate(
+    mock as never,
+    "emp-1",
+    "2026-08-20",
+    "att-new",
+    "2026-08-20T21:00:00.000Z"
+  );
+
+  assert.equal(result.status, "NO_EARLY_DEPARTURE");
+  assert.deepEqual(retired, ["edr-current"]);
+});
+
+test("early departure: exento, día libre y sin horario retiran cualquier candidato anterior", async () => {
+  const scenarios = [
+    {
+      expected: "EXEMPT",
+      handlers: {
+        employee_time_control_policies: () => ({
+          data: { policy_code: "EXEMPT_FROM_TIME_CONTROL", legal_basis: "ARTICLE_22" },
+          error: null,
+        }),
+      },
+    },
+    {
+      expected: "DAY_OFF",
+      handlers: {
+        employee_time_control_policies: () => ({ data: null, error: null }),
+        schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
+        work_schedule_rules: () => ({ data: null, error: null }),
+      },
+    },
+    {
+      expected: "NO_SCHEDULE_ASSIGNED",
+      handlers: {
+        employee_time_control_policies: () => ({ data: null, error: null }),
+        schedule_assignments: () => ({ data: null, error: null }),
+      },
+    },
+  ] as const;
+
+  for (const scenario of scenarios) {
+    const retired: Array<string | null> = [];
+    const mock = createMockSupabase({
+      ...scenario.handlers,
+      early_departure_records_existing: () => ({ data: CURRENT_EARLY, error: null }),
+      early_departure_records_update: (id) => {
+        retired.push(id);
+        return { data: null, error: null };
+      },
+    });
+
+    const result = await generateEarlyDepartureCandidate(
+      mock as never,
+      "emp-1",
+      "2026-08-20",
+      "att-new",
+      "2026-08-20T20:50:00.000Z"
+    );
+    assert.equal(result.status, scenario.expected);
+    assert.deepEqual(retired, ["edr-current"]);
+  }
+});
+
+test("early departure: perder clock out o quedar autorizado por cumpleaños retira el candidato anterior", async () => {
+  const scheduleMocks = {
+    ...STANDARD_MOCKS,
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
+    work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
+  };
+
+  for (const birthdayCase of [false, true]) {
+    const retired: Array<string | null> = [];
+    const mock = createMockSupabase({
+      ...scheduleMocks,
+      early_departure_records_existing: () => ({ data: CURRENT_EARLY, error: null }),
+      early_departure_records_update: (id) => {
+        retired.push(id);
+        return { data: null, error: null };
+      },
+    });
+    const result = await generateEarlyDepartureCandidate(
+      mock as never,
+      "emp-1",
+      "2026-08-20",
+      "att-new",
+      birthdayCase ? "2026-08-20T16:03:00.000Z" : null,
+      birthdayCase ? { birthMonth: 8, birthDay: 20 } : null
+    );
+    assert.equal(result.status, birthdayCase ? "AUTHORIZED_BIRTHDAY_NO_CANDIDATE" : "NO_CLOCK_OUT");
+    assert.deepEqual(retired, ["edr-current"]);
+  }
+});
+
+test("retireCurrentEarlyDepartureCandidate: permite al orquestador limpiar un feriado trabajado", async () => {
+  const retired: Array<string | null> = [];
+  const mock = createMockSupabase({
+    early_departure_records_existing: () => ({ data: CURRENT_EARLY, error: null }),
+    early_departure_records_update: (id) => {
+      retired.push(id);
+      return { data: null, error: null };
+    },
+  });
+
+  assert.equal(await retireCurrentEarlyDepartureCandidate(mock as never, "emp-1", "2026-09-18"), true);
+  assert.deepEqual(retired, ["edr-current"]);
+});
+
+test("early departure: UNCHANGED exige misma asistencia y snapshots causales", async () => {
+  let inserted = false;
+  let retired = false;
+  const exactMock = createMockSupabase({
+    ...STANDARD_MOCKS,
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
+    work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
+    early_departure_records_existing: () => ({ data: { ...CURRENT_EARLY, attendance_record_id: "att-current" }, error: null }),
+    early_departure_records_update: () => {
+      retired = true;
+      return { data: null, error: null };
+    },
+    onInsert: () => {
+      inserted = true;
+    },
+  });
+
+  const unchanged = await generateEarlyDepartureCandidate(
+    exactMock as never,
+    "emp-1",
+    "2026-08-20",
+    "att-current",
+    "2026-08-20T20:50:00.000Z"
+  );
+  assert.equal(unchanged.status, "UNCHANGED");
+  assert.equal(retired, false);
+  assert.equal(inserted, false);
+
+  const writes: Record<string, unknown>[] = [];
+  const retiredIds: Array<string | null> = [];
+  const changedParentMock = createMockSupabase({
+    ...STANDARD_MOCKS,
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
+    work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
+    early_departure_records_existing: () => ({ data: CURRENT_EARLY, error: null }),
+    early_departure_records_update: (id) => {
+      retiredIds.push(id);
+      return { data: null, error: null };
+    },
+    onInsert: (row) => writes.push(row),
+    early_departure_records_insert: () => ({ data: { id: "edr-v3" }, error: null }),
+  });
+
+  const regenerated = await generateEarlyDepartureCandidate(
+    changedParentMock as never,
+    "emp-1",
+    "2026-08-20",
+    "att-new",
+    "2026-08-20T20:50:00.000Z"
+  );
+  assert.equal(regenerated.status, "GENERATED");
+  assert.deepEqual(retiredIds, ["edr-current"]);
+  assert.equal(writes[0].attendance_record_id, "att-new");
+  assert.equal(writes[0].calculation_version, 3);
+});
+
+test("early departure: mismos minutos con snapshots distintos regeneran el candidato", async () => {
+  const writes: Record<string, unknown>[] = [];
+  const retiredIds: Array<string | null> = [];
+  const mock = createMockSupabase({
+    ...STANDARD_MOCKS,
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
+    work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
+    early_departure_records_existing: () => ({
+      data: {
+        ...CURRENT_EARLY,
+        attendance_record_id: "att-current",
+        scheduled_end: "16:50:00",
+        actual_end: "2026-08-20T20:40:00.000Z",
+      },
+      error: null,
+    }),
+    early_departure_records_update: (id) => {
+      retiredIds.push(id);
+      return { data: null, error: null };
+    },
+    onInsert: (row) => writes.push(row),
+    early_departure_records_insert: () => ({ data: { id: "edr-snapshot-v3" }, error: null }),
+  });
+
+  const result = await generateEarlyDepartureCandidate(
+    mock as never,
+    "emp-1",
+    "2026-08-20",
+    "att-current",
+    "2026-08-20T20:50:00.000Z"
+  );
+
+  assert.equal(result.status, "GENERATED");
+  assert.deepEqual(retiredIds, ["edr-current"]);
+  assert.equal(writes[0].scheduled_end, "17:00:00");
+  assert.equal(writes[0].actual_end, "2026-08-20T20:50:00.000Z");
+  assert.equal(writes[0].detected_minutes, 10);
+});
+
+test("early departure: un fallo al retirar aborta, nunca devuelve NO_EARLY_DEPARTURE falsamente", async () => {
+  const mock = createMockSupabase({
+    ...STANDARD_MOCKS,
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
+    work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
+    early_departure_records_existing: () => ({ data: CURRENT_EARLY, error: null }),
+    early_departure_records_update: () => ({ data: null, error: { message: "db unavailable" } }),
+  });
+
+  await assert.rejects(
+    generateEarlyDepartureCandidate(mock as never, "emp-1", "2026-08-20", "att-new", "2026-08-20T21:00:00.000Z"),
+    /fallo retirando early_departure_records vigente: db unavailable/
+  );
 });

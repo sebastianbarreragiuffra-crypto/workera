@@ -6,6 +6,7 @@ import { getCurrentProfile } from "../../../../lib/auth/session";
 import { runRuleEngineWithServiceRole } from "../../../../lib/rule-engine/service";
 import { createClient } from "../../../../lib/supabase/server";
 import { enforceWorkforceActionRateLimit } from "../../../../lib/decisions/workforce-action-rate-limit";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../../lib/tenant/legacy-workforce";
 
 /**
  * Disparo manual del motor de reglas (MB-2).
@@ -46,6 +47,7 @@ export async function processAttendanceDayAction(
 
   try {
     const outcome = await runRuleEngineWithServiceRole(date, {
+      companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
       triggeredBy: "MANUAL",
       triggeredByProfile: profile.id,
     });

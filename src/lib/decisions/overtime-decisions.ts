@@ -30,8 +30,12 @@ export async function decideOvertime(
 ): Promise<DecideOvertimeResult> {
   const { data: record, error: recordError } = await supabase
     .from("overtime_records")
-    .select("candidate_minutes")
+    .select("candidate_minutes, attendance_records!inner(is_current)")
     .eq("id", input.overtimeRecordId)
+    // Un id histórico sigue existiendo por auditoría, pero ya no es una
+    // propuesta decidible ni puede volver a gatillar un bono.
+    .eq("is_current", true)
+    .eq("attendance_records.is_current", true)
     .single();
   if (recordError || !record) {
     throw new Error(`decideOvertime: registro de horas extra no encontrado (${input.overtimeRecordId}).`);

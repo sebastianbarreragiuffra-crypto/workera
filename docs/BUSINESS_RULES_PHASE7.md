@@ -102,7 +102,9 @@ Matching **exacto** (normalizado: trim + espacios colapsados + mayúsculas) cont
 `generateOvertimeCandidate` reutiliza el motor de aprobación/cap ya construido en Gate D (`overtime_records`/`overtime_policies`/clasificación HH50-HH100/selector binario Producción) — Fase 7 solo agrega la generación del **candidato** (`candidate_minutes`), que antes no existía automáticamente.
 
 - **PRODUCTION**: política confirmada, genera candidato automático usando el horario efectivo del trabajador (individual o general) — verificado que Alejandro/María acumulan overtime desde SU propio `scheduled_end`, no 17:00 fijo.
-- **INSTALLATION**: reglas exactas de overtime **siguen pendientes** (explícito en el encargo) → `OVERTIME_POLICY_REQUIRES_CONFIRMATION`, nunca genera un candidato automático, aunque `overtime_policies.overtime_eligible=true` ya exista en la tabla como placeholder.
+- **INSTALLATION**: decisión cerrada en Gate D: genera los minutos exactos, sin selector 1h/2h y sin tope fijo de negocio. La política de 1440 minutos es solo el límite técnico de un día. En días sin turno usa el tramo real entrada-salida.
+- **Días libres y feriados trabajados**: ya no se descartan antes de leer marcaciones. Con eventos reales se deriva el registro; el candidato usa el tramo entrada-salida y conserva la clasificación HH50/HH100 del motor de base de datos. En un feriado trabajado no se generan falsos atrasos ni salidas anticipadas.
+- **Recálculo autoritativo**: si desaparece la salida, la persona queda exenta/no elegible o el nuevo cálculo da cero, el candidato anterior deja de ser `is_current`; nunca continúa en la cola una hora extra que ya no respalda la marcación vigente.
 - **ADMINISTRATION**: `overtime_eligible=false` ya confirmado → `NOT_ELIGIBLE`.
 
 ## 14. Bono de producción
@@ -116,6 +118,16 @@ Los primeros motores de atraso/salida anticipada/overtime comparaban minutos ley
 ## 16. Cambio de fuente (source-change)
 
 Sin migración nueva — es una propiedad que ya se cae del diseño versionado existente: cada re-derivación de `attendance_records` produce una fila NUEVA (`is_current` flip); las decisiones (`late_arrival_decisions`/`early_departure_decisions`) están atadas al ID de la fila candidato ANTERIOR, así que una decisión humana ya tomada nunca desaparece ni se sobreescribe. Un candidato nuevo tras un cambio de fuente naturalmente no tiene decisión vigente todavía — `getDailyReview` lo detecta como `REQUIRES_REVIEW` sin necesitar un estado `SOURCE_CHANGED` explícito.
+
+Si Workera deja de entregar las marcaciones de una jornada derivada, el motor retira de forma idempotente la asistencia, candidatos y código diario automáticos que estaban vigentes; una asistencia manual se conserva. La lectura de `attendance_effective_punches` falla cerrado: si la vista no responde, la corrida se detiene en vez de ignorar silenciosamente una corrección autorizada.
+
+La reconciliación también cubre cambios menos evidentes: si una corrección deja la entrada a tiempo, elimina la salida anticipada, cambia el horario/política causal o la fecha pasa a ser feriado, los candidatos anteriores dejan de ser `is_current`. `UNCHANGED` solo se devuelve cuando coinciden la asistencia padre y todos los snapshots que explican el cálculo; conservar la misma cantidad de minutos no basta.
+
+El orquestador bajo `service_role` exige siempre un `companyId` explícito. La selección de empleados vuelve a comprobar `employees.company_id` incluso cuando el llamador entrega IDs puntuales, y `rule_engine_runs` registra el tenant real de la corrida. La recuperación de corridas abandonadas también exige el tenant y nunca barre otras empresas. Las rutas actuales pasan explícitamente el tenant workforce legado; no existe un valor multiempresa implícito dentro del motor.
+
+El cierre de una corrida usa compare-and-set sobre `status = RUNNING`. Si el lease venció y otra ejecución ya recuperó la fila, el proceso antiguo no puede sobrescribir ese estado al terminar tarde. Antes de aumentar el volumen debe agregarse heartbeat o una transacción/lease para el reproceso completo; el umbral de recuperación sigue siendo una defensa ante caídas, no una garantía de exclusión para trabajos que legítimamente duren más de 15 minutos.
+
+Las decisiones nuevas se validan dos veces: la aplicación exige candidato y asistencia padre vigentes, y un trigger de base de datos repite esa condición bajo bloqueo para cerrar la carrera entre validación e inserción. Los consumidores de revisión, dashboard, documentos, detalle de persona y Excel también exigen `attendance_records.is_current = true`; el historial queda auditable sin volver a afectar la operación actual.
 
 ## 17. Work queue por supervisor
 
@@ -131,12 +143,10 @@ Mismo hallazgo real de Fase 6A (`service_role` tiene `BYPASSRLS` pero cero GRANT
 
 ## 20. Reglas de negocio NO resueltas (explícitamente pendientes)
 
-- Reglas exactas de overtime para INSTALLATION.
-- Reglas de fin de semana para INSTALLATION.
 - Tratamiento exacto HH50/HH100 de viernes (más allá de lo ya confirmado en Gate D).
 - Comportamiento automático exacto de `R` (Recuperan horas) — código mantenido pero desactivado (`active=false`) desde Gate D, no se genera automáticamente.
-- Overtime/bono aplicable a horarios individuales/custom más allá de PRODUCTION (INSTALLATION queda en `OVERTIME_POLICY_REQUIRES_CONFIRMATION` sin excepción).
-- Calendario de feriados legales chilenos para el cálculo de 3 días hábiles (usa solo lunes-viernes).
+- Overtime/bono aplicable a futuros grupos u horarios especiales distintos de PRODUCTION e INSTALLATION.
+- Mantención del calendario de feriados legales para años posteriores a los ya cargados.
 - Horario de cron de producción (heredado de Fase 6B, sigue sin confirmar por el negocio).
 
 ## 21. Seguridad y privacidad

@@ -82,17 +82,21 @@ export async function getEmployeeDetail(
     resolveEffectiveSchedule(supabase, employeeId, today),
     supabase
       .from("late_arrival_records")
-      .select("work_date, detected_minutes, late_arrival_decisions(justified, is_current)")
+      .select("work_date, detected_minutes, attendance_records!inner(is_current), late_arrival_decisions(justified, is_current)")
       .eq("employee_id", employeeId)
       .eq("is_current", true)
+      .eq("attendance_records.is_current", true)
       .gte("work_date", since)
       .order("work_date", { ascending: false })
       .limit(RECENT_LIMIT),
     supabase
       .from("overtime_records")
-      .select("work_date, candidate_minutes, overtime_decisions(decision_status, approved_minutes, is_current)")
+      .select(
+        "work_date, candidate_minutes, attendance_records!inner(is_current), overtime_decisions(decision_status, approved_minutes, is_current)"
+      )
       .eq("employee_id", employeeId)
       .eq("is_current", true)
+      .eq("attendance_records.is_current", true)
       .gte("work_date", since)
       .order("work_date", { ascending: false })
       .limit(RECENT_LIMIT),
@@ -141,13 +145,18 @@ export async function getEmployeeDetail(
     return Array.isArray(relation) ? (relation[0] ?? null) : relation;
   }
 
+  function currentOf<T extends { is_current: boolean }>(relation: T | T[] | null): T | null {
+    const rows = Array.isArray(relation) ? relation : relation ? [relation] : [];
+    return rows.find((candidate) => candidate.is_current) ?? null;
+  }
+
   const recentLateArrivals: RecentLateArrival[] = (lateRes.data ?? []).map((row) => {
-    const decision = firstOf(row.late_arrival_decisions);
+    const decision = currentOf(row.late_arrival_decisions);
     return { workDate: row.work_date, detectedMinutes: row.detected_minutes, justified: decision?.justified ?? null };
   });
 
   const recentOvertime: RecentOvertime[] = (overtimeRes.data ?? []).map((row) => {
-    const decision = firstOf(row.overtime_decisions);
+    const decision = currentOf(row.overtime_decisions);
     return {
       workDate: row.work_date,
       candidateMinutes: row.candidate_minutes,
@@ -157,7 +166,7 @@ export async function getEmployeeDetail(
   });
 
   const recentAbsences: RecentAbsence[] = (absenceRes.data ?? []).map((row) => {
-    const decision = firstOf(row.absence_decisions);
+    const decision = currentOf(row.absence_decisions);
     const type = firstOf(row.absence_types);
     return {
       startDate: row.start_date,

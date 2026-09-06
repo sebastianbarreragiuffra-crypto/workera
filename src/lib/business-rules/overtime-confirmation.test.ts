@@ -12,12 +12,15 @@ function createMockSupabase(handlers: {
   overtime_records_existing?: () => { data: unknown; error: unknown };
   overtime_types?: () => { data: unknown; error: unknown };
   overtime_records_insert?: () => { data: unknown; error: unknown };
+  overtime_records_update?: (id: string | null) => { data: unknown; error: unknown };
 }) {
   return {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     from(table: string): any {
       let isInsert = false;
+      let isUpdate = false;
       let limitCalled = false;
+      let updatedId: string | null = null;
       const builder = {
         select() {
           return builder;
@@ -26,7 +29,12 @@ function createMockSupabase(handlers: {
           isInsert = true;
           return builder;
         },
-        eq() {
+        update() {
+          isUpdate = true;
+          return builder;
+        },
+        eq(column: string, value: unknown) {
+          if (isUpdate && column === "id") updatedId = String(value);
           return builder;
         },
         lte() {
@@ -41,7 +49,10 @@ function createMockSupabase(handlers: {
         },
         maybeSingle: async () => {
           if (table === "overtime_records") return handlers.overtime_records_existing?.() ?? { data: null, error: null };
-          return handlers[table as keyof typeof handlers]?.() ?? { data: null, error: null };
+          const readHandler = handlers[table as keyof typeof handlers] as
+            | (() => { data: unknown; error: unknown })
+            | undefined;
+          return readHandler?.() ?? { data: null, error: null };
         },
         single: async () => {
           if (table === "employees") return handlers.employees?.() ?? { data: null, error: null };
@@ -49,6 +60,13 @@ function createMockSupabase(handlers: {
           if (table === "overtime_types" && limitCalled) return handlers.overtime_types?.() ?? { data: { id: "ot-1" }, error: null };
           if (table === "overtime_records" && isInsert) return handlers.overtime_records_insert?.() ?? { data: { id: "or-mock" }, error: null };
           return { data: null, error: null };
+        },
+        then: (resolve: (value: unknown) => void) => {
+          if (table === "overtime_records" && isUpdate) {
+            resolve(handlers.overtime_records_update?.(updatedId) ?? { data: null, error: null });
+            return;
+          }
+          resolve({ data: null, error: null });
         },
       };
       return builder;
@@ -89,17 +107,68 @@ test("overtime PRODUCTION: candidato se topa en max_overtime_minutes (cap confir
   assert.equal(result.candidateMinutes, 120);
 });
 
-test("overtime INSTALLATION: NUNCA genera candidato automático (PASO 36, reglas exactas pendientes)", async () => {
+test("overtime INSTALLATION: genera minutos exactos, sin selector 1h/2h", async () => {
   const mock = createMockSupabase({
     employee_time_control_policies: () => ({ data: null, error: null }),
     schedule_assignments: () => ({ data: { work_schedule_id: "ws-install" }, error: null }),
     work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
     employees: () => ({ data: { employee_group_id: "grp-installation" }, error: null }),
     employee_groups: () => ({ data: { code: "INSTALLATION" }, error: null }),
+    overtime_policies: () => ({ data: { id: "pol-install", overtime_eligible: true, max_overtime_minutes: 1440 }, error: null }),
+    overtime_records_existing: () => ({ data: null, error: null }),
+    overtime_records_insert: () => ({ data: { id: "or-install" }, error: null }),
   });
-  const result = await generateOvertimeCandidate(mock as never, "emp-install", "2026-08-17", "att-1", "2026-08-17T22:00:00.000Z");
-  assert.equal(result.status, "OVERTIME_POLICY_REQUIRES_CONFIRMATION");
-  assert.equal(result.overtimeRecordId, null);
+  // 18:05 en Santiago: 65 minutos exactos después de la salida de las 17:00.
+  const result = await generateOvertimeCandidate(mock as never, "emp-install", "2026-08-17", "att-1", "2026-08-17T22:05:00.000Z");
+  assert.equal(result.status, "GENERATED");
+  assert.equal(result.candidateMinutes, 65);
+});
+
+test("overtime INSTALLATION: en día libre usa el tramo real entrada-salida", async () => {
+  const mock = createMockSupabase({
+    employee_time_control_policies: () => ({ data: null, error: null }),
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-install" }, error: null }),
+    work_schedule_rules: () => ({ data: null, error: null }),
+    employees: () => ({ data: { employee_group_id: "grp-installation" }, error: null }),
+    employee_groups: () => ({ data: { code: "INSTALLATION" }, error: null }),
+    overtime_policies: () => ({ data: { id: "pol-install", overtime_eligible: true, max_overtime_minutes: 1440 }, error: null }),
+    overtime_records_existing: () => ({ data: null, error: null }),
+    overtime_records_insert: () => ({ data: { id: "or-install-weekend" }, error: null }),
+  });
+  const result = await generateOvertimeCandidate(
+    mock as never,
+    "emp-install",
+    "2026-08-22",
+    "att-weekend",
+    "2026-08-22T18:10:00.000Z",
+    "2026-08-22T14:00:00.000Z"
+  );
+  assert.equal(result.status, "GENERATED");
+  assert.equal(result.candidateMinutes, 250);
+});
+
+test("overtime PRODUCTION: un feriado trabajado usa todo el tramo y el tope HH100 de 360 minutos", async () => {
+  const mock = createMockSupabase({
+    employee_time_control_policies: () => ({ data: null, error: null }),
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-production" }, error: null }),
+    work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
+    employees: () => ({ data: { employee_group_id: "grp-production" }, error: null }),
+    employee_groups: () => ({ data: { code: "PRODUCTION" }, error: null }),
+    overtime_policies: () => ({ data: { id: "pol-weekday", overtime_eligible: true, max_overtime_minutes: 120 }, error: null }),
+    overtime_records_existing: () => ({ data: null, error: null }),
+    overtime_records_insert: () => ({ data: { id: "or-holiday" }, error: null }),
+  });
+  const result = await generateOvertimeCandidate(
+    mock as never,
+    "emp-prod",
+    "2026-09-18",
+    "att-holiday",
+    "2026-09-18T21:00:00.000Z",
+    "2026-09-18T12:00:00.000Z",
+    true
+  );
+  assert.equal(result.status, "GENERATED");
+  assert.equal(result.candidateMinutes, 360);
 });
 
 test("overtime ADMINISTRATION: NOT_ELIGIBLE, nunca genera candidato", async () => {
@@ -120,4 +189,203 @@ test("overtime: trabajador exento nunca genera candidato", async () => {
   });
   const result = await generateOvertimeCandidate(mock as never, "michel-id", "2026-08-17", "att-1", "2026-08-17T22:00:00.000Z");
   assert.equal(result.status, "EXEMPT");
+});
+
+test("overtime: si el recálculo queda en cero retira el candidato vigente", async () => {
+  const retired: string[] = [];
+  const mock = createMockSupabase({
+    employee_time_control_policies: () => ({ data: null, error: null }),
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
+    work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
+    employees: () => ({ data: { employee_group_id: "grp-production" }, error: null }),
+    employee_groups: () => ({ data: { code: "PRODUCTION" }, error: null }),
+    overtime_policies: () => ({ data: { id: "pol-1", overtime_eligible: true, max_overtime_minutes: 120 }, error: null }),
+    overtime_records_existing: () => ({ data: { id: "or-vigente", candidate_minutes: 60, calculation_version: 1 }, error: null }),
+    overtime_records_update: (id) => {
+      if (id) retired.push(id);
+      return { data: null, error: null };
+    },
+  });
+
+  // 17:00 de Santiago: ya no existe tiempo posterior al horario efectivo.
+  const result = await generateOvertimeCandidate(mock as never, "emp-1", "2026-08-17", "att-1", "2026-08-17T21:00:00.000Z");
+
+  assert.equal(result.status, "NO_OVERTIME");
+  assert.deepEqual(retired, ["or-vigente"]);
+});
+
+test("overtime: perder la salida retira el candidato vigente", async () => {
+  const retired: string[] = [];
+  const mock = createMockSupabase({
+    employee_time_control_policies: () => ({ data: null, error: null }),
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
+    work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
+    overtime_records_existing: () => ({ data: { id: "or-sin-salida", candidate_minutes: 60, calculation_version: 1 }, error: null }),
+    overtime_records_update: (id) => {
+      if (id) retired.push(id);
+      return { data: null, error: null };
+    },
+  });
+
+  const result = await generateOvertimeCandidate(mock as never, "emp-1", "2026-08-17", "att-1", null);
+
+  assert.equal(result.status, "NO_CLOCK_OUT");
+  assert.deepEqual(retired, ["or-sin-salida"]);
+});
+
+test("overtime: quedar exento retira el candidato vigente", async () => {
+  const retired: string[] = [];
+  const mock = createMockSupabase({
+    employee_time_control_policies: () => ({ data: { policy_code: "EXEMPT_FROM_TIME_CONTROL", legal_basis: "ARTICLE_22" }, error: null }),
+    overtime_records_existing: () => ({ data: { id: "or-exento", candidate_minutes: 60, calculation_version: 1 }, error: null }),
+    overtime_records_update: (id) => {
+      if (id) retired.push(id);
+      return { data: null, error: null };
+    },
+  });
+
+  const result = await generateOvertimeCandidate(mock as never, "emp-1", "2026-08-17", "att-1", "2026-08-17T22:00:00.000Z");
+
+  assert.equal(result.status, "EXEMPT");
+  assert.deepEqual(retired, ["or-exento"]);
+});
+
+test("overtime: quedar no elegible retira el candidato vigente", async () => {
+  const retired: string[] = [];
+  const mock = createMockSupabase({
+    employee_time_control_policies: () => ({ data: null, error: null }),
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-admin" }, error: null }),
+    work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
+    employees: () => ({ data: { employee_group_id: "grp-admin" }, error: null }),
+    employee_groups: () => ({ data: { code: "ADMINISTRATION" }, error: null }),
+    overtime_records_existing: () => ({ data: { id: "or-no-elegible", candidate_minutes: 60, calculation_version: 1 }, error: null }),
+    overtime_records_update: (id) => {
+      if (id) retired.push(id);
+      return { data: null, error: null };
+    },
+  });
+
+  const result = await generateOvertimeCandidate(mock as never, "emp-admin", "2026-08-17", "att-1", "2026-08-17T22:00:00.000Z");
+
+  assert.equal(result.status, "NOT_ELIGIBLE");
+  assert.deepEqual(retired, ["or-no-elegible"]);
+});
+
+test("overtime: UNCHANGED exige mismo padre, política, tasa y minutos", async () => {
+  const retired: string[] = [];
+  const mock = createMockSupabase({
+    employee_time_control_policies: () => ({ data: null, error: null }),
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
+    work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
+    employees: () => ({ data: { employee_group_id: "grp-production" }, error: null }),
+    employee_groups: () => ({ data: { code: "PRODUCTION" }, error: null }),
+    overtime_policies: () => ({ data: { id: "pol-1", overtime_eligible: true, max_overtime_minutes: 120 }, error: null }),
+    overtime_records_existing: () => ({
+      data: {
+        id: "or-vigente",
+        attendance_record_id: "att-1",
+        candidate_minutes: 60,
+        overtime_policy_id: "pol-1",
+        overtime_types: { code: "OVERTIME_50" },
+        calculation_version: 1,
+      },
+      error: null,
+    }),
+    overtime_records_update: (id) => {
+      if (id) retired.push(id);
+      return { data: null, error: null };
+    },
+  });
+
+  const result = await generateOvertimeCandidate(
+    mock as never,
+    "emp-1",
+    "2026-08-17",
+    "att-1",
+    "2026-08-17T22:00:00.000Z"
+  );
+
+  assert.equal(result.status, "UNCHANGED");
+  assert.deepEqual(retired, []);
+});
+
+test("overtime: mismos minutos con otra asistencia regeneran el candidato", async () => {
+  const retired: string[] = [];
+  const mock = createMockSupabase({
+    employee_time_control_policies: () => ({ data: null, error: null }),
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
+    work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
+    employees: () => ({ data: { employee_group_id: "grp-production" }, error: null }),
+    employee_groups: () => ({ data: { code: "PRODUCTION" }, error: null }),
+    overtime_policies: () => ({ data: { id: "pol-1", overtime_eligible: true, max_overtime_minutes: 120 }, error: null }),
+    overtime_records_existing: () => ({
+      data: {
+        id: "or-anterior",
+        attendance_record_id: "att-anterior",
+        candidate_minutes: 60,
+        overtime_policy_id: "pol-1",
+        overtime_types: { code: "OVERTIME_50" },
+        calculation_version: 4,
+      },
+      error: null,
+    }),
+    overtime_records_update: (id) => {
+      if (id) retired.push(id);
+      return { data: null, error: null };
+    },
+    overtime_records_insert: () => ({ data: { id: "or-nuevo" }, error: null }),
+  });
+
+  const result = await generateOvertimeCandidate(
+    mock as never,
+    "emp-1",
+    "2026-08-17",
+    "att-nueva",
+    "2026-08-17T22:00:00.000Z"
+  );
+
+  assert.equal(result.status, "GENERATED");
+  assert.deepEqual(retired, ["or-anterior"]);
+});
+
+test("overtime: un feriado reclasifica HH50 anterior aunque conserve los minutos", async () => {
+  const retired: string[] = [];
+  const mock = createMockSupabase({
+    employee_time_control_policies: () => ({ data: null, error: null }),
+    schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
+    work_schedule_rules: () => ({ data: { scheduled_start: "07:30:00", scheduled_end: "17:00:00" }, error: null }),
+    employees: () => ({ data: { employee_group_id: "grp-production" }, error: null }),
+    employee_groups: () => ({ data: { code: "PRODUCTION" }, error: null }),
+    overtime_policies: () => ({ data: { id: "pol-1", overtime_eligible: true, max_overtime_minutes: 120 }, error: null }),
+    overtime_records_existing: () => ({
+      data: {
+        id: "or-hh50",
+        attendance_record_id: "att-1",
+        candidate_minutes: 60,
+        overtime_policy_id: "pol-1",
+        overtime_types: { code: "OVERTIME_50" },
+        calculation_version: 1,
+      },
+      error: null,
+    }),
+    overtime_records_update: (id) => {
+      if (id) retired.push(id);
+      return { data: null, error: null };
+    },
+    overtime_records_insert: () => ({ data: { id: "or-hh100" }, error: null }),
+  });
+
+  const result = await generateOvertimeCandidate(
+    mock as never,
+    "emp-1",
+    "2026-09-18",
+    "att-1",
+    "2026-09-18T13:00:00.000Z",
+    "2026-09-18T12:00:00.000Z",
+    true
+  );
+
+  assert.equal(result.status, "GENERATED");
+  assert.equal(result.candidateMinutes, 60);
+  assert.deepEqual(retired, ["or-hh50"]);
 });

@@ -40,6 +40,71 @@ function minutesBetween(scheduledStart: string, clockIn: Date): number {
   return santiagoWallClockMinutesSinceMidnight(clockIn) - scheduledTimeToMinutes(scheduledStart);
 }
 
+type CurrentLateArrival = Pick<
+  Database["public"]["Tables"]["late_arrival_records"]["Row"],
+  | "id"
+  | "attendance_record_id"
+  | "scheduled_start"
+  | "actual_start"
+  | "detected_minutes"
+  | "late_arrival_policy_id"
+  | "calculation_version"
+>;
+
+async function loadCurrentLateArrival(
+  supabase: SupabaseClient<Database>,
+  employeeId: string,
+  workDate: string
+): Promise<CurrentLateArrival | null> {
+  const { data, error } = await supabase
+    .from("late_arrival_records")
+    .select(
+      "id, attendance_record_id, scheduled_start, actual_start, detected_minutes, late_arrival_policy_id, calculation_version"
+    )
+    .eq("employee_id", employeeId)
+    .eq("work_date", workDate)
+    .eq("is_current", true)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`generateLateArrivalCandidate: fallo consultando late_arrival_records vigente: ${error.message}`);
+  }
+  return data;
+}
+
+async function retireLoadedLateArrival(
+  supabase: SupabaseClient<Database>,
+  current: CurrentLateArrival | null
+): Promise<boolean> {
+  if (!current) return false;
+  const { error } = await supabase
+    .from("late_arrival_records")
+    .update({ is_current: false })
+    .eq("id", current.id)
+    .eq("is_current", true);
+  if (error) {
+    throw new Error(`generateLateArrivalCandidate: fallo retirando late_arrival_records vigente: ${error.message}`);
+  }
+  return true;
+}
+
+/**
+ * Retira un atraso calculado que ya no tiene causa. Se expone para que el
+ * orquestador pueda limpiar un feriado trabajado, donde deliberadamente no
+ * debe ejecutar la comparación contra el horario ordinario.
+ */
+export async function retireCurrentLateArrivalCandidate(
+  supabase: SupabaseClient<Database>,
+  employeeId: string,
+  workDate: string
+): Promise<boolean> {
+  return retireLoadedLateArrival(supabase, await loadCurrentLateArrival(supabase, employeeId, workDate));
+}
+
+function sameInstant(left: string, right: string): boolean {
+  return new Date(left).getTime() === new Date(right).getTime();
+}
+
 export async function generateLateArrivalCandidate(
   supabase: SupabaseClient<Database>,
   employeeId: string,
@@ -49,12 +114,22 @@ export async function generateLateArrivalCandidate(
 ): Promise<GenerateLateArrivalResult> {
   const schedule = await resolveEffectiveSchedule(supabase, employeeId, workDate);
 
-  if (schedule.kind === "EXEMPT") return { status: "EXEMPT", lateArrivalRecordId: null, detectedMinutes: null };
-  if (schedule.kind === "DAY_OFF") return { status: "DAY_OFF", lateArrivalRecordId: null, detectedMinutes: null };
+  if (schedule.kind === "EXEMPT") {
+    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate);
+    return { status: "EXEMPT", lateArrivalRecordId: null, detectedMinutes: null };
+  }
+  if (schedule.kind === "DAY_OFF") {
+    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate);
+    return { status: "DAY_OFF", lateArrivalRecordId: null, detectedMinutes: null };
+  }
   if (schedule.kind === "NO_SCHEDULE_ASSIGNED") {
+    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate);
     return { status: "NO_SCHEDULE_ASSIGNED", lateArrivalRecordId: null, detectedMinutes: null };
   }
-  if (!clockIn) return { status: "NO_CLOCK_IN", lateArrivalRecordId: null, detectedMinutes: null };
+  if (!clockIn) {
+    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate);
+    return { status: "NO_CLOCK_IN", lateArrivalRecordId: null, detectedMinutes: null };
+  }
 
   const { data: employee, error: employeeError } = await supabase
     .from("employees")
@@ -80,35 +155,32 @@ export async function generateLateArrivalCandidate(
   if (policyError) {
     throw new Error(`generateLateArrivalCandidate: fallo consultando late_arrival_policies: ${policyError.message}`);
   }
-  if (!policy) return { status: "NO_POLICY", lateArrivalRecordId: null, detectedMinutes: null };
+  if (!policy) {
+    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate);
+    return { status: "NO_POLICY", lateArrivalRecordId: null, detectedMinutes: null };
+  }
 
   const rawMinutes = minutesBetween(schedule.scheduledStart, new Date(clockIn));
   const detectedMinutes = Math.max(0, rawMinutes - policy.tolerance_minutes);
 
   if (detectedMinutes === 0) {
+    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate);
     return { status: "NO_LATE", lateArrivalRecordId: null, detectedMinutes: 0 };
   }
 
-  const { data: existing, error: existingError } = await supabase
-    .from("late_arrival_records")
-    .select("id, detected_minutes, calculation_version")
-    .eq("employee_id", employeeId)
-    .eq("work_date", workDate)
-    .eq("is_current", true)
-    .maybeSingle();
-
-  if (existingError) {
-    throw new Error(`generateLateArrivalCandidate: fallo consultando late_arrival_records vigente: ${existingError.message}`);
-  }
-  if (existing && existing.detected_minutes === detectedMinutes) {
+  const existing = await loadCurrentLateArrival(supabase, employeeId, workDate);
+  if (
+    existing &&
+    existing.attendance_record_id === attendanceRecordId &&
+    scheduledTimeToMinutes(existing.scheduled_start) === scheduledTimeToMinutes(schedule.scheduledStart) &&
+    sameInstant(existing.actual_start, clockIn) &&
+    existing.detected_minutes === detectedMinutes &&
+    existing.late_arrival_policy_id === policy.id
+  ) {
     return { status: "UNCHANGED", lateArrivalRecordId: existing.id, detectedMinutes };
   }
   if (existing) {
-    const { error: updateError } = await supabase
-      .from("late_arrival_records")
-      .update({ is_current: false })
-      .eq("id", existing.id);
-    if (updateError) throw new Error(`generateLateArrivalCandidate: fallo versionando late_arrival_records: ${updateError.message}`);
+    await retireLoadedLateArrival(supabase, existing);
   }
 
   const { data: inserted, error: insertError } = await supabase

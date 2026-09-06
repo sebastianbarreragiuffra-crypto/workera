@@ -46,10 +46,13 @@ export async function getPendingDocumentRelations(
   const [earlyRes, absenceRes] = await Promise.all([
     supabase
       .from("early_departure_records")
-      .select("id, employee_id, early_departure_decisions(document_required, is_current)")
+      .select(
+        "id, employee_id, attendance_records!inner(is_current), early_departure_decisions(document_required, is_current)"
+      )
       .in("employee_id", employeeIds)
       .eq("work_date", date)
-      .eq("is_current", true),
+      .eq("is_current", true)
+      .eq("attendance_records.is_current", true),
     supabase
       .from("absence_records")
       .select("id, employee_id, absence_decisions(decision_status, document_required, is_current)")

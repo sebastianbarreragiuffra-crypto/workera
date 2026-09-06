@@ -8,8 +8,9 @@ import { resolveTargetDate } from "../sync/target-date";
 /**
  * `getAttendanceReadiness` no recalcula nada -- combina `getDailyReview`
  * (Fase 7) y `listMedicalLicenses` (aprobación de licencias médicas), ambos
- * ya probados por su cuenta. Este mock simula las mismas tablas que esos dos
- * servicios consultan (ver daily-review.ts y medical-license.ts) para
+ * ya probados por su cuenta, más la cobertura de `rule_engine_runs`. Este mock
+ * simula las mismas tablas que esos servicios consultan (ver daily-review.ts
+ * y medical-license.ts) para
  * verificar el ENSAMBLE -- mensajes, conteo, scoping por rol y el corte D-1
  * -- no la lógica interna de ninguno de los dos.
  */
@@ -28,17 +29,22 @@ interface Fixture {
   absence_records?: unknown[];
   overtime_records?: unknown[];
   medical_license_approvals?: unknown[];
+  rule_engine_runs?: unknown[];
 }
 
 function selectBuilder(rows: unknown[]) {
   let filtered = rows;
+  const orderings: { col: string; direction: number }[] = [];
+  const valueAt = (row: unknown, path: string): unknown =>
+    path.split(".").reduce<unknown>((value, key) =>
+      value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined, row);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const builder: any = {
     select() {
       return builder;
     },
     eq(col: string, value: unknown) {
-      filtered = filtered.filter((r) => (r as Record<string, unknown>)[col] === value);
+      filtered = filtered.filter((row) => valueAt(row, col) === value);
       return builder;
     },
     in(col: string, values: unknown[]) {
@@ -53,7 +59,21 @@ function selectBuilder(rows: unknown[]) {
       filtered = filtered.filter((r) => (r as Record<string, unknown>)[col] as string >= (value as string));
       return builder;
     },
-    order() {
+    order(col: string, options?: { ascending?: boolean }) {
+      const direction = options?.ascending === false ? -1 : 1;
+      orderings.push({ col, direction });
+      filtered = [...filtered].sort((left, right) => {
+        for (const ordering of orderings) {
+          const comparison = String(valueAt(left, ordering.col) ?? "")
+            .localeCompare(String(valueAt(right, ordering.col) ?? ""));
+          if (comparison !== 0) return comparison * ordering.direction;
+        }
+        return 0;
+      });
+      return builder;
+    },
+    limit(count: number) {
+      filtered = filtered.slice(0, count);
       return builder;
     },
     single() {
@@ -80,6 +100,15 @@ function mockSupabase(fixture: Fixture) {
       if (table === "absence_records") return selectBuilder(fixture.absence_records ?? []);
       if (table === "overtime_records") return selectBuilder(fixture.overtime_records ?? []);
       if (table === "medical_license_approvals") return selectBuilder(fixture.medical_license_approvals ?? []);
+      if (table === "rule_engine_runs") {
+        return selectBuilder(fixture.rule_engine_runs ?? [{
+          id: "run-ok",
+          company_id: COMPANY_ID,
+          work_date: CUTOFF,
+          status: "SUCCEEDED",
+          started_at: "2026-08-20T03:00:00Z",
+        }]);
+      }
       throw new Error(`mockSupabase: tabla no soportada en este fixture: ${table}`);
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,13 +117,15 @@ function mockSupabase(fixture: Fixture) {
 
 const CUTOFF = "2026-08-19";
 const NOW = new Date("2026-08-20T15:00:00Z"); // America/Santiago D-1 -> 2026-08-19
+const COMPANY_ID = "0a4c0000-0000-0000-0000-000000000001";
+const OTHER_COMPANY_ID = "0b4c0000-0000-0000-0000-000000000002";
 
 // A) Sin novedades -> verde, sin bloqueadores.
 test("getAttendanceReadiness: sin novedades en ninguna categoría ni licencias pendientes -> ready=true, sin bloqueadores", async () => {
   const fixture: Fixture = {
     employees: [{ id: "emp-1", display_name: "Ana Torres", employee_group_id: "grp-production", active: true }],
   };
-  const result = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_PRODUCTION", NOW);
+  const result = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_PRODUCTION", COMPANY_ID, NOW);
 
   assert.equal(result.cutoffDate, CUTOFF);
   assert.equal(result.ready, true);
@@ -128,7 +159,7 @@ test("getAttendanceReadiness: licencia médica PENDING_RRHH_APPROVAL -> bloquead
     employees: [{ id: "emp-2", display_name: "Bruno Silva", employee_group_id: "grp-production", active: true }],
     medical_license_approvals: [pendingLicenseRow, approvedLicenseRow],
   };
-  const result = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_PRODUCTION", NOW);
+  const result = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_PRODUCTION", COMPANY_ID, NOW);
 
   assert.equal(result.ready, false);
   assert.equal(result.totalBlockerCount, 1);
@@ -151,7 +182,7 @@ test("getAttendanceReadiness: ausencia VACATION sin decisión -> mensaje 'Falta 
       },
     ],
   };
-  const result = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_PRODUCTION", NOW);
+  const result = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_PRODUCTION", COMPANY_ID, NOW);
 
   assert.equal(result.ready, false);
   assert.equal(result.totalBlockerCount, 1);
@@ -174,7 +205,7 @@ test("getAttendanceReadiness: ausencia sin decisión de un tipo distinto a VACAT
       },
     ],
   };
-  const result = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_PRODUCTION", NOW);
+  const result = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_PRODUCTION", COMPANY_ID, NOW);
 
   assert.equal(result.blockers[0].message, "Ausencia de Diego Rojas sin decisión.");
 });
@@ -186,8 +217,8 @@ test("getAttendanceReadiness: atraso + horas extra + licencia médica pendiente 
       { id: "emp-5", display_name: "Elena Paz", employee_group_id: "grp-production", active: true },
       { id: "emp-6", display_name: "Franco Lima", employee_group_id: "grp-production", active: true },
     ],
-    late_arrival_records: [{ employee_id: "emp-5", work_date: CUTOFF, is_current: true, late_arrival_decisions: [] }],
-    overtime_records: [{ employee_id: "emp-6", work_date: CUTOFF, is_current: true, overtime_decisions: [] }],
+    late_arrival_records: [{ employee_id: "emp-5", work_date: CUTOFF, is_current: true, attendance_records: { is_current: true }, late_arrival_decisions: [] }],
+    overtime_records: [{ employee_id: "emp-6", work_date: CUTOFF, is_current: true, attendance_records: { is_current: true }, overtime_decisions: [] }],
     medical_license_approvals: [
       {
         id: "lic-3",
@@ -209,7 +240,7 @@ test("getAttendanceReadiness: atraso + horas extra + licencia médica pendiente 
       },
     ],
   };
-  const result = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_PRODUCTION", NOW);
+  const result = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_PRODUCTION", COMPANY_ID, NOW);
 
   assert.equal(result.ready, false);
   assert.equal(result.totalBlockerCount, 3);
@@ -223,15 +254,15 @@ test("getAttendanceReadiness: SUPERVISOR_PRODUCTION nunca ve bloqueadores de INS
       { id: "emp-inst", display_name: "Inst Uno", employee_group_id: "grp-installation", active: true },
     ],
     late_arrival_records: [
-      { employee_id: "emp-prod", work_date: CUTOFF, is_current: true, late_arrival_decisions: [] },
-      { employee_id: "emp-inst", work_date: CUTOFF, is_current: true, late_arrival_decisions: [] },
+      { employee_id: "emp-prod", work_date: CUTOFF, is_current: true, attendance_records: { is_current: true }, late_arrival_decisions: [] },
+      { employee_id: "emp-inst", work_date: CUTOFF, is_current: true, attendance_records: { is_current: true }, late_arrival_decisions: [] },
     ],
   };
-  const resultProd = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_PRODUCTION", NOW);
+  const resultProd = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_PRODUCTION", COMPANY_ID, NOW);
   assert.equal(resultProd.totalBlockerCount, 1);
   assert.ok(resultProd.blockers[0].href.includes("area=PRODUCTION"));
 
-  const resultInst = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_INSTALLATION", NOW);
+  const resultInst = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPERVISOR_INSTALLATION", COMPANY_ID, NOW);
   assert.equal(resultInst.totalBlockerCount, 1);
   assert.ok(resultInst.blockers[0].href.includes("area=INSTALLATION"));
 });
@@ -239,12 +270,79 @@ test("getAttendanceReadiness: SUPERVISOR_PRODUCTION nunca ve bloqueadores de INS
 // F) Corte D-1 America/Santiago -- nunca "hoy".
 test("getAttendanceReadiness: usa resolveTargetDate (D-1 America/Santiago), nunca la fecha de 'now' directamente", async () => {
   const fixture: Fixture = { employees: [] };
-  const result = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPER_ADMIN", NOW);
+  const result = await getAttendanceReadiness(mockSupabase(fixture) as never, "SUPER_ADMIN", COMPANY_ID, NOW);
   assert.equal(result.cutoffDate, resolveTargetDate(NOW));
   assert.equal(result.cutoffDate, "2026-08-19");
 });
 
-// G) Las dos tarjetas compactas van una junto a la otra en el Dashboard, en su propia fila (no mezcladas con Pendientes/Revisión/Eventos).
+// G) El tablero nunca declara listo un corte que el motor no terminó correctamente.
+test("getAttendanceReadiness: sin corrida del motor para el corte -> bloquea", async () => {
+  const result = await getAttendanceReadiness(
+    mockSupabase({ employees: [], rule_engine_runs: [] }) as never,
+    "SUPER_ADMIN",
+    COMPANY_ID,
+    NOW
+  );
+
+  assert.equal(result.ready, false);
+  assert.equal(result.totalBlockerCount, 1);
+  assert.equal(result.blockers[0].key, `RULE_ENGINE:${COMPANY_ID}:${CUTOFF}`);
+  assert.equal(result.blockers[0].href, "/configuracion/motor-de-reglas");
+});
+
+test("getAttendanceReadiness: una corrida exitosa de otra empresa no habilita el corte", async () => {
+  const result = await getAttendanceReadiness(
+    mockSupabase({
+      employees: [],
+      rule_engine_runs: [{
+        id: "run-other-company",
+        company_id: OTHER_COMPANY_ID,
+        work_date: CUTOFF,
+        status: "SUCCEEDED",
+        started_at: "2026-08-20T03:00:00Z",
+      }],
+    }) as never,
+    "SUPER_ADMIN",
+    COMPANY_ID,
+    NOW
+  );
+
+  assert.equal(result.ready, false);
+  assert.equal(result.totalBlockerCount, 1);
+  assert.equal(result.blockers[0].key, `RULE_ENGINE:${COMPANY_ID}:${CUTOFF}`);
+});
+
+test("getAttendanceReadiness: manda el estado de la última corrida del corte", async () => {
+  const result = await getAttendanceReadiness(
+    mockSupabase({
+      employees: [],
+      rule_engine_runs: [
+        {
+          id: "run-old-success",
+          company_id: COMPANY_ID,
+          work_date: CUTOFF,
+          status: "SUCCEEDED",
+          started_at: "2026-08-20T02:00:00Z",
+        },
+        {
+          id: "run-latest-failed",
+          company_id: COMPANY_ID,
+          work_date: CUTOFF,
+          status: "FAILED",
+          started_at: "2026-08-20T03:00:00Z",
+        },
+      ],
+    }) as never,
+    "SUPER_ADMIN",
+    COMPANY_ID,
+    NOW
+  );
+
+  assert.equal(result.ready, false);
+  assert.equal(result.totalBlockerCount, 1);
+});
+
+// H) Las dos tarjetas compactas van una junto a la otra en el Dashboard, en su propia fila (no mezcladas con Pendientes/Revisión/Eventos).
 test("dashboard/page.tsx: DescargarAsistenciaCard y AttendanceReadinessCard están en la misma fila de 2 columnas", () => {
   const pagePath = path.join(import.meta.dirname, "..", "..", "app", "(app)", "dashboard", "page.tsx");
   const content = readFileSync(pagePath, "utf8");

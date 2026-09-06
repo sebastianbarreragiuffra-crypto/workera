@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { categoryToReviewQueueCategory, initialsOf, currentWeekRange, getSupervisorDashboard } from "./dashboard-view";
+import { categoryToReviewQueueCategory, initialsOf, currentWeekRange, getSupervisorDashboard, getWeekSummary } from "./dashboard-view";
 
 test("categoryToReviewQueueCategory: mapea las 7 categorías de getDailyReview sin inventar ninguna nueva", () => {
   assert.equal(categoryToReviewQueueCategory("LATE"), "LATE");
@@ -36,37 +36,169 @@ test("currentWeekRange: cruza límite de mes correctamente", () => {
   assert.equal(range.end, "2026-09-06");
 });
 
+test("getWeekSummary: ignora aprobación y bono si el candidato o su asistencia raíz ya son históricos", async () => {
+  const overtimeSelections: string[] = [];
+  const bonusSelections: string[] = [];
+  const valueAt = (row: unknown, path: string): unknown =>
+    path.split(".").reduce<unknown>((value, segment) => {
+      if (!value || typeof value !== "object") return undefined;
+      return (value as Record<string, unknown>)[segment];
+    }, row);
+
+  const rowsByTable: Record<string, unknown[]> = {
+    late_arrival_records: [],
+    absence_records: [],
+    overtime_decisions: [
+      {
+        approved_minutes: 60,
+        is_current: true,
+        decision_status: "FULLY_APPROVED",
+        overtime_records: {
+          work_date: "2026-08-19",
+          employee_id: "emp-1",
+          is_current: true,
+          attendance_records: { is_current: true },
+        },
+      },
+      {
+        approved_minutes: 120,
+        is_current: true,
+        decision_status: "FULLY_APPROVED",
+        overtime_records: {
+          work_date: "2026-08-19",
+          employee_id: "emp-1",
+          is_current: true,
+          attendance_records: { is_current: false },
+        },
+      },
+      {
+        approved_minutes: 30,
+        is_current: true,
+        decision_status: "FULLY_APPROVED",
+        overtime_records: {
+          work_date: "2026-08-19",
+          employee_id: "emp-1",
+          is_current: false,
+          attendance_records: { is_current: true },
+        },
+      },
+    ],
+    employee_daily_bonuses: [
+      {
+        employee_id: "emp-1",
+        work_date: "2026-08-19",
+        overtime_decisions: {
+          is_current: true,
+          overtime_records: { is_current: true, attendance_records: { is_current: true } },
+        },
+      },
+      {
+        employee_id: "emp-1",
+        work_date: "2026-08-19",
+        overtime_decisions: {
+          is_current: true,
+          overtime_records: { is_current: true, attendance_records: { is_current: false } },
+        },
+      },
+      {
+        employee_id: "emp-1",
+        work_date: "2026-08-19",
+        overtime_decisions: {
+          is_current: true,
+          overtime_records: { is_current: false, attendance_records: { is_current: true } },
+        },
+      },
+    ],
+  };
+
+  const supabase = {
+    from(table: string) {
+      let filtered = [...(rowsByTable[table] ?? [])];
+      const builder = {
+        select(columns: string) {
+          if (table === "overtime_decisions") overtimeSelections.push(columns);
+          if (table === "employee_daily_bonuses") bonusSelections.push(columns);
+          return builder;
+        },
+        eq(column: string, value: unknown) {
+          filtered = filtered.filter((row) => valueAt(row, column) === value);
+          return builder;
+        },
+        in(column: string, values: unknown[]) {
+          filtered = filtered.filter((row) => values.includes(valueAt(row, column)));
+          return builder;
+        },
+        gte(column: string, value: string) {
+          filtered = filtered.filter((row) => String(valueAt(row, column)) >= value);
+          return builder;
+        },
+        lte(column: string, value: string) {
+          filtered = filtered.filter((row) => String(valueAt(row, column)) <= value);
+          return builder;
+        },
+        then(onResolve: (result: { data: unknown[]; error: null }) => void) {
+          return onResolve({ data: filtered, error: null });
+        },
+      };
+      return builder;
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+
+  const summary = await getWeekSummary(supabase, ["emp-1"], "2026-08-19");
+
+  assert.equal(summary.overtimeApprovedMinutes, 60);
+  assert.equal(summary.bonusesGrantedCount, 1);
+  assert.ok(overtimeSelections.some((selection) => selection.includes("overtime_records!inner")));
+  assert.ok(overtimeSelections.some((selection) => selection.includes("attendance_records!inner(is_current)")));
+  assert.ok(bonusSelections.some((selection) => selection.includes("attendance_records!inner(is_current)")));
+});
+
 // -----------------------------------------------------------------------------
 // getSupervisorDashboard: verificación de scoping de área de extremo a extremo
 // -- regresión directa de un bug real encontrado en esta misma fase (el
 // resumen semanal/cumpleaños de un supervisor consultaban SIN scope, "null"
 // = toda la empresa, filtrando información de otras áreas).
 
-function mockSupabaseForSupervisor(scopedEmployeeId: string, foreignEmployeeId: string) {
+function mockSupabaseForSupervisor(
+  scopedEmployeeId: string,
+  foreignEmployeeId: string,
+  options: {
+    missingPunchFlags?: Record<string, unknown>[];
+    missingPunchSelections?: string[];
+  } = {}
+) {
   const employeeGroups = [
     { id: "grp-production", code: "PRODUCTION" },
     { id: "grp-installation", code: "INSTALLATION" },
   ];
   const employees = [
-    { id: scopedEmployeeId, employee_group_id: "grp-production", active: true },
-    { id: foreignEmployeeId, employee_group_id: "grp-installation", active: true },
+    { id: scopedEmployeeId, display_name: "Empleado Producción", employee_group_id: "grp-production", active: true },
+    { id: foreignEmployeeId, display_name: "Empleado Instalación", employee_group_id: "grp-installation", active: true },
   ];
   const birthdays = [
     { employee_id: scopedEmployeeId, birth_month: 8, birth_day: 20, employees: { display_name: "Empleado Producción" } },
     { employee_id: foreignEmployeeId, birth_month: 8, birth_day: 21, employees: { display_name: "Empleado Instalación" } },
   ];
 
-  function selectBuilder(rows: unknown[], opts: { count?: number } = {}) {
+  const valueAt = (row: unknown, path: string): unknown =>
+    path.split(".").reduce<unknown>((value, segment) => {
+      if (!value || typeof value !== "object") return undefined;
+      return (value as Record<string, unknown>)[segment];
+    }, row);
+
+  function selectBuilder(table: string, rows: unknown[], opts: { count?: number } = {}) {
     const builder: Record<string, unknown> = {
-      select() {
+      select(columns: string) {
+        if (table === "attendance_missing_punch_flags") options.missingPunchSelections?.push(columns);
         return builder;
       },
       eq(col: string, value: unknown) {
-        filtered = filtered.filter((r) => (r as Record<string, unknown>)[col] === value);
+        filtered = filtered.filter((row) => valueAt(row, col) === value);
         return builder;
       },
       in(col: string, values: unknown[]) {
-        filtered = filtered.filter((r) => values.includes((r as Record<string, unknown>)[col]));
+        filtered = filtered.filter((row) => values.includes(valueAt(row, col)));
         return builder;
       },
       gte() {
@@ -102,22 +234,24 @@ function mockSupabaseForSupervisor(scopedEmployeeId: string, foreignEmployeeId: 
     from(table: string) {
       switch (table) {
         case "employee_groups":
-          return selectBuilder(employeeGroups);
+          return selectBuilder(table, employeeGroups);
         case "employees":
-          return selectBuilder(employees);
+          return selectBuilder(table, employees);
         case "employee_birthdays":
-          return selectBuilder(birthdays);
+          return selectBuilder(table, birthdays);
         case "holidays":
-          return selectBuilder([]);
+          return selectBuilder(table, []);
         case "weekly_reviews":
         case "reporting_periods":
-          return selectBuilder([]);
+          return selectBuilder(table, []);
+        case "attendance_missing_punch_flags":
+          return selectBuilder(table, options.missingPunchFlags ?? []);
         default:
           // late_arrival_records / overtime_records / overtime_decisions /
           // absence_records / employee_daily_bonuses / attendance_records /
-          // attendance_missing_punch_flags: sin filas en este mock, pero
-          // deben filtrarse por employee_id igual que las tablas reales.
-          return selectBuilder([]);
+          // sin filas en este mock, pero deben filtrarse por employee_id igual
+          // que las tablas reales.
+          return selectBuilder(table, []);
       }
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -137,4 +271,35 @@ test("getSupervisorDashboard: workersActive cuenta solo empleados del área del 
   const dashboard = await getSupervisorDashboard(supabase, "SUPERVISOR_PRODUCTION", "2026-08-19");
 
   assert.equal(dashboard.kpis.workersActive, 1);
+});
+
+test("getSupervisorDashboard: clockOutPending ignora la flag histórica de una asistencia reconciliada", async () => {
+  const missingPunchSelections: string[] = [];
+  const supabase = mockSupabaseForSupervisor("emp-production-1", "emp-installation-1", {
+    missingPunchSelections,
+    missingPunchFlags: [
+      {
+        id: "flag-current",
+        employee_id: "emp-production-1",
+        work_date: "2026-08-19",
+        status: "PENDING_CONTACT",
+        attendance_records: { is_current: true },
+      },
+      {
+        id: "flag-stale",
+        employee_id: "emp-production-1",
+        work_date: "2026-08-19",
+        status: "PENDING_CONTACT",
+        attendance_records: { is_current: false },
+      },
+    ],
+  });
+
+  const dashboard = await getSupervisorDashboard(supabase, "SUPERVISOR_PRODUCTION", "2026-08-19");
+
+  assert.equal(dashboard.kpis.clockOutPending, 1);
+  assert.ok(
+    missingPunchSelections.some((selection) => selection.includes("id, attendance_records!inner(is_current)")),
+    "el KPI debe resolver la vigencia mediante inner join con attendance_records"
+  );
 });

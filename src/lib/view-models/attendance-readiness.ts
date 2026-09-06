@@ -8,7 +8,7 @@ import { resolveTargetDate } from "../sync/target-date";
 
 /**
  * Resumen "¿está lista la asistencia?" para la tarjeta ASISTENCIA
- * ACTUALIZADA -- NO es un motor de revisión nuevo. Combina dos fuentes ya
+ * ACTUALIZADA -- NO es un motor de revisión nuevo. Combina tres fuentes ya
  * existentes, sin recalcular nada:
  *   1. `getDailyReview` (Fase 7) -- las mismas 7 categorías que ya usa
  *      `/revision-diaria` y el Dashboard actual, para el día de corte D-1.
@@ -18,6 +18,9 @@ import { resolveTargetDate } from "../sync/target-date";
  *      RRHH legítimamente deja la asistencia sin cerrar hasta que se
  *      resuelva (ver comentario de `approve_medical_license`: solo
  *      aprobada genera "L").
+ *   3. La última `rule_engine_runs` de la empresa explícita para el corte:
+ *      solo `SUCCEEDED` permite declarar el día listo. Ausencia de corrida,
+ *      RUNNING, PARTIAL o FAILED bloquean de forma segura.
  *
  * Corte D-1 (`resolveTargetDate`, ya usado por la reconciliación de sync) --
  * nunca "hoy", para no marcar pendiente solo porque el día actual sigue en
@@ -78,15 +81,33 @@ async function findVacationEmployeeIds(supabase: SupabaseClient<Database>, emplo
 export async function getAttendanceReadiness(
   supabase: SupabaseClient<Database>,
   callerRole: CallerRole,
+  companyId: string,
   now: Date = new Date()
 ): Promise<AttendanceReadiness> {
+  const normalizedCompanyId = companyId.trim();
+  if (!normalizedCompanyId) {
+    throw new Error("getAttendanceReadiness: companyId es obligatorio.");
+  }
+
   const cutoffDate = resolveTargetDate(now);
   const areas = areasVisibleToRole(callerRole);
 
-  const [boards, pendingLicenses] = await Promise.all([
+  const [boards, pendingLicenses, latestRuleEngineRun] = await Promise.all([
     Promise.all(areas.map((area) => getDailyReview(supabase, callerRole, area, cutoffDate))),
     listMedicalLicenses(supabase, { onlyPending: true }),
+    supabase
+      .from("rule_engine_runs")
+      .select("id, status")
+      .eq("company_id", normalizedCompanyId)
+      .eq("work_date", cutoffDate)
+      .order("started_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
+  if (latestRuleEngineRun.error) {
+    throw new Error(`getAttendanceReadiness: fallo leyendo rule_engine_runs: ${latestRuleEngineRun.error.message}`);
+  }
 
   const absenceEmployeeIds = new Set<string>();
   for (const board of boards) {
@@ -97,6 +118,13 @@ export async function getAttendanceReadiness(
   const vacationEmployeeIds = await findVacationEmployeeIds(supabase, [...absenceEmployeeIds], cutoffDate);
 
   const blockers: AttendanceBlocker[] = [];
+  if (latestRuleEngineRun.data?.status !== "SUCCEEDED") {
+    blockers.push({
+      key: `RULE_ENGINE:${normalizedCompanyId}:${cutoffDate}`,
+      message: "Falta completar correctamente el procesamiento de asistencia del día de corte.",
+      href: "/configuracion/motor-de-reglas",
+    });
+  }
   for (const board of boards) {
     for (const entry of board.requiresReview) {
       for (const category of entry.categories) {

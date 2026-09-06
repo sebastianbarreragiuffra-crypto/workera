@@ -3,13 +3,9 @@
 import { useMemo, useState } from "react";
 
 /**
- * Fase 9 -- exportador real, backed por `attendance_status_records`
- * (`/dashboard/export-asistencia`, ver attendance-export.ts). Exactamente
- * cuatro modos -- nunca
- * diario, rango arbitrario, ni anual. El archivo se genera en el momento de
- * la descarga a partir del estado actual del backend, nunca de un snapshot
- * cacheado -- por eso el botón es un link GET directo al Route Handler, no
- * un fetch con blob intermedio.
+ * Exportador operacional respaldado por `attendance_status_records`. Mantiene
+ * cuatro ventanas controladas y genera un libro con resumen de remuneraciones
+ * más la matriz diaria familiar de RR. HH.
  */
 
 type ExportType = "PAGO" | "SEMANAL" | "QUINCENAL" | "MENSUAL";
@@ -128,11 +124,15 @@ export function DescargarAsistenciaCard({ now = new Date() }: { now?: Date }) {
         />
       )}
 
+      <p className="mt-3 text-xs leading-relaxed text-slate-500">
+        El archivo incluye una hoja resumen para liquidar sueldos y otra con el detalle diario. En el período 16–15 se identifica claramente si la descarga todavía es un borrador.
+      </p>
+
       <a
         href={href}
         className="mt-3 block w-full rounded-md bg-arcotex-blue px-3 py-1.5 text-center text-sm font-medium text-white hover:bg-arcotex-blue-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
       >
-        Descargar Excel
+        Descargar Excel para RR. HH.
       </a>
     </section>
   );

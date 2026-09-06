@@ -60,3 +60,81 @@ test("getDailyReview: sin trabajadores en el área -> listas vacías, no lanza",
   assert.deepEqual(result.requiresReview, []);
   assert.deepEqual(result.noIssues, []);
 });
+
+function createMissingPunchReconciliationMock() {
+  const selectedRelations: string[] = [];
+  const rowsByTable: Record<string, Record<string, unknown>[]> = {
+    employee_groups: [{ id: "grp-production", code: "PRODUCTION" }],
+    employees: [
+      { id: "emp-current", display_name: "Manual vigente", employee_group_id: "grp-production", active: true },
+      { id: "emp-stale", display_name: "Reconciliado", employee_group_id: "grp-production", active: true },
+    ],
+    attendance_missing_punch_flags: [
+      {
+        employee_id: "emp-current",
+        work_date: "2026-08-17",
+        status: "PENDING_CONTACT",
+        attendance_records: { is_current: true, source: "manual" },
+      },
+      {
+        employee_id: "emp-stale",
+        work_date: "2026-08-17",
+        status: "PENDING_CONTACT",
+        attendance_records: { is_current: false, source: "workera" },
+      },
+    ],
+  };
+
+  const valueAt = (row: Record<string, unknown>, path: string): unknown =>
+    path.split(".").reduce<unknown>((value, segment) => {
+      if (!value || typeof value !== "object") return undefined;
+      return (value as Record<string, unknown>)[segment];
+    }, row);
+
+  return {
+    selectedRelations,
+    client: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      from(table: string): any {
+        let filtered = [...(rowsByTable[table] ?? [])];
+        const builder = {
+          select(columns: string) {
+            if (table === "attendance_missing_punch_flags") selectedRelations.push(columns);
+            return builder;
+          },
+          eq(column: string, value: unknown) {
+            filtered = filtered.filter((row) => valueAt(row, column) === value);
+            return builder;
+          },
+          in(column: string, values: unknown[]) {
+            filtered = filtered.filter((row) => values.includes(valueAt(row, column)));
+            return builder;
+          },
+          lte() {
+            return builder;
+          },
+          gte() {
+            return builder;
+          },
+          single: async () => ({ data: filtered[0] ?? null, error: null }),
+          then(onResolve: (result: { data: Record<string, unknown>[]; error: null }) => void) {
+            onResolve({ data: filtered, error: null });
+          },
+        };
+        return builder;
+      },
+    },
+  };
+}
+
+test("getDailyReview: oculta una flag reconciliada y conserva una flag manual vigente", async () => {
+  const { client, selectedRelations } = createMissingPunchReconciliationMock();
+  const result = await getDailyReview(client as never, "SUPER_ADMIN", "PRODUCTION", "2026-08-17");
+
+  assert.deepEqual(result.requiresReview.map((row) => row.employeeId), ["emp-current"]);
+  assert.deepEqual(result.noIssues.map((row) => row.employeeId), ["emp-stale"]);
+  assert.ok(
+    selectedRelations.some((selection) => selection.includes("attendance_records!inner(is_current)")),
+    "la consulta debe exigir el attendance_record vigente mediante inner join"
+  );
+});

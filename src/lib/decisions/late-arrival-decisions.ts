@@ -37,8 +37,10 @@ export async function decideLateArrival(
 ): Promise<DecideLateArrivalResult> {
   const { data: record, error: recordError } = await supabase
     .from("late_arrival_records")
-    .select("detected_minutes")
+    .select("detected_minutes, attendance_records!inner(is_current)")
     .eq("id", input.lateArrivalRecordId)
+    .eq("is_current", true)
+    .eq("attendance_records.is_current", true)
     .single();
   if (recordError || !record) {
     throw new Error(`decideLateArrival: registro de atraso no encontrado (${input.lateArrivalRecordId}).`);

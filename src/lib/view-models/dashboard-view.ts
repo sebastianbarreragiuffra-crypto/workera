@@ -210,18 +210,20 @@ async function buildPriorityAndReviewQueue(
     employeeIds.length > 0
       ? supabase
           .from("late_arrival_records")
-          .select("employee_id, detected_minutes")
+          .select("employee_id, detected_minutes, attendance_records!inner(is_current)")
           .in("employee_id", employeeIds)
           .eq("work_date", date)
           .eq("is_current", true)
+          .eq("attendance_records.is_current", true)
       : Promise.resolve({ data: [], error: null }),
     employeeIds.length > 0
       ? supabase
           .from("overtime_records")
-          .select("employee_id, candidate_minutes")
+          .select("employee_id, candidate_minutes, attendance_records!inner(is_current)")
           .in("employee_id", employeeIds)
           .eq("work_date", date)
           .eq("is_current", true)
+          .eq("attendance_records.is_current", true)
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (lateRows.error) throw new Error(`buildPriorityAndReviewQueue: fallo leyendo atrasos: ${lateRows.error.message}`);
@@ -324,16 +326,28 @@ async function getUpcomingEvents(supabase: SupabaseClient<Database>, employeeIds
   return { birthdaysThisMonth, nextHoliday };
 }
 
-async function getWeekSummary(supabase: SupabaseClient<Database>, employeeIds: string[] | null, date: string): Promise<WeekSummary> {
+export async function getWeekSummary(supabase: SupabaseClient<Database>, employeeIds: string[] | null, date: string): Promise<WeekSummary> {
   const { start, end } = currentWeekRange(date);
 
-  let lateQuery = supabase.from("late_arrival_records").select("employee_id, detected_minutes").eq("is_current", true).gte("work_date", start).lte("work_date", end);
+  let lateQuery = supabase
+    .from("late_arrival_records")
+    .select("employee_id, detected_minutes, attendance_records!inner(is_current)")
+    .eq("is_current", true)
+    .eq("attendance_records.is_current", true)
+    .gte("work_date", start)
+    .lte("work_date", end);
   if (employeeIds) lateQuery = lateQuery.in("employee_id", employeeIds);
 
   let overtimeQuery = supabase
     .from("overtime_decisions")
-    .select("approved_minutes, overtime_records!inner(work_date, employee_id)")
+    .select(
+      "approved_minutes, overtime_records!inner(work_date, employee_id, attendance_records!inner(is_current))"
+    )
     .eq("is_current", true)
+    // La decisión queda como historial cuando el motor retira su candidato.
+    // Solo un candidato y su asistencia raíz vigentes pueden aportar minutos.
+    .eq("overtime_records.is_current", true)
+    .eq("overtime_records.attendance_records.is_current", true)
     .in("decision_status", ["FULLY_APPROVED", "PARTIALLY_APPROVED"])
     .gte("overtime_records.work_date", start)
     .lte("overtime_records.work_date", end);
@@ -342,7 +356,18 @@ async function getWeekSummary(supabase: SupabaseClient<Database>, employeeIds: s
   let absenceQuery = supabase.from("absence_records").select("employee_id").eq("is_current", true).lte("start_date", end).gte("end_date", start);
   if (employeeIds) absenceQuery = absenceQuery.in("employee_id", employeeIds);
 
-  let bonusQuery = supabase.from("employee_daily_bonuses").select("employee_id").gte("work_date", start).lte("work_date", end);
+  let bonusQuery = supabase
+    .from("employee_daily_bonuses")
+    .select(
+      "employee_id, overtime_decisions!inner(is_current, overtime_records!inner(is_current, attendance_records!inner(is_current)))"
+    )
+    // Los bonos son inmutables y pueden sobrevivir al candidato que los
+    // originó; ambos eslabones deben seguir vigentes para contarlos.
+    .eq("overtime_decisions.is_current", true)
+    .eq("overtime_decisions.overtime_records.is_current", true)
+    .eq("overtime_decisions.overtime_records.attendance_records.is_current", true)
+    .gte("work_date", start)
+    .lte("work_date", end);
   if (employeeIds) bonusQuery = bonusQuery.in("employee_id", employeeIds);
 
   const [lateRes, overtimeRes, absenceRes, bonusRes] = await Promise.all([lateQuery, overtimeQuery, absenceQuery, bonusQuery]);
@@ -400,21 +425,26 @@ async function computeKpis(
       .not("actual_clock_in", "is", null),
     supabase
       .from("late_arrival_records")
-      .select("id, late_arrival_decisions!left(is_current)")
+      .select("id, attendance_records!inner(is_current), late_arrival_decisions!left(is_current)")
       .in("employee_id", employeeIds)
       .eq("work_date", date)
-      .eq("is_current", true),
+      .eq("is_current", true)
+      .eq("attendance_records.is_current", true),
     supabase
       .from("overtime_records")
-      .select("id, overtime_decisions!left(is_current)")
+      .select("id, attendance_records!inner(is_current), overtime_decisions!left(is_current)")
       .in("employee_id", employeeIds)
       .eq("work_date", date)
-      .eq("is_current", true),
+      .eq("is_current", true)
+      .eq("attendance_records.is_current", true),
     supabase
       .from("attendance_missing_punch_flags")
-      .select("id", { count: "exact", head: true })
+      // La flag conserva historial aunque su attendance_record deje de ser la
+      // versión vigente. El KPI debe contar solo flags del hecho actual.
+      .select("id, attendance_records!inner(is_current)", { count: "exact", head: true })
       .in("employee_id", employeeIds)
       .eq("work_date", date)
+      .eq("attendance_records.is_current", true)
       .in("status", ["PENDING_CONTACT", "CONTACTED"]),
     supabase
       .from("absence_records")

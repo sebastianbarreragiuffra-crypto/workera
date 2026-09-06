@@ -2,18 +2,28 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { decideOvertime } from "./overtime-decisions";
 
-function mockSupabase(candidateMinutes: number, insertedRows: Record<string, unknown>[]) {
+function mockSupabase(
+  candidateMinutes: number,
+  insertedRows: Record<string, unknown>[],
+  options: { recordCurrent?: boolean; recordFilters?: Array<[string, unknown]> } = {}
+) {
   return {
     from(table: string) {
       if (table === "overtime_records") {
+        const filters: Array<[string, unknown]> = [];
         return {
           select() {
             return this;
           },
-          eq() {
+          eq(column: string, value: unknown) {
+            filters.push([column, value]);
+            options.recordFilters?.push([column, value]);
             return this;
           },
           single() {
+            if (options.recordCurrent === false && filters.some(([column, value]) => column === "is_current" && value === true)) {
+              return Promise.resolve({ data: null, error: { message: "no rows" } });
+            }
             return Promise.resolve({ data: { candidate_minutes: candidateMinutes }, error: null });
           },
         };
@@ -60,4 +70,18 @@ test("decideOvertime: REJECT -> REJECTED con todos los minutos candidatos rechaz
 test("decideOvertime: candidate_minutes=0 -> rechaza antes de violar el constraint de la base", async () => {
   const supabase = mockSupabase(0, []);
   await assert.rejects(() => decideOvertime(supabase, { overtimeRecordId: "ot-1", action: "APPROVE", reason: null }));
+});
+
+test("decideOvertime: nunca permite decidir un candidato que ya no es vigente", async () => {
+  const inserted: Record<string, unknown>[] = [];
+  const filters: Array<[string, unknown]> = [];
+  const supabase = mockSupabase(118, inserted, { recordCurrent: false, recordFilters: filters });
+
+  await assert.rejects(
+    () => decideOvertime(supabase, { overtimeRecordId: "ot-stale", action: "APPROVE", reason: null }),
+    /registro de horas extra no encontrado/
+  );
+
+  assert.deepEqual(inserted, []);
+  assert.ok(filters.some(([column, value]) => column === "is_current" && value === true));
 });

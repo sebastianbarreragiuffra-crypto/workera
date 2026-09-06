@@ -2,27 +2,72 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
 import {
-  buildAttendanceExportData,
+  buildAttendanceExportData as buildAttendanceExportDataForCompany,
   buildAttendanceExportWorkbook,
   calendarDaysBetween,
   isWeekend,
 } from "./attendance-export";
 import type { AttendanceExportPeriod } from "./attendance-export-periods";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../tenant/legacy-workforce";
+
+function buildAttendanceExportData(
+  supabase: Parameters<typeof buildAttendanceExportDataForCompany>[0],
+  callerRole: Parameters<typeof buildAttendanceExportDataForCompany>[1],
+  period: Parameters<typeof buildAttendanceExportDataForCompany>[2]
+) {
+  return buildAttendanceExportDataForCompany(supabase, callerRole, period, ARCOTEX_WORKFORCE_COMPANY_ID);
+}
 
 /**
  * El exportador replica la planilla REAL de ARCOTEX: matriz de un día por
- * columna y un bloque de 7 filas por trabajador. Nunca inventa un estado -- un
+ * columna y un bloque de 8 filas por trabajador. Nunca inventa un estado -- un
  * día sin fila vigente en `attendance_status_records` sale "?" (el código ya
  * definido para "tarjeta no marcada"), nunca P/F asumido. El alcance por área
  * reutiliza `areasVisibleToRole`, igual que el resto de la app.
  */
 
 interface MockOpts {
-  employees: { id: string; display_name: string; group: string }[];
+  employees: {
+    id: string;
+    display_name: string;
+    group: string;
+    hire_date?: string | null;
+    active?: boolean;
+    company_id?: string;
+  }[];
   statuses?: { employee_id: string; work_date: string; code: string }[];
   lates?: { employee_id: string; work_date: string; detected_minutes: number; payroll_minutes?: number }[];
+  earlyDepartures?: {
+    employee_id: string;
+    work_date: string;
+    detected_minutes: number;
+    payroll_minutes?: number;
+    payroll_effect?: "DEDUCT" | "DO_NOT_DEDUCT" | "NEEDS_REVIEW";
+  }[];
   overtimes?: { employee_id: string; work_date: string; code: string; approved_minutes: number | null }[];
+  missingPunches?: {
+    employee_id: string;
+    work_date: string;
+    status: "PENDING_CONTACT" | "CONTACTED";
+    attendanceCurrent?: boolean;
+  }[];
+  absences?: {
+    employee_id: string;
+    start_date: string;
+    end_date: string;
+    decision_status?: "CONFIRMED" | "CORRECTED" | "PENDING_DOCUMENT" | "DISPUTED";
+  }[];
+  ruleEngineRuns?: {
+    work_date: string;
+    status: "RUNNING" | "SUCCEEDED" | "PARTIAL" | "FAILED";
+    started_at: string;
+    company_id?: string;
+  }[];
+  ruleEngineRunsAfter?: MockOpts["ruleEngineRuns"];
   holidays?: string[];
+  holidayError?: string;
+  timeControlPolicyError?: string;
+  reportingPeriodStatus?: "OPEN" | "IN_REVIEW" | "READY_TO_CLOSE" | "CLOSED" | "REOPENED" | null;
   schedules?: {
     employee_id: string;
     effective_from: string;
@@ -31,10 +76,27 @@ interface MockOpts {
       work_schedule_rules: { day_of_week: number; scheduled_start: string; scheduled_end: string }[];
     };
   }[];
+  timeControlPolicies?: {
+    employee_id: string;
+    effective_from: string;
+    effective_to: string | null;
+    policy_code: "NORMAL" | "EXEMPT_FROM_TIME_CONTROL";
+  }[];
 }
 
 function mockSupabase(opts: MockOpts) {
-  const rowsFor = (table: string) => {
+  let ruleEngineReadCount = 0;
+  const rowsFor = (table: string): Record<string, unknown>[] => {
+    if (table === "employees") {
+      return opts.employees.map((employee) => ({
+        id: employee.id,
+        display_name: employee.display_name,
+        hire_date: employee.hire_date ?? null,
+        active: employee.active ?? true,
+        company_id: employee.company_id ?? ARCOTEX_WORKFORCE_COMPANY_ID,
+        employee_groups: { code: employee.group },
+      }));
+    }
     if (table === "attendance_status_records") {
       return (opts.statuses ?? []).map((r) => ({
         employee_id: r.employee_id,
@@ -51,6 +113,23 @@ function mockSupabase(opts: MockOpts) {
           r.payroll_minutes === undefined ? [] : [{ payroll_minutes: r.payroll_minutes, is_current: true }],
       }));
     }
+    if (table === "early_departure_records") {
+      return (opts.earlyDepartures ?? []).map((row) => ({
+        employee_id: row.employee_id,
+        work_date: row.work_date,
+        detected_minutes: row.detected_minutes,
+        early_departure_decisions:
+          row.payroll_minutes === undefined
+            ? []
+            : [
+                {
+                  payroll_minutes: row.payroll_minutes,
+                  payroll_effect: row.payroll_effect ?? "DEDUCT",
+                  is_current: true,
+                },
+              ],
+      }));
+    }
     if (table === "overtime_records") {
       return (opts.overtimes ?? []).map((r) => ({
         employee_id: r.employee_id,
@@ -59,42 +138,127 @@ function mockSupabase(opts: MockOpts) {
         overtime_decisions:
           r.approved_minutes === null
             ? []
-            : [{ approved_minutes: r.approved_minutes, decision_status: "APPROVED", is_current: true }],
+            : [{ approved_minutes: r.approved_minutes, decision_status: "FULLY_APPROVED", is_current: true }],
       }));
     }
     if (table === "holidays") {
       return (opts.holidays ?? []).map((d) => ({ holiday_date: d }));
     }
+    if (table === "attendance_missing_punch_flags") {
+      return (opts.missingPunches ?? []).map((row) => ({
+        employee_id: row.employee_id,
+        work_date: row.work_date,
+        status: row.status,
+        attendance_records: { is_current: row.attendanceCurrent ?? true },
+      }));
+    }
+    if (table === "absence_records") {
+      return (opts.absences ?? []).map((row) => ({
+        employee_id: row.employee_id,
+        start_date: row.start_date,
+        end_date: row.end_date,
+        absence_decisions:
+          row.decision_status === undefined
+            ? []
+            : [{ decision_status: row.decision_status, is_current: true }],
+      }));
+    }
+    if (table === "rule_engine_runs") {
+      const configuredRuns =
+        ruleEngineReadCount++ === 0 ? opts.ruleEngineRuns : (opts.ruleEngineRunsAfter ?? opts.ruleEngineRuns);
+      if (configuredRuns?.length === 0) return [];
+      const successfulCoverage = calendarDaysBetween("2026-07-16", "2026-08-23")
+        .filter((workDate) => !isWeekend(workDate))
+        .map((workDate) => ({
+          work_date: workDate,
+          status: "SUCCEEDED" as const,
+          started_at: `${workDate}T12:00:00Z`,
+          company_id: ARCOTEX_WORKFORCE_COMPANY_ID,
+        }));
+      return [...successfulCoverage, ...(configuredRuns ?? [])].map((row) => ({
+        ...row,
+        company_id: row.company_id ?? ARCOTEX_WORKFORCE_COMPANY_ID,
+      }));
+    }
     // Sin horario asignado: la persona no lleva texto bajo el nombre ni
     // resaltado de días. Los casos que sí lo ejercitan lo pasan explícito.
-    if (table === "schedule_assignments") return opts.schedules ?? [];
+    if (table === "schedule_assignments") return (opts.schedules ?? []) as Record<string, unknown>[];
+    if (table === "employee_time_control_policies") {
+      return (opts.timeControlPolicies ?? []) as Record<string, unknown>[];
+    }
+    if (table === "reporting_periods") {
+      return opts.reportingPeriodStatus === undefined || opts.reportingPeriodStatus === null
+        ? []
+        : [{ status: opts.reportingPeriodStatus }];
+    }
     throw new Error(`mockSupabase: tabla no soportada: ${table}`);
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const client: any = {
     from(table: string) {
-      if (table === "employees") {
-        return {
-          select: () => ({
-            eq: () => ({
-              in: (_col: string, areas: string[]) => ({
-                order: () =>
-                  Promise.resolve({
-                    data: opts.employees
-                      .filter((e) => areas.includes(e.group))
-                      .map((e) => ({ id: e.id, display_name: e.display_name, employee_groups: { code: e.group } })),
-                    error: null,
-                  }),
-              }),
-            }),
-          }),
-        };
-      }
-      // Builder encadenable: select/in/gte/lte/eq en cualquier orden, "thenable".
+      const filters = new Map<string, unknown>();
+      let page: { from: number; to: number } | null = null;
+      const result = () => {
+        if (table === "holidays" && opts.holidayError) {
+          return { data: null, error: { message: opts.holidayError } };
+        }
+        if (table === "employee_time_control_policies" && opts.timeControlPolicyError) {
+          return { data: null, error: { message: opts.timeControlPolicyError } };
+        }
+
+        let rows = rowsFor(table);
+        const allowedAreas = filters.get("employee_groups.code") as string[] | undefined;
+        const companyId = filters.get("company_id") as string | undefined;
+        const employeeIds = filters.get("employee_id") as string[] | undefined;
+        const allowedStatuses = filters.get("status") as string[] | undefined;
+        if (table === "employees" && allowedAreas) {
+          rows = rows.filter((row) => allowedAreas.includes((row.employee_groups as { code: string }).code));
+        }
+        if (table === "employees" && companyId) {
+          rows = rows.filter((row) => row.company_id === companyId);
+        }
+        if (table === "rule_engine_runs" && companyId) {
+          rows = rows.filter((row) => row.company_id === companyId);
+        }
+        if (employeeIds) {
+          rows = rows.filter((row) => employeeIds.includes(String(row.employee_id)));
+        }
+        if (allowedStatuses) {
+          rows = rows.filter((row) => allowedStatuses.includes(String(row.status)));
+        }
+        if (table === "attendance_missing_punch_flags" && filters.get("attendance_records.is_current") === true) {
+          rows = rows.filter(
+            (row) => (row.attendance_records as { is_current?: boolean } | undefined)?.is_current === true
+          );
+        }
+        if (page) rows = rows.slice(page.from, page.to + 1);
+        return { data: rows, error: null };
+      };
+
+      // Builder encadenable y thenable, incluidas las operaciones de
+      // paginación/orden que usa el exportador real.
       const builder: Record<string, unknown> = {};
-      for (const m of ["select", "in", "gte", "lte", "eq"]) builder[m] = () => builder;
-      builder.then = (resolve: (v: unknown) => void) => resolve({ data: rowsFor(table), error: null });
+      builder.select = () => builder;
+      builder.eq = (column: string, value: unknown) => {
+        filters.set(column, value);
+        return builder;
+      };
+      builder.in = (column: string, values: unknown[]) => {
+        filters.set(column, values);
+        return builder;
+      };
+      for (const method of ["gte", "lte"]) builder[method] = () => builder;
+      builder.order = () => builder;
+      builder.range = (from: number, to: number) => {
+        page = { from, to };
+        return builder;
+      };
+      builder.maybeSingle = async () => {
+        const response = result();
+        return { data: response.data?.[0] ?? null, error: response.error };
+      };
+      builder.then = (resolve: (value: unknown) => void) => resolve(result());
       return builder;
     },
   };
@@ -109,7 +273,28 @@ const PERIOD: AttendanceExportPeriod = {
   label: "Semana de prueba",
 };
 
+const PAYROLL_PERIOD: AttendanceExportPeriod = {
+  type: "PAGO",
+  startDate: "2026-07-16",
+  endDate: "2026-08-15",
+  label: "Remuneraciones agosto de 2026 · 16 de julio al 15 de agosto de 2026",
+};
+
 const ONE_WORKER = [{ id: "emp-1", display_name: "TRABAJADOR UNO", group: "PRODUCTION" }];
+const MONDAY_FRIDAY_SCHEDULE = [
+  {
+    employee_id: "emp-1",
+    effective_from: "2026-01-01",
+    effective_to: null,
+    work_schedules: {
+      work_schedule_rules: [1, 2, 3, 4, 5].map((day_of_week) => ({
+        day_of_week,
+        scheduled_start: "07:30:00",
+        scheduled_end: "17:00:00",
+      })),
+    },
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Helpers de calendario
@@ -172,6 +357,20 @@ test("buildAttendanceExportData: SUPER_ADMIN ve todas las áreas", async () => {
   assert.equal(data.workers.length, 2);
 });
 
+test("buildAttendanceExportData: nunca mezcla trabajadores de otra empresa", async () => {
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: [
+        ...ONE_WORKER,
+        { id: "foreign", display_name: "OTRA EMPRESA", group: "PRODUCTION", company_id: "ffffffff-ffff-ffff-ffff-ffffffffffff" },
+      ],
+    }),
+    "SUPER_ADMIN",
+    PERIOD
+  );
+  assert.deepEqual(data.workers.map((worker) => worker.workerName), ["TRABAJADOR UNO"]);
+});
+
 test("buildAttendanceExportData: atraso ya decidido usa los minutos que van a liquidación, no los detectados", async () => {
   const data = await buildAttendanceExportData(
     mockSupabase({
@@ -223,12 +422,96 @@ test("buildAttendanceExportData: separa HH 50% de HH 100% según el tipo", async
   assert.equal(data.workers[0].days.get("2026-08-18")?.overtime100Minutes, 60);
 });
 
+test("buildAttendanceExportData: pagina más de 1.000 estados sin truncarlos", async () => {
+  const statuses = Array.from({ length: 1_001 }, (_, index) => ({
+    employee_id: "emp-1",
+    work_date: "2026-08-18",
+    code: index === 1_000 ? "L" : "P",
+  }));
+  const data = await buildAttendanceExportData(
+    mockSupabase({ employees: ONE_WORKER, statuses }),
+    "SUPER_ADMIN",
+    PERIOD
+  );
+  assert.equal(data.workers[0].days.get("2026-08-18")?.statusCode, "L");
+});
+
+test("buildAttendanceExportData: falla cerrado si no puede cargar los feriados", async () => {
+  await assert.rejects(
+    buildAttendanceExportData(
+      mockSupabase({ employees: ONE_WORKER, holidayError: "servicio no disponible" }),
+      "SUPER_ADMIN",
+      PERIOD
+    ),
+    /fallo leyendo holidays/
+  );
+});
+
+test("buildAttendanceExportData: rechaza un tipo de hora extra desconocido", async () => {
+  await assert.rejects(
+    buildAttendanceExportData(
+      mockSupabase({
+        employees: ONE_WORKER,
+        overtimes: [{ employee_id: "emp-1", work_date: "2026-08-17", code: "OVERTIME_FUTURE", approved_minutes: 60 }],
+      }),
+      "SUPER_ADMIN",
+      PERIOD
+    ),
+    /tipo de hora extra no soportado/
+  );
+});
+
+test("buildAttendanceExportData: conserva a una persona inactiva con hechos históricos", async () => {
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: [{ ...ONE_WORKER[0], active: false }],
+      statuses: [{ employee_id: "emp-1", work_date: "2026-08-18", code: "P" }],
+    }),
+    "SUPER_ADMIN",
+    PERIOD
+  );
+  assert.equal(data.workers.length, 1);
+  assert.equal(data.workers[0].currentlyActive, false);
+});
+
+test("buildAttendanceExportData: respeta la vigencia exacta de una exención de marcación", async () => {
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: ONE_WORKER,
+      timeControlPolicies: [
+        {
+          employee_id: "emp-1",
+          effective_from: "2026-08-18",
+          effective_to: "2026-08-20",
+          policy_code: "EXEMPT_FROM_TIME_CONTROL",
+        },
+      ],
+    }),
+    "SUPER_ADMIN",
+    PERIOD
+  );
+
+  assert.deepEqual([...data.workers[0].exemptDates], ["2026-08-18", "2026-08-19", "2026-08-20"]);
+});
+
+test("buildAttendanceExportData: falla cerrado si no puede comprobar las exenciones", async () => {
+  await assert.rejects(
+    buildAttendanceExportData(
+      mockSupabase({ employees: ONE_WORKER, timeControlPolicyError: "permisos temporalmente no disponibles" }),
+      "SUPER_ADMIN",
+      PERIOD
+    ),
+    /fallo leyendo exenciones: permisos temporalmente no disponibles/
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Libro
 
-function readSheet(bytes: Uint8Array): (string | number | null)[][] {
+function readSheet(bytes: Uint8Array, sheetName?: string): (string | number | null)[][] {
   const wb = XLSX.read(bytes, { type: "array" });
-  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
+  const selected = sheetName ?? wb.SheetNames[1];
+  return XLSX.utils.sheet_to_json(wb.Sheets[selected], { header: 1, defval: null });
 }
 
 async function buildSheet(opts: MockOpts, role: "SUPER_ADMIN" = "SUPER_ADMIN") {
@@ -249,15 +532,16 @@ test("libro: una columna por día calendario, con el número de día en la fila 
   assert.deepEqual(rows[13].slice(3, 10), [17, 18, 19, 20, 21, 22, 23]);
 });
 
-test("libro: bloque de 7 filas por trabajador, con el nombre solo en la primera", async () => {
+test("libro: bloque de 8 filas por trabajador, con el nombre solo en la primera", async () => {
   const rows = await buildSheet({ employees: ONE_WORKER });
-  const block = rows.slice(14, 21);
+  const block = rows.slice(14, 22);
   assert.deepEqual(
     block.map((r) => r[1]),
-    ["Asistencia", "Faltas", "Vacaciones", "Licencia", "Atrasos", "HH 50%", "HH 100%"]
+    ["Asistencia", "Faltas", "Vacaciones", "Licencia", "Atrasos", "HH 50%", "HH 100%", "VIATICOS"]
   );
-  assert.equal(block[0][0], "TRABAJADOR UNO");
-  assert.equal(block[1][0], null, "el nombre va combinado, no repetido en cada fila");
+  assert.match(String(block[0][0]), /^TRABAJADOR UNO/);
+  assert.equal(block[1][0], "", "el nombre va combinado, no repetido en cada fila");
+  assert.equal(block[7][2], "", "viáticos queda vacío hasta disponer de una fuente autorizada");
 });
 
 test("libro: los fines de semana quedan en blanco, nunca en 0", async () => {
@@ -277,7 +561,7 @@ test("libro: el fin de semana va amarillo y el feriado magenta, como la planilla
     )
   );
   const wb = XLSX.read(bytes, { type: "array", cellStyles: true });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const sheet = wb.Sheets[wb.SheetNames[1]];
   // Según con qué lector se relea, el relleno queda en `s.fill` o directamente
   // en `s`. Se aceptan las dos formas para no atar la prueba al lector.
   const fill = (r: number, c: number) => {
@@ -287,9 +571,8 @@ test("libro: el fin de semana va amarillo y el feriado magenta, como la planilla
     return s?.fill?.fgColor?.rgb ?? s?.fgColor?.rgb;
   };
 
-  assert.equal(fill(14, 8), "FFFF00", "sábado 22");
-  assert.equal(fill(14, 5), "FF00FF", "miércoles 19, feriado");
-  assert.equal(fill(14, 3), undefined, "un día hábil trabajado no lleva relleno");
+  assert.equal(fill(14, 8), "FFF2CC", "sábado 22");
+  assert.equal(fill(14, 5), "E4DFEC", "miércoles 19, feriado");
 });
 
 test("libro: Faltas / Vacaciones / Licencia marcan 1 en su día y totalizan en la columna C", async () => {
@@ -342,11 +625,27 @@ test("libro: el valor de Asistencia coincide con su propia fórmula", async () =
     )
   );
   const wb = XLSX.read(bytes, { type: "array", cellNF: true });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const sheet = wb.Sheets[wb.SheetNames[1]];
   const asistencia = sheet[XLSX.utils.encode_cell({ r: 14, c: 2 })];
 
-  assert.equal(asistencia.f, "5-C16-C18", "hábiles menos Faltas menos Licencia");
+  assert.equal(asistencia.f, "MAX(0,5-C16-C18)", "hábiles menos Faltas menos Licencia, nunca negativo");
   assert.equal(asistencia.v, 4, "5 hábiles - 1 falta - 0 licencia");
+});
+
+test("libro: una licencia de calendario completa nunca recalcula Asistencia negativa", async () => {
+  const statuses = calendarDaysBetween(PERIOD.startDate, PERIOD.endDate).map((work_date) => ({
+    employee_id: "emp-1",
+    work_date,
+    code: "L",
+  }));
+  const bytes = buildAttendanceExportWorkbook(
+    await buildAttendanceExportData(mockSupabase({ employees: ONE_WORKER, statuses }), "SUPER_ADMIN", PERIOD)
+  );
+  const wb = XLSX.read(bytes, { type: "array", cellNF: true });
+  const asistencia = wb.Sheets[wb.SheetNames[1]][XLSX.utils.encode_cell({ r: 14, c: 2 })];
+
+  assert.equal(asistencia.f, "MAX(0,5-C16-C18)");
+  assert.equal(asistencia.v, 0);
 });
 
 test("libro: las duraciones se guardan como fracción de día con formato h:mm:ss", async () => {
@@ -362,12 +661,102 @@ test("libro: las duraciones se guardan como fracción de día con formato h:mm:s
   );
   // `cellNF` es necesario para que el formato numérico sobreviva la relectura.
   const wb = XLSX.read(bytes, { type: "array", cellNF: true });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const sheet = wb.Sheets[wb.SheetNames[1]];
 
   // Fila 20 (0-indexada) = HH 50%; columna D = lunes 17.
   const cell = sheet[XLSX.utils.encode_cell({ r: 19, c: 3 })];
   assert.equal(cell.v, 120 / 1440, "2 horas = 1/12 de día");
   assert.equal(cell.z, "h:mm:ss;@", "el formato del libro de RRHH, no [h]:mm:ss");
+});
+
+test("libro: el total de horas usa [h]:mm:ss y no vuelve a cero sobre 24 horas", async () => {
+  const overtimes = PERIOD.startDate === "2026-08-17"
+    ? calendarDaysBetween(PERIOD.startDate, PERIOD.endDate).map((work_date) => ({
+        employee_id: "emp-1",
+        work_date,
+        code: "OVERTIME_50",
+        approved_minutes: 300,
+      }))
+    : [];
+  const bytes = buildAttendanceExportWorkbook(
+    await buildAttendanceExportData(mockSupabase({ employees: ONE_WORKER, overtimes }), "SUPER_ADMIN", PERIOD)
+  );
+  const wb = XLSX.read(bytes, { type: "array", cellNF: true });
+  const sheet = wb.Sheets[wb.SheetNames[1]];
+  const total = sheet[XLSX.utils.encode_cell({ r: 19, c: 2 })];
+  assert.equal(total.v, 2_100 / 1_440);
+  assert.equal(total.z, "[h]:mm:ss");
+});
+
+test("libro: conserva HH50 de sábado, HH100 de feriado y licencias de fin de semana", async () => {
+  const rows = await buildSheet({
+    employees: ONE_WORKER,
+    holidays: ["2026-08-19"],
+    statuses: [
+      { employee_id: "emp-1", work_date: "2026-08-19", code: "P" },
+      { employee_id: "emp-1", work_date: "2026-08-22", code: "L-M" },
+    ],
+    overtimes: [
+      { employee_id: "emp-1", work_date: "2026-08-19", code: "OVERTIME_100", approved_minutes: 180 },
+      { employee_id: "emp-1", work_date: "2026-08-22", code: "OVERTIME_50", approved_minutes: 120 },
+    ],
+  });
+  assert.equal(rows[17][8], 1, "la licencia mutual del sábado se cuenta");
+  assert.equal(rows[19][8], 120 / 1_440, "las HH50 del sábado se conservan");
+  assert.equal(rows[20][5], 180 / 1_440, "las HH100 del feriado se conservan");
+});
+
+test("libro: respeta fecha de ingreso y días libres del horario vigente", async () => {
+  const rows = await buildSheet({
+    employees: [{ ...ONE_WORKER[0], hire_date: "2026-08-19" }],
+    statuses: [{ employee_id: "emp-1", work_date: "2026-08-19", code: "P" }],
+    schedules: [
+      {
+        employee_id: "emp-1",
+        effective_from: "2026-01-01",
+        effective_to: null,
+        work_schedules: {
+          work_schedule_rules: [1, 3, 5].map((day_of_week) => ({
+            day_of_week,
+            scheduled_start: "08:00:00",
+            scheduled_end: "17:00:00",
+          })),
+        },
+      },
+    ],
+  });
+  assert.equal(rows[14][2], 2, "miércoles y viernes son los dos días base posteriores al ingreso");
+  assert.equal(rows[14][3], "", "el lunes anterior al ingreso queda en blanco");
+  assert.equal(rows[14][4], "", "el martes libre queda en blanco");
+  assert.equal(rows[14][5], "P", "el miércoles trabajado conserva su código");
+  assert.equal(rows[14][6], "", "el jueves libre queda en blanco");
+});
+
+test("libro: una persona exenta conserva su base y no genera falsos pendientes", async () => {
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: ONE_WORKER,
+      timeControlPolicies: [
+        {
+          employee_id: "emp-1",
+          effective_from: PERIOD.startDate,
+          effective_to: PERIOD.endDate,
+          policy_code: "EXEMPT_FROM_TIME_CONTROL",
+        },
+      ],
+    }),
+    "SUPER_ADMIN",
+    PERIOD
+  );
+  const bytes = buildAttendanceExportWorkbook(data);
+  const detail = readSheet(bytes);
+  const summary = readSheet(bytes, "RESUMEN");
+
+  assert.equal(detail[14][2], 5, "la exención de marcación no reduce la base pagada");
+  assert.deepEqual(detail[14].slice(3, 10), ["", "", "", "", "", "", ""]);
+  assert.equal(summary[5][2], "Exento de marcación");
+  assert.equal(summary[5][13], "Sin pendientes");
+  assert.match(String(summary[5][14]), /Exento de marcación/);
 });
 
 test("libro: las filas de conteo llevan dos decimales, como la planilla de RRHH", async () => {
@@ -382,7 +771,7 @@ test("libro: las filas de conteo llevan dos decimales, como la planilla de RRHH"
     )
   );
   const wb = XLSX.read(bytes, { type: "array", cellNF: true });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const sheet = wb.Sheets[wb.SheetNames[1]];
 
   // Un total que sale "1" donde la planilla dice "1.00" es justo lo que impide
   // comparar las dos de un vistazo.
@@ -398,7 +787,263 @@ test("libro: la hoja se llama por el mes de cierre del período, como NOV25", as
   );
   const wb = XLSX.read(bytes, { type: "array" });
   // PERIOD cierra el 2026-08-23.
-  assert.deepEqual(wb.SheetNames, ["AGO26"]);
+  assert.deepEqual(wb.SheetNames, ["RESUMEN", "AGO26"]);
+});
+
+test("libro: abre con un resumen de remuneraciones y marca BORRADOR si el ciclo 16-15 no está cerrado", async () => {
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: ONE_WORKER,
+      reportingPeriodStatus: "OPEN",
+      schedules: MONDAY_FRIDAY_SCHEDULE,
+      statuses: [{ employee_id: "emp-1", work_date: "2026-08-14", code: "F" }],
+      lates: [{ employee_id: "emp-1", work_date: "2026-08-14", detected_minutes: 10, payroll_minutes: 10 }],
+    }),
+    "SUPER_ADMIN",
+    PAYROLL_PERIOD
+  );
+  const bytes = buildAttendanceExportWorkbook(data);
+  const rows = readSheet(bytes, "RESUMEN");
+
+  assert.match(String(rows[0][0]), /RESUMEN DE ASISTENCIA PARA REMUNERACIONES/);
+  assert.match(String(rows[2][0]), /^BORRADOR/);
+  assert.deepEqual(rows[4].slice(0, 5), ["Trabajador", "Área", "Horario", "Días base", "Faltas"]);
+  assert.match(String(rows[5][0]), /TRABAJADOR UNO/);
+  assert.equal(rows[5][3], 30, "el ciclo de pago conserva la base mensual de 30 días");
+  assert.equal(rows[5][4], 1);
+  assert.equal(rows[5][8], 10 / 1_440);
+});
+
+test("libro: el resumen advierte salidas anticipadas y marcaciones incompletas pendientes", async () => {
+  const statuses = calendarDaysBetween(PERIOD.startDate, PERIOD.endDate)
+    .filter((work_date) => !isWeekend(work_date))
+    .map((work_date) => ({ employee_id: "emp-1", work_date, code: "P" }));
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: ONE_WORKER,
+      schedules: MONDAY_FRIDAY_SCHEDULE,
+      statuses,
+      earlyDepartures: [
+        { employee_id: "emp-1", work_date: "2026-08-17", detected_minutes: 30 },
+      ],
+      missingPunches: [
+        { employee_id: "emp-1", work_date: "2026-08-18", status: "PENDING_CONTACT" },
+      ],
+    }),
+    "SUPER_ADMIN",
+    PERIOD
+  );
+  const rows = readSheet(buildAttendanceExportWorkbook(data), "RESUMEN");
+
+  assert.equal(rows[5][9], 30 / 1_440, "muestra los minutos detectados mientras falta decisión");
+  assert.equal(rows[5][12], "17/08, 18/08");
+  assert.equal(rows[5][13], "Revisar");
+  assert.match(String(rows[5][14]), /Marcaciones incompletas por resolver: 1/);
+  assert.match(String(rows[5][14]), /Salidas anticipadas por decidir: 1/);
+});
+
+test("libro: una salida justificada y una flag histórica no crean falsos pendientes", async () => {
+  const statuses = calendarDaysBetween(PERIOD.startDate, PERIOD.endDate)
+    .filter((work_date) => !isWeekend(work_date))
+    .map((work_date) => ({ employee_id: "emp-1", work_date, code: "P" }));
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: ONE_WORKER,
+      schedules: MONDAY_FRIDAY_SCHEDULE,
+      statuses,
+      earlyDepartures: [
+        {
+          employee_id: "emp-1",
+          work_date: "2026-08-17",
+          detected_minutes: 30,
+          payroll_minutes: 0,
+          payroll_effect: "DO_NOT_DEDUCT",
+        },
+      ],
+      missingPunches: [
+        {
+          employee_id: "emp-1",
+          work_date: "2026-08-18",
+          status: "CONTACTED",
+          attendanceCurrent: false,
+        },
+      ],
+    }),
+    "SUPER_ADMIN",
+    PERIOD
+  );
+  const rows = readSheet(buildAttendanceExportWorkbook(data), "RESUMEN");
+
+  assert.equal(rows[5][9], 0);
+  assert.equal(rows[5][13], "Sin pendientes");
+});
+
+test("libro: una ausencia sin cerrar nunca aparece como Sin pendientes", async () => {
+  const statuses = calendarDaysBetween(PERIOD.startDate, PERIOD.endDate)
+    .filter((work_date) => !isWeekend(work_date))
+    .map((work_date) => ({ employee_id: "emp-1", work_date, code: "P" }));
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: ONE_WORKER,
+      schedules: MONDAY_FRIDAY_SCHEDULE,
+      statuses,
+      absences: [
+        {
+          employee_id: "emp-1",
+          start_date: "2026-08-18",
+          end_date: "2026-08-19",
+          decision_status: "PENDING_DOCUMENT",
+        },
+      ],
+    }),
+    "SUPER_ADMIN",
+    PERIOD
+  );
+  const rows = readSheet(buildAttendanceExportWorkbook(data), "RESUMEN");
+
+  assert.equal(rows[5][12], "18/08, 19/08");
+  assert.equal(rows[5][13], "Revisar");
+  assert.match(String(rows[5][14]), /Ausencias\/licencias por resolver: 2 día\(s\)/);
+});
+
+test("libro: una ausencia confirmada no crea un falso pendiente", async () => {
+  const statuses = calendarDaysBetween(PERIOD.startDate, PERIOD.endDate)
+    .filter((work_date) => !isWeekend(work_date))
+    .map((work_date) => ({ employee_id: "emp-1", work_date, code: "L" }));
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: ONE_WORKER,
+      schedules: MONDAY_FRIDAY_SCHEDULE,
+      statuses,
+      absences: [
+        {
+          employee_id: "emp-1",
+          start_date: "2026-08-17",
+          end_date: "2026-08-21",
+          decision_status: "CONFIRMED",
+        },
+      ],
+    }),
+    "SUPER_ADMIN",
+    PERIOD
+  );
+  const rows = readSheet(buildAttendanceExportWorkbook(data), "RESUMEN");
+
+  assert.equal(rows[5][13], "Sin pendientes");
+  assert.doesNotMatch(String(rows[5][14]), /Ausencias\/licencias por resolver/);
+});
+
+test("libro: la última corrida parcial bloquea el pago aunque sobreviva un estado P anterior", async () => {
+  const statuses = calendarDaysBetween(PERIOD.startDate, PERIOD.endDate)
+    .filter((workDate) => !isWeekend(workDate))
+    .map((workDate) => ({ employee_id: "emp-1", work_date: workDate, code: "P" }));
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: ONE_WORKER,
+      schedules: MONDAY_FRIDAY_SCHEDULE,
+      statuses,
+      ruleEngineRuns: [
+        { work_date: "2026-08-18", status: "SUCCEEDED", started_at: "2026-08-18T18:00:00Z" },
+        { work_date: "2026-08-18", status: "PARTIAL", started_at: "2026-08-18T19:00:00Z" },
+      ],
+    }),
+    "SUPER_ADMIN",
+    PERIOD
+  );
+  const rows = readSheet(buildAttendanceExportWorkbook(data), "RESUMEN");
+
+  assert.ok(data.ruleEngineProblemDates.has("2026-08-18"));
+  assert.equal(rows[5][12], "18/08");
+  assert.equal(rows[5][13], "Revisar");
+  assert.match(String(rows[5][14]), /Motor de reglas incompleto: 1 día\(s\)/);
+});
+
+test("libro: una corrida posterior exitosa limpia la alerta de una falla antigua", async () => {
+  const statuses = calendarDaysBetween(PERIOD.startDate, PERIOD.endDate)
+    .filter((workDate) => !isWeekend(workDate))
+    .map((workDate) => ({ employee_id: "emp-1", work_date: workDate, code: "P" }));
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: ONE_WORKER,
+      schedules: MONDAY_FRIDAY_SCHEDULE,
+      statuses,
+      ruleEngineRuns: [
+        { work_date: "2026-08-18", status: "FAILED", started_at: "2026-08-18T18:00:00Z" },
+        { work_date: "2026-08-18", status: "SUCCEEDED", started_at: "2026-08-18T19:00:00Z" },
+      ],
+    }),
+    "SUPER_ADMIN",
+    PERIOD
+  );
+  const rows = readSheet(buildAttendanceExportWorkbook(data), "RESUMEN");
+
+  assert.equal(data.ruleEngineProblemDates.has("2026-08-18"), false);
+  assert.equal(rows[5][13], "Sin pendientes");
+  assert.doesNotMatch(String(rows[5][14]), /Motor de reglas incompleto/);
+});
+
+test("libro: una fecha laboral sin corrida exitosa nunca aparece lista para pagar", async () => {
+  const statuses = calendarDaysBetween(PERIOD.startDate, PERIOD.endDate)
+    .filter((workDate) => !isWeekend(workDate))
+    .map((workDate) => ({ employee_id: "emp-1", work_date: workDate, code: "P" }));
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: ONE_WORKER,
+      schedules: MONDAY_FRIDAY_SCHEDULE,
+      statuses,
+      ruleEngineRuns: [],
+    }),
+    "SUPER_ADMIN",
+    PERIOD
+  );
+  const rows = readSheet(buildAttendanceExportWorkbook(data), "RESUMEN");
+
+  assert.equal(rows[5][13], "Revisar");
+  assert.match(String(rows[5][14]), /Motor de reglas incompleto: 5 día\(s\)/);
+});
+
+test("libro: detecta una corrida que cambió mientras se consultaban los datos", async () => {
+  const statuses = calendarDaysBetween(PERIOD.startDate, PERIOD.endDate)
+    .filter((workDate) => !isWeekend(workDate))
+    .map((workDate) => ({ employee_id: "emp-1", work_date: workDate, code: "P" }));
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: ONE_WORKER,
+      schedules: MONDAY_FRIDAY_SCHEDULE,
+      statuses,
+      ruleEngineRunsAfter: [
+        { work_date: "2026-08-18", status: "SUCCEEDED", started_at: "2026-08-18T20:00:00Z" },
+      ],
+    }),
+    "SUPER_ADMIN",
+    PERIOD
+  );
+  const rows = readSheet(buildAttendanceExportWorkbook(data), "RESUMEN");
+
+  assert.ok(data.ruleEngineProblemDates.has("2026-08-18"));
+  assert.equal(rows[5][13], "Revisar");
+  assert.match(String(rows[5][14]), /Motor de reglas incompleto: 1 día\(s\)/);
+});
+
+test("libro: un período cerrado se identifica como control de datos actuales, no como snapshot", async () => {
+  const statuses = calendarDaysBetween(PAYROLL_PERIOD.startDate, PAYROLL_PERIOD.endDate)
+    .filter((work_date) => !isWeekend(work_date))
+    .map((work_date) => ({ employee_id: "emp-1", work_date, code: "P" }));
+  const data = await buildAttendanceExportData(
+    mockSupabase({
+      employees: ONE_WORKER,
+      reportingPeriodStatus: "CLOSED",
+      schedules: MONDAY_FRIDAY_SCHEDULE,
+      statuses,
+    }),
+    "SUPER_ADMIN",
+    PAYROLL_PERIOD
+  );
+  const rows = readSheet(buildAttendanceExportWorkbook(data), "RESUMEN");
+
+  assert.match(String(rows[2][0]), /^CONTROL — período cerrado/);
+  assert.match(String(rows[3][0]), /datos actuales/);
+  assert.match(String(rows[3][0]), /no crea todavía una copia inmutable/);
 });
 
 test("libro: sin trabajadores sigue generando un archivo válido con la cabecera", async () => {

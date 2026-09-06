@@ -13,6 +13,7 @@ import { UpcomingEventsCard } from "../../../components/dashboard/UpcomingEvents
 import { WeekSummaryCard } from "../../../components/dashboard/WeekSummaryCard";
 import { DescargarAsistenciaCard } from "../../../components/dashboard/DescargarAsistenciaCard";
 import { AttendanceReadinessCard } from "../../../components/dashboard/AttendanceReadinessCard";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../lib/tenant/legacy-workforce";
 
 const AREA_LABEL: Record<"PRODUCTION" | "INSTALLATION" | "ADMINISTRATION", string> = {
   PRODUCTION: "Producción",
@@ -38,7 +39,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   try {
     [dashboard, readiness] = await Promise.all([
       getDashboardForRole(supabase, profile.role, date),
-      getAttendanceReadiness(supabase, profile.role),
+      getAttendanceReadiness(supabase, profile.role, ARCOTEX_WORKFORCE_COMPANY_ID),
     ]);
   } catch {
     return <ErrorState retryHref="/dashboard" />;

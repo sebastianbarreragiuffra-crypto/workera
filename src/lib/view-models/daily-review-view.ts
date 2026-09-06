@@ -183,18 +183,33 @@ export async function getDailyReviewBoard(
           .eq("is_current", true)
       : Promise.resolve({ data: [], error: null }),
     pendingIds.length > 0
-      ? supabase.from("late_arrival_records").select("employee_id, detected_minutes").in("employee_id", pendingIds).eq("work_date", date).eq("is_current", true)
+      ? supabase
+          .from("late_arrival_records")
+          .select("employee_id, detected_minutes, attendance_records!inner(is_current)")
+          .in("employee_id", pendingIds)
+          .eq("work_date", date)
+          .eq("is_current", true)
+          .eq("attendance_records.is_current", true)
       : Promise.resolve({ data: [], error: null }),
     pendingIds.length > 0
-      ? supabase.from("overtime_records").select("employee_id, candidate_minutes").in("employee_id", pendingIds).eq("work_date", date).eq("is_current", true)
+      ? supabase
+          .from("overtime_records")
+          .select("employee_id, candidate_minutes, attendance_records!inner(is_current)")
+          .in("employee_id", pendingIds)
+          .eq("work_date", date)
+          .eq("is_current", true)
+          .eq("attendance_records.is_current", true)
       : Promise.resolve({ data: [], error: null }),
     pendingIds.length > 0
       ? supabase
           .from("early_departure_records")
-          .select("employee_id, detected_minutes, early_departure_decisions(document_deadline, is_current)")
+          .select(
+            "employee_id, detected_minutes, attendance_records!inner(is_current), early_departure_decisions(document_deadline, is_current)"
+          )
           .in("employee_id", pendingIds)
           .eq("work_date", date)
           .eq("is_current", true)
+          .eq("attendance_records.is_current", true)
       : Promise.resolve({ data: [], error: null }),
     pendingIds.length > 0
       ? supabase
@@ -433,28 +448,33 @@ export async function getDailyReviewDetail(
         .maybeSingle(),
       supabase
         .from("late_arrival_records")
-        .select("id, detected_minutes, late_arrival_decisions(justified, payroll_minutes, reason, is_current, decided_at)")
+        .select(
+          "id, detected_minutes, attendance_records!inner(is_current), late_arrival_decisions(justified, payroll_minutes, reason, is_current, decided_at)"
+        )
         .eq("employee_id", employeeId)
         .eq("work_date", date)
         .eq("is_current", true)
+        .eq("attendance_records.is_current", true)
         .maybeSingle(),
       supabase
         .from("early_departure_records")
         .select(
-          "id, detected_minutes, early_departure_decisions(reason_category, document_required, document_deadline, payroll_effect, reason, is_current, decided_at)"
+          "id, detected_minutes, attendance_records!inner(is_current), early_departure_decisions(reason_category, document_required, document_deadline, payroll_effect, reason, is_current, decided_at)"
         )
         .eq("employee_id", employeeId)
         .eq("work_date", date)
         .eq("is_current", true)
+        .eq("attendance_records.is_current", true)
         .maybeSingle(),
       supabase
         .from("overtime_records")
         .select(
-          "id, candidate_minutes, overtime_decisions(decision_status, approved_minutes, rejected_minutes, reason, is_current, decided_at, employee_daily_bonuses(amount))"
+          "id, candidate_minutes, attendance_records!inner(is_current), overtime_decisions(decision_status, approved_minutes, rejected_minutes, reason, is_current, decided_at, employee_daily_bonuses(amount))"
         )
         .eq("employee_id", employeeId)
         .eq("work_date", date)
         .eq("is_current", true)
+        .eq("attendance_records.is_current", true)
         .maybeSingle(),
       supabase
         .from("absence_records")
@@ -466,9 +486,14 @@ export async function getDailyReviewDetail(
         .maybeSingle(),
       supabase
         .from("attendance_missing_punch_flags")
-        .select("status, missing_type")
+        // La flag no tiene `is_current`: se conserva como auditoría, pero el
+        // detalle solo puede mostrarla si su attendance_record sigue vigente.
+        // No se filtra `source`, de modo que una flag sobre una asistencia
+        // manual vigente continúa siendo válida.
+        .select("status, missing_type, attendance_records!inner(is_current)")
         .eq("employee_id", employeeId)
         .eq("work_date", date)
+        .eq("attendance_records.is_current", true)
         .in("status", ["PENDING_CONTACT", "CONTACTED"])
         .maybeSingle(),
       supabase

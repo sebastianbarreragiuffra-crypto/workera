@@ -2,7 +2,26 @@
 
 Fuente analizada: `18.02 ASISTENCIA DEL PERSONAL - MARIA VERA (2).xls` (ubicado en `Downloads` del usuario, **no copiado ni modificado** — este documento es el único artefacto producido).
 
-Estado: análisis funcional/técnico. **No se creó ningún esquema, migración ni código de exportación.**
+Estado histórico: este documento comenzó como análisis funcional/técnico. La exportación ya está implementada; las decisiones vigentes se resumen a continuación y reemplazan las recomendaciones antiguas incompatibles.
+
+## Estado vigente de la exportación (2026-09-05)
+
+- Se genera `.xlsx` desde cero, sin reutilizar el archivo con nombres reales como plantilla. Así las altas nuevas no dependen de las filas disponibles en una copia histórica.
+- La primera hoja es `RESUMEN`, orientada a quien liquida remuneraciones; la segunda conserva la matriz diaria conocida, con 8 filas por persona.
+- `RESUMEN` concentra los controles que afectan el pago: faltas, vacaciones, licencias, permisos, atrasos, salidas anticipadas, HH50/HH100 y fechas por revisar. Una marcación incompleta, una ausencia/licencia aún disputada o sin documento, un atraso/salida sin decisión, una hora extra pendiente, la ausencia de una corrida del motor o una última corrida distinta de `SUCCEEDED` impiden que la persona aparezca como `Sin pendientes`.
+- El ciclo de pago confirmado es 16 del mes anterior al 15 del mes pagado.
+- La fórmula confirmada del total de Asistencia es `MAX(0, base menos Faltas menos Licencia)` (`L` y `L-M` juntas); Vacaciones se informa aparte y no se descuenta en esa fórmula. El `MAX` evita resultados negativos ante licencias de calendario que incluyen fines de semana.
+- HH50 de sábado, HH100 de domingo/feriado y licencias en días no hábiles se conservan. Los totales de tiempo usan `[h]:mm:ss` para no reiniciarse al superar 24 horas.
+- Las consultas se paginan para no perder registros por el límite de 1.000 filas de PostgREST. Un error al cargar feriados detiene la descarga en vez de generar cifras silenciosamente incorrectas.
+- Las exenciones de control horario se resuelven por fecha desde `employee_time_control_policies`: conservan la base pagada, dejan la marcación en blanco y no crean falsos pendientes.
+- La fila VIATICOS se mantiene por familiaridad, pero queda vacía hasta que exista una fuente autorizada.
+- Un período de pago no cerrado o con decisiones pendientes se identifica como `BORRADOR`/`REVISAR` dentro del archivo.
+- Un período cerrado se presenta como una vista de control de los datos actuales. Todavía no existe un snapshot inmutable de cierre y el archivo lo declara expresamente para no prometer una inmutabilidad inexistente.
+- Solo se liquidan decisiones cuyo candidato calculado sigue vigente. El historial se conserva para auditoría, pero una marcación corregida o retirada no continúa sumando atrasos, salidas, horas extra ni bonos en el Excel.
+- La exportación lee la última corrida antes y después de cargar los datos. Si la corrida cambia durante esa ventana, la fecha queda para revisión: no se presenta una lectura potencialmente mezclada como lista para pagar.
+- El archivo ya recibe `companyId` explícito y todas sus consultas operativas quedan acotadas a ese tenant. La ruta de asistencia actual continúa siendo el módulo workforce legado de Arcotex. Antes de habilitar esta descarga para otras empresas falta agregar `company_id` a `reporting_periods`; hoy el cierre 16-15 sigue siendo global.
+
+La recomendación histórica de convertir el `.xls` en una plantilla maestra quedó **reemplazada** por esta generación determinista. El archivo histórico sigue sirviendo únicamente como referencia visual y funcional.
 
 Método: lectura del archivo con SheetJS (Node.js) en modo solo-lectura, ya que el entorno no tiene Python/openpyxl disponible y el archivo es `.xls` binario legado (no soportado por openpyxl). No se guardó ninguna copia del archivo dentro del repo.
 

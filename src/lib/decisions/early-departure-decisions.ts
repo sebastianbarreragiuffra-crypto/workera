@@ -25,6 +25,23 @@ import { loadHolidaySet, holidayWindow } from "../business-rules/holidays";
 
 const MEDICAL_DOCUMENT_DEADLINE_BUSINESS_DAYS = 3;
 
+async function requireCurrentEarlyDeparture(
+  supabase: SupabaseClient<Database>,
+  earlyDepartureRecordId: string
+): Promise<{ detected_minutes: number }> {
+  const { data, error } = await supabase
+    .from("early_departure_records")
+    .select("detected_minutes, attendance_records!inner(is_current)")
+    .eq("id", earlyDepartureRecordId)
+    .eq("is_current", true)
+    .eq("attendance_records.is_current", true)
+    .single();
+  if (error || !data) {
+    throw new Error(`Salida anticipada no vigente (${earlyDepartureRecordId}).`);
+  }
+  return data;
+}
+
 export interface MarkEarlyDepartureMedicalInput {
   earlyDepartureRecordId: string;
   workDate: string;
@@ -35,6 +52,7 @@ export async function markEarlyDepartureMedical(
   supabase: SupabaseClient<Database>,
   input: MarkEarlyDepartureMedicalInput
 ): Promise<{ decisionId: string }> {
+  await requireCurrentEarlyDeparture(supabase, input.earlyDepartureRecordId);
   const { from, to } = holidayWindow(input.workDate);
   const holidays = await loadHolidaySet(supabase, from, to);
   const deadline = addBusinessDays(input.workDate, MEDICAL_DOCUMENT_DEADLINE_BUSINESS_DAYS, holidays);
@@ -68,6 +86,7 @@ export async function confirmEarlyDepartureMedicalDocument(
   supabase: SupabaseClient<Database>,
   input: ConfirmEarlyDepartureMedicalDocumentInput
 ): Promise<{ decisionId: string }> {
+  await requireCurrentEarlyDeparture(supabase, input.earlyDepartureRecordId);
   const { from, to } = holidayWindow(input.workDate);
   const holidays = await loadHolidaySet(supabase, from, to);
   const deadline = addBusinessDays(input.workDate, MEDICAL_DOCUMENT_DEADLINE_BUSINESS_DAYS, holidays);
@@ -102,14 +121,7 @@ export async function decideEarlyDepartureOther(
   supabase: SupabaseClient<Database>,
   input: DecideEarlyDepartureOtherInput
 ): Promise<{ decisionId: string }> {
-  const { data: record, error: recordError } = await supabase
-    .from("early_departure_records")
-    .select("detected_minutes")
-    .eq("id", input.earlyDepartureRecordId)
-    .single();
-  if (recordError || !record) {
-    throw new Error(`decideEarlyDepartureOther: registro no encontrado (${input.earlyDepartureRecordId}).`);
-  }
+  const record = await requireCurrentEarlyDeparture(supabase, input.earlyDepartureRecordId);
 
   const justified = input.reasonCategory === "OTHER_JUSTIFIED";
   const payrollMinutes = justified ? 0 : record.detected_minutes;

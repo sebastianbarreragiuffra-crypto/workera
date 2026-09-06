@@ -15,6 +15,7 @@ import {
 } from "../../../../lib/decisions/workforce-data-access";
 import { privateAttachmentHeaders } from "../../../../lib/shared/private-download";
 import { isCalendarDate } from "../../../../lib/view-models/date-utils";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../../lib/tenant/legacy-workforce";
 
 /**
  * Descarga del Excel de asistencia, siempre generado en el momento de la
@@ -82,7 +83,7 @@ export async function GET(request: NextRequest) {
 
   let data;
   try {
-    data = await buildAttendanceExportData(supabase, profile.role, period);
+    data = await buildAttendanceExportData(supabase, profile.role, period, ARCOTEX_WORKFORCE_COMPANY_ID);
   } catch (err) {
     // El mensaje interno lleva el error crudo de PostgREST (nombres de tabla,
     // detalle de la consulta). Se registra en el servidor y al cliente le

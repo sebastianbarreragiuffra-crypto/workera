@@ -15,6 +15,7 @@ import {
 import { markAbsencePendingDocument, confirmAbsenceDocument, disputeAbsence } from "../../../lib/decisions/absence-decisions";
 import { submitAttendanceCorrection } from "../../../lib/decisions/attendance-corrections";
 import { reprocessEmployeeDay } from "../../../lib/rule-engine/service";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../lib/tenant/legacy-workforce";
 import { uploadSupportingDocument, MAX_SUPPORTING_DOCUMENT_SIZE_BYTES, type SupportingDocumentType, type SupportingDocumentRelation } from "../../../lib/decisions/documents";
 import { getDailyReviewBoard, sortPendingCards, findNextPendingEmployeeId } from "../../../lib/view-models/daily-review-view";
 import { assertEmployeeAccessAllowed, type AreaCode, type CallerRole } from "../../../lib/access/scope";
@@ -207,7 +208,12 @@ export async function submitAttendanceCorrectionAction(formData: FormData) {
     correctedBy: profile.id,
   });
 
-  await reprocessEmployeeDay(employeeId, date);
+  const reprocessResult = await reprocessEmployeeDay(employeeId, date, ARCOTEX_WORKFORCE_COMPANY_ID);
+  if (reprocessResult.failures.length > 0) {
+    throw new Error(
+      "La corrección quedó guardada, pero no fue posible recalcular la asistencia. Reintenta antes de continuar."
+    );
+  }
 
   revalidatePath(`/revision-diaria`);
   redirect(`/revision-diaria?fecha=${date}&area=${area}&filtro=pendientes&empleado=${employeeId}&hecho=marcacion-corregida`);

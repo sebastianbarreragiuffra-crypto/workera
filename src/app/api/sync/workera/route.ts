@@ -11,6 +11,7 @@ import { runRuleEngineWithServiceRole } from "@/lib/rule-engine/service";
 import { createClient } from "@/lib/supabase/server";
 import { enforceWorkforceActionRateLimit } from "@/lib/decisions/workforce-action-rate-limit";
 import { ApplicationActionLimitError } from "@/lib/shared/action-rate-limit";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "@/lib/tenant/legacy-workforce";
 
 export const MAX_MANUAL_RERUN_BODY_BYTES = 1024;
 
@@ -114,7 +115,8 @@ export async function readManualRerunBody(request: Request): Promise<unknown> {
  */
 async function runRuleEngineForSyncedDates(
   results: Record<string, { status: string }>,
-  triggeredBy: "CRON" | "MANUAL"
+  triggeredBy: "CRON" | "MANUAL",
+  companyId: string
 ): Promise<Record<string, { status: string; lateCandidates: number; overtimeCandidates: number; withoutSchedule: number }>> {
   const dates = datesReadyForRuleEngine(results);
   if (dates.length === 0) return {};
@@ -123,7 +125,7 @@ async function runRuleEngineForSyncedDates(
 
   for (const date of dates) {
     try {
-      const outcome = await runRuleEngineWithServiceRole(date, { triggeredBy });
+      const outcome = await runRuleEngineWithServiceRole(date, { companyId, triggeredBy });
       summary[date] = {
         status: outcome.status,
         lateCandidates: outcome.result?.lateCandidates ?? 0,
@@ -163,7 +165,11 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const ruleEngine = await runRuleEngineForSyncedDates(summary.results, "CRON");
+  const ruleEngine = await runRuleEngineForSyncedDates(
+    summary.results,
+    "CRON",
+    ARCOTEX_WORKFORCE_COMPANY_ID
+  );
 
   const statuses = [
     ...Object.values(summary.results).map((r) => r.status),
@@ -216,7 +222,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await rerunWorkeraSync({ startDate: body.startDate, endDate: body.endDate });
-    const ruleEngine = await runRuleEngineForSyncedDates(result.results, "MANUAL");
+    const ruleEngine = await runRuleEngineForSyncedDates(
+      result.results,
+      "MANUAL",
+      ARCOTEX_WORKFORCE_COMPANY_ID
+    );
 
     const statuses = [
       ...Object.values(result.results).map((r) => r.status),

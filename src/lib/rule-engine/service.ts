@@ -30,9 +30,10 @@ import {
 export async function runRuleEngineWithServiceRole(
   date: string,
   params: {
+    companyId: string;
     triggeredBy: "CRON" | "MANUAL";
     triggeredByProfile?: string | null;
-    options?: ProcessAttendanceDayOptions;
+    options?: Omit<ProcessAttendanceDayOptions, "companyId">;
   }
 ): Promise<RuleEngineRunOutcome> {
   const supabase = createAdminClient("attendance-rule-engine");
@@ -53,9 +54,14 @@ export async function runRuleEngineWithServiceRole(
  * Igual que el resto de este módulo: no autoriza nada. Quien llame ya debe
  * haber validado, contra su sesión real, que puede gestionar a ese trabajador
  * -- lo cual la RLS de `attendance_corrections` ya hizo al aceptar la
- * corrección que motiva esta llamada.
+ * corrección que motiva esta llamada. `companyId` sigue siendo obligatorio:
+ * el cliente admin no puede inferir un tenant desde RLS ni desde una sesión.
  */
-export async function reprocessEmployeeDay(employeeId: string, date: string): Promise<ProcessAttendanceDayResult> {
+export async function reprocessEmployeeDay(
+  employeeId: string,
+  date: string,
+  companyId: string
+): Promise<ProcessAttendanceDayResult> {
   const supabase = createAdminClient("attendance-rule-engine");
-  return processAttendanceDay(supabase, date, { employeeIds: [employeeId] });
+  return processAttendanceDay(supabase, date, { companyId, employeeIds: [employeeId] });
 }

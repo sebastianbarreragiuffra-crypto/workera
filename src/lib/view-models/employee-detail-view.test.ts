@@ -6,11 +6,36 @@ import { AreaAccessError } from "../access/scope";
 interface MockOptions {
   areaCode?: string | null;
   active?: boolean;
-  lateArrivals?: { work_date: string; detected_minutes: number; late_arrival_decisions: { justified: boolean; is_current: boolean } | null }[];
+  lateArrivals?: {
+    work_date: string;
+    detected_minutes: number;
+    late_arrival_decisions:
+      | { justified: boolean; is_current: boolean }
+      | { justified: boolean; is_current: boolean }[]
+      | null;
+  }[];
+  overtime?: {
+    work_date: string;
+    candidate_minutes: number;
+    overtime_decisions: { decision_status: string; approved_minutes: number; is_current: boolean }[];
+  }[];
+  absences?: {
+    start_date: string;
+    end_date: string;
+    absence_types: { name: string } | null;
+    absence_decisions: { decision_status: string; is_current: boolean }[];
+  }[];
   documents?: { id: string; document_type: string; original_filename: string; uploaded_at: string }[];
 }
 
-function mockSupabase({ areaCode = "PRODUCTION", active = true, lateArrivals = [], documents = [] }: MockOptions) {
+function mockSupabase({
+  areaCode = "PRODUCTION",
+  active = true,
+  lateArrivals = [],
+  overtime = [],
+  absences = [],
+  documents = [],
+}: MockOptions) {
   function chain(resolve: () => { data: unknown; error: null }) {
     const builder = {
       select() {
@@ -62,9 +87,9 @@ function mockSupabase({ areaCode = "PRODUCTION", active = true, lateArrivals = [
         case "late_arrival_records":
           return chain(() => ({ data: lateArrivals, error: null }));
         case "overtime_records":
-          return chain(() => ({ data: [], error: null }));
+          return chain(() => ({ data: overtime, error: null }));
         case "absence_records":
-          return chain(() => ({ data: [], error: null }));
+          return chain(() => ({ data: absences, error: null }));
         case "supporting_documents_metadata":
           return chain(() => ({ data: documents, error: null }));
         default:
@@ -109,6 +134,66 @@ test("getEmployeeDetail: atraso con decisión pendiente (sin fila en late_arriva
   const detail = await getEmployeeDetail(supabase, "ADMIN_RRHH", "e1", "2026-08-20");
   assert.equal(detail.recentLateArrivals.length, 1);
   assert.equal(detail.recentLateArrivals[0].justified, null);
+});
+
+test("getEmployeeDetail: atraso usa la decisión vigente aunque una histórica aparezca primero", async () => {
+  const supabase = mockSupabase({
+    lateArrivals: [
+      {
+        work_date: "2026-08-19",
+        detected_minutes: 12,
+        late_arrival_decisions: [
+          { justified: false, is_current: false },
+          { justified: true, is_current: true },
+        ],
+      },
+    ],
+  });
+
+  const detail = await getEmployeeDetail(supabase, "ADMIN_RRHH", "e1", "2026-08-20");
+
+  assert.equal(detail.recentLateArrivals[0].justified, true);
+});
+
+test("getEmployeeDetail: muestra solo la decisión vigente del candidato de horas extra", async () => {
+  const supabase = mockSupabase({
+    areaCode: "PRODUCTION",
+    overtime: [
+      {
+        work_date: "2026-08-19",
+        candidate_minutes: 60,
+        overtime_decisions: [
+          { decision_status: "REJECTED", approved_minutes: 0, is_current: false },
+          { decision_status: "FULLY_APPROVED", approved_minutes: 60, is_current: true },
+        ],
+      },
+    ],
+  });
+
+  const detail = await getEmployeeDetail(supabase, "ADMIN_RRHH", "e1", "2026-08-20");
+
+  assert.equal(detail.recentOvertime[0].decisionStatus, "FULLY_APPROVED");
+  assert.equal(detail.recentOvertime[0].approvedMinutes, 60);
+});
+
+test("getEmployeeDetail: ausencia usa la decisión vigente aunque una histórica aparezca primero", async () => {
+  const supabase = mockSupabase({
+    absences: [
+      {
+        start_date: "2026-08-18",
+        end_date: "2026-08-19",
+        absence_types: { name: "Licencia médica" },
+        absence_decisions: [
+          { decision_status: "DISPUTED", is_current: false },
+          { decision_status: "CONFIRMED", is_current: true },
+        ],
+      },
+    ],
+  });
+
+  const detail = await getEmployeeDetail(supabase, "ADMIN_RRHH", "e1", "2026-08-20");
+
+  assert.equal(detail.recentAbsences[0].decisionStatus, "CONFIRMED");
 });
 
 test("getEmployeeDetail: documentos con id null (columna nullable de la vista) se descartan, nunca se propagan a la UI", async () => {

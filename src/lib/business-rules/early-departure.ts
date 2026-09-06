@@ -47,6 +47,63 @@ function toWallClockTime(instant: Date): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`;
 }
 
+type CurrentEarlyDeparture = Pick<
+  Database["public"]["Tables"]["early_departure_records"]["Row"],
+  "id" | "attendance_record_id" | "scheduled_end" | "actual_end" | "detected_minutes" | "calculation_version"
+>;
+
+async function loadCurrentEarlyDeparture(
+  supabase: SupabaseClient<Database>,
+  employeeId: string,
+  workDate: string
+): Promise<CurrentEarlyDeparture | null> {
+  const { data, error } = await supabase
+    .from("early_departure_records")
+    .select("id, attendance_record_id, scheduled_end, actual_end, detected_minutes, calculation_version")
+    .eq("employee_id", employeeId)
+    .eq("work_date", workDate)
+    .eq("is_current", true)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`generateEarlyDepartureCandidate: fallo consultando early_departure_records vigente: ${error.message}`);
+  }
+  return data;
+}
+
+async function retireLoadedEarlyDeparture(
+  supabase: SupabaseClient<Database>,
+  current: CurrentEarlyDeparture | null
+): Promise<boolean> {
+  if (!current) return false;
+  const { error } = await supabase
+    .from("early_departure_records")
+    .update({ is_current: false })
+    .eq("id", current.id)
+    .eq("is_current", true);
+  if (error) {
+    throw new Error(`generateEarlyDepartureCandidate: fallo retirando early_departure_records vigente: ${error.message}`);
+  }
+  return true;
+}
+
+/**
+ * Retira una salida anticipada calculada que ya no tiene causa. El
+ * orquestador la usa al procesar feriados trabajados, donde no existe una
+ * hora ordinaria de salida contra la cual comparar.
+ */
+export async function retireCurrentEarlyDepartureCandidate(
+  supabase: SupabaseClient<Database>,
+  employeeId: string,
+  workDate: string
+): Promise<boolean> {
+  return retireLoadedEarlyDeparture(supabase, await loadCurrentEarlyDeparture(supabase, employeeId, workDate));
+}
+
+function sameInstant(left: string, right: string): boolean {
+  return new Date(left).getTime() === new Date(right).getTime();
+}
+
 /**
  * `birthday`, si se pasa, aplica la autorización de cumpleaños (PASO 29-32)
  * ANTES de generar un candidato: una salida en o después de las 12:00 en el
@@ -65,18 +122,29 @@ export async function generateEarlyDepartureCandidate(
 ): Promise<GenerateEarlyDepartureResult> {
   const schedule = await resolveEffectiveSchedule(supabase, employeeId, workDate);
 
-  if (schedule.kind === "EXEMPT") return { status: "EXEMPT", earlyDepartureRecordId: null, detectedMinutes: null };
-  if (schedule.kind === "DAY_OFF") return { status: "DAY_OFF", earlyDepartureRecordId: null, detectedMinutes: null };
+  if (schedule.kind === "EXEMPT") {
+    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate);
+    return { status: "EXEMPT", earlyDepartureRecordId: null, detectedMinutes: null };
+  }
+  if (schedule.kind === "DAY_OFF") {
+    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate);
+    return { status: "DAY_OFF", earlyDepartureRecordId: null, detectedMinutes: null };
+  }
   if (schedule.kind === "NO_SCHEDULE_ASSIGNED") {
+    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate);
     return { status: "NO_SCHEDULE_ASSIGNED", earlyDepartureRecordId: null, detectedMinutes: null };
   }
-  if (!clockOut) return { status: "NO_CLOCK_OUT", earlyDepartureRecordId: null, detectedMinutes: null };
+  if (!clockOut) {
+    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate);
+    return { status: "NO_CLOCK_OUT", earlyDepartureRecordId: null, detectedMinutes: null };
+  }
 
   const clockOutDate = new Date(clockOut);
 
   if (birthday && isBirthdayWeekdayAuthorizationApplicable(birthday, workDate)) {
     const departureTime = toWallClockTime(clockOutDate);
     if (isAfterBirthdayAuthorizationThreshold(departureTime)) {
+      await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate);
       return { status: "AUTHORIZED_BIRTHDAY_NO_CANDIDATE", earlyDepartureRecordId: null, detectedMinutes: 0 };
     }
     // Antes de las 12:00 en el propio cumpleaños: sigue el flujo normal de abajo.
@@ -86,29 +154,22 @@ export async function generateEarlyDepartureCandidate(
   const detectedMinutes = Math.max(0, rawMinutes);
 
   if (detectedMinutes === 0) {
+    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate);
     return { status: "NO_EARLY_DEPARTURE", earlyDepartureRecordId: null, detectedMinutes: 0 };
   }
 
-  const { data: existing, error: existingError } = await supabase
-    .from("early_departure_records")
-    .select("id, detected_minutes, calculation_version")
-    .eq("employee_id", employeeId)
-    .eq("work_date", workDate)
-    .eq("is_current", true)
-    .maybeSingle();
-
-  if (existingError) {
-    throw new Error(`generateEarlyDepartureCandidate: fallo consultando early_departure_records vigente: ${existingError.message}`);
-  }
-  if (existing && existing.detected_minutes === detectedMinutes) {
+  const existing = await loadCurrentEarlyDeparture(supabase, employeeId, workDate);
+  if (
+    existing &&
+    existing.attendance_record_id === attendanceRecordId &&
+    scheduledTimeToMinutes(existing.scheduled_end) === scheduledTimeToMinutes(schedule.scheduledEnd) &&
+    sameInstant(existing.actual_end, clockOut) &&
+    existing.detected_minutes === detectedMinutes
+  ) {
     return { status: "UNCHANGED", earlyDepartureRecordId: existing.id, detectedMinutes };
   }
   if (existing) {
-    const { error: updateError } = await supabase
-      .from("early_departure_records")
-      .update({ is_current: false })
-      .eq("id", existing.id);
-    if (updateError) throw new Error(`generateEarlyDepartureCandidate: fallo versionando early_departure_records: ${updateError.message}`);
+    await retireLoadedEarlyDeparture(supabase, existing);
   }
 
   const { data: inserted, error: insertError } = await supabase

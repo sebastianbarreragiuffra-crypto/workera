@@ -87,21 +87,31 @@ async function getDailyReviewUncached(
     const [lateRows, earlyRows, missingPunchRows, absenceRows, overtimeRows] = await Promise.all([
       supabase
         .from("late_arrival_records")
-        .select("employee_id, late_arrival_decisions(is_current)")
+        .select("employee_id, attendance_records!inner(is_current), late_arrival_decisions(is_current)")
         .in("employee_id", employeeIds)
         .eq("work_date", date)
-        .eq("is_current", true),
+        .eq("is_current", true)
+        .eq("attendance_records.is_current", true),
       supabase
         .from("early_departure_records")
-        .select("id, employee_id, early_departure_decisions(is_current, reason_category, document_required)")
+        .select(
+          "id, employee_id, attendance_records!inner(is_current), early_departure_decisions(is_current, reason_category, document_required)"
+        )
         .in("employee_id", employeeIds)
         .eq("work_date", date)
-        .eq("is_current", true),
+        .eq("is_current", true)
+        .eq("attendance_records.is_current", true),
       supabase
         .from("attendance_missing_punch_flags")
-        .select("employee_id, status")
+        // La flag es histórica y no tiene `is_current` propio. El inner join
+        // evita mostrar una alerta cuyo attendance_record ya fue retirado por
+        // una reconciliación, sin mutar ni borrar la flag. No se filtra por
+        // source: una asistencia manual vigente también puede tener una flag
+        // válida y debe seguir visible.
+        .select("employee_id, status, attendance_records!inner(is_current)")
         .in("employee_id", employeeIds)
         .eq("work_date", date)
+        .eq("attendance_records.is_current", true)
         .in("status", ["PENDING_CONTACT", "CONTACTED"]),
       supabase
         .from("absence_records")
@@ -112,10 +122,11 @@ async function getDailyReviewUncached(
         .eq("is_current", true),
       supabase
         .from("overtime_records")
-        .select("employee_id, overtime_decisions(is_current)")
+        .select("employee_id, attendance_records!inner(is_current), overtime_decisions(is_current)")
         .in("employee_id", employeeIds)
         .eq("work_date", date)
-        .eq("is_current", true),
+        .eq("is_current", true)
+        .eq("attendance_records.is_current", true),
     ]);
 
     for (const err of [lateRows.error, earlyRows.error, missingPunchRows.error, absenceRows.error, overtimeRows.error]) {

@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveWeeklyPeriod, resolveFortnightPeriod, resolveMonthlyPeriod } from "./attendance-export-periods";
+import {
+  resolveWeeklyPeriod,
+  resolveFortnightPeriod,
+  resolveMonthlyPeriod,
+  resolvePayrollPeriod,
+} from "./attendance-export-periods";
 
 test("resolveWeeklyPeriod: cualquier fecha de la semana resuelve al mismo lunes-domingo", () => {
   const wed = resolveWeeklyPeriod("2026-08-19");
@@ -60,4 +65,18 @@ test("resolveMonthlyPeriod: 1º al último día calendario del mes seleccionado"
     { start: "2026-11-01", end: "2026-11-30" }
   );
   assert.equal(resolveMonthlyPeriod("2026-08").type, "MENSUAL");
+});
+
+test("resolvePayrollPeriod: remuneraciones siempre cubre del 16 anterior al 15 del mes pagado", () => {
+  const period = resolvePayrollPeriod("2026-08");
+  assert.equal(period.type, "PAGO");
+  assert.equal(period.startDate, "2026-07-16");
+  assert.equal(period.endDate, "2026-08-15");
+  assert.match(period.label, /16 de julio al 15 de agosto/);
+});
+
+test("resolvePayrollPeriod: enero cruza correctamente el cambio de año", () => {
+  const period = resolvePayrollPeriod("2027-01");
+  assert.equal(period.startDate, "2026-12-16");
+  assert.equal(period.endDate, "2027-01-15");
 });

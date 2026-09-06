@@ -4,8 +4,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 import type { AreaCode } from "../access/scope";
 import { deriveDailyAttendanceRecord, type DeriveDailyAttendanceStatus } from "./daily-attendance";
-import { generateLateArrivalCandidate, type GenerateLateArrivalStatus } from "./late-arrival";
-import { generateEarlyDepartureCandidate, type GenerateEarlyDepartureStatus } from "./early-departure";
+import {
+  generateLateArrivalCandidate,
+  retireCurrentLateArrivalCandidate,
+  type GenerateLateArrivalStatus,
+} from "./late-arrival";
+import {
+  generateEarlyDepartureCandidate,
+  retireCurrentEarlyDepartureCandidate,
+  type GenerateEarlyDepartureStatus,
+} from "./early-departure";
 import { generateOvertimeCandidate, type GenerateOvertimeCandidateStatus } from "./overtime-confirmation";
 import type { BirthdayContext } from "./birthday";
 import { loadHolidaySet } from "./holidays";
@@ -38,6 +46,8 @@ import { loadHolidaySet } from "./holidays";
  */
 
 export interface ProcessAttendanceDayOptions {
+  /** Tenant raíz de la corrida. Obligatorio porque este motor usa service_role y no hereda RLS de una sesión. */
+  companyId: string;
   /** Acota a un área. Sin esto, procesa a todos los trabajadores activos. */
   areaCode?: AreaCode;
   /** Acota a trabajadores puntuales -- lo usa la re-derivación tras corregir una marcación. */
@@ -55,6 +65,8 @@ export interface ProcessAttendanceDayDeps {
   deriveDailyAttendanceRecord: typeof deriveDailyAttendanceRecord;
   generateLateArrivalCandidate: typeof generateLateArrivalCandidate;
   generateEarlyDepartureCandidate: typeof generateEarlyDepartureCandidate;
+  retireCurrentLateArrivalCandidate: typeof retireCurrentLateArrivalCandidate;
+  retireCurrentEarlyDepartureCandidate: typeof retireCurrentEarlyDepartureCandidate;
   generateOvertimeCandidate: typeof generateOvertimeCandidate;
 }
 
@@ -62,6 +74,8 @@ const DEFAULT_DEPS: ProcessAttendanceDayDeps = {
   deriveDailyAttendanceRecord,
   generateLateArrivalCandidate,
   generateEarlyDepartureCandidate,
+  retireCurrentLateArrivalCandidate,
+  retireCurrentEarlyDepartureCandidate,
   generateOvertimeCandidate,
 };
 
@@ -87,7 +101,7 @@ export interface ProcessAttendanceDayResult {
   lateCandidates: number;
   earlyDepartureCandidates: number;
   overtimeCandidates: number;
-  /** INSTALACIÓN: el motor no propone minutos porque su política sigue sin confirmarse por el negocio. */
+  /** Compatibilidad histórica: candidatos que aún requieren una política no configurada. */
   overtimeRequiresConfirmation: number;
   /** Códigos diarios (P/?) escritos o actualizados por el motor. No cuenta los que puso una persona. */
   statusesWritten: number;
@@ -95,20 +109,67 @@ export interface ProcessAttendanceDayResult {
   outcomes: EmployeeProcessOutcome[];
 }
 
+const PAGE_SIZE = 1_000;
+const ID_BATCH_SIZE = 150;
+
+interface PageResponse<T> {
+  data: T[] | null;
+  error: { message: string } | null;
+}
+
+async function fetchAllPages<T>(
+  context: string,
+  fetchPage: (from: number, to: number) => PromiseLike<PageResponse<T>>
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await fetchPage(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(`${context}: ${error.message}`);
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) return rows;
+  }
+}
+
+function chunksOf<T>(values: T[], size = ID_BATCH_SIZE): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) chunks.push(values.slice(index, index + size));
+  return chunks;
+}
+
+interface EmployeeScopeRow {
+  id: string;
+  hire_date?: string | null;
+  employee_groups: { code: string } | { code: string }[] | null;
+}
+
 async function loadEmployeesInScope(
   supabase: SupabaseClient<Database>,
+  date: string,
   options: ProcessAttendanceDayOptions
 ): Promise<string[]> {
-  if (options.employeeIds) return options.employeeIds;
+  if (options.employeeIds?.length === 0) return [];
 
-  const { data, error } = await supabase
-    .from("employees")
-    .select("id, employee_groups!employees_company_group_fkey(code)")
-    .eq("active", true)
-    .order("id");
-  if (error) throw new Error(`processAttendanceDay: fallo listando employees: ${error.message}`);
+  const requestedBatches = options.employeeIds ? chunksOf([...new Set(options.employeeIds)]) : [null];
+  const pages = await Promise.all(
+    requestedBatches.map((ids) =>
+      fetchAllPages<EmployeeScopeRow>("processAttendanceDay: fallo listando employees", (from, to) => {
+        let query = supabase
+          .from("employees")
+          .select("id, hire_date, employee_groups!employees_company_group_fkey(code)")
+          .eq("company_id", options.companyId);
+        // La corrida completa procesa el padrón activo. Un reproceso explícito
+        // también debe aceptar a una persona hoy inactiva: sus hechos
+        // históricos pueden necesitar corrección para finiquito/remuneración.
+        if (ids) query = query.in("id", ids);
+        else query = query.eq("active", true);
+        return query.order("id").range(from, to) as unknown as PromiseLike<PageResponse<EmployeeScopeRow>>;
+      })
+    )
+  );
 
-  const rows = data ?? [];
+  // Nunca deriva jornadas anteriores al ingreso, incluso en un rerun manual.
+  const rows = pages.flat().filter((row) => !row.hire_date || row.hire_date <= date);
   if (!options.areaCode) return rows.map((r) => r.id);
 
   return rows
@@ -136,19 +197,36 @@ async function loadEmployeesInScope(
  * que ya usa la validación de aprobación de horas extra a nivel de base.
  * Duplicarlo acá crearía una segunda fuente de verdad.
  *
- * Una consulta por día, no por trabajador. Un fallo degrada a la marcación
- * cruda en vez de abortar: es exactamente el comportamiento previo a MB-3.
+ * Una consulta por día, no por trabajador. Un fallo aborta la corrida: usar
+ * silenciosamente la marcación cruda ignoraría una corrección autorizada y
+ * podría producir candidatos financieros obsoletos.
  */
 async function loadEffectivePunches(
   supabase: SupabaseClient<Database>,
-  date: string
+  date: string,
+  employeeIds: string[]
 ): Promise<Map<string, { clockIn: string | null; clockOut: string | null }>> {
-  const { data, error } = await supabase
-    .from("attendance_effective_punches")
-    .select("attendance_record_id, effective_clock_in, effective_clock_out")
-    .eq("work_date", date);
+  if (employeeIds.length === 0) return new Map();
 
-  if (error || !data) return new Map();
+  type EffectivePunchRow = {
+    attendance_record_id: string | null;
+    effective_clock_in: string | null;
+    effective_clock_out: string | null;
+  };
+  const pages = await Promise.all(
+    chunksOf(employeeIds).map((ids) =>
+      fetchAllPages<EffectivePunchRow>("loadEffectivePunches: fallo leyendo attendance_effective_punches", (from, to) =>
+        supabase
+          .from("attendance_effective_punches")
+          .select("attendance_record_id, effective_clock_in, effective_clock_out")
+          .eq("work_date", date)
+          .in("employee_id", ids)
+          .order("attendance_record_id")
+          .range(from, to) as unknown as PromiseLike<PageResponse<EffectivePunchRow>>
+      )
+    )
+  );
+  const data = pages.flat();
 
   return new Map(
     data
@@ -163,18 +241,21 @@ async function loadBirthdays(
 ): Promise<Map<string, BirthdayContext>> {
   if (employeeIds.length === 0) return new Map();
 
-  const { data, error } = await supabase
-    .from("employee_birthdays")
-    .select("employee_id, birth_month, birth_day")
-    .in("employee_id", employeeIds);
+  type BirthdayRow = { employee_id: string; birth_month: number; birth_day: number };
+  const pages = await Promise.all(
+    chunksOf(employeeIds).map((ids) =>
+      fetchAllPages<BirthdayRow>("loadBirthdays: fallo leyendo employee_birthdays", (from, to) =>
+        supabase
+          .from("employee_birthdays")
+          .select("employee_id, birth_month, birth_day")
+          .in("employee_id", ids)
+          .order("employee_id")
+          .range(from, to) as unknown as PromiseLike<PageResponse<BirthdayRow>>
+      )
+    )
+  );
 
-  // Un fallo acá no debe tumbar la corrida completa: sin cumpleaños el
-  // generador de salida anticipada simplemente no aplica la autorización, que
-  // es exactamente su comportamiento cuando el trabajador no tiene la fecha
-  // cargada. Degradar es correcto; abortar el día no lo sería.
-  if (error) return new Map();
-
-  return new Map((data ?? []).map((r) => [r.employee_id, { birthMonth: r.birth_month, birthDay: r.birth_day }]));
+  return new Map(pages.flat().map((r) => [r.employee_id, { birthMonth: r.birth_month, birthDay: r.birth_day }]));
 }
 
 /**
@@ -204,16 +285,30 @@ async function applyDailyStatus(
   if (catalogError) throw new Error(`applyDailyStatus: fallo leyendo attendance_statuses: ${catalogError.message}`);
   const idByCode = new Map((catalog ?? []).map((s) => [s.code, s.id]));
 
-  const employeeIds = targets.map((t) => t.employeeId);
-  const { data: existing, error: existingError } = await supabase
-    .from("attendance_status_records")
-    .select("id, employee_id, attendance_status_id, source, source_version")
-    .in("employee_id", employeeIds)
-    .eq("work_date", date)
-    .eq("is_current", true);
-  if (existingError) throw new Error(`applyDailyStatus: fallo leyendo attendance_status_records: ${existingError.message}`);
+  type CurrentStatusRow = {
+    id: string;
+    employee_id: string;
+    attendance_status_id: string;
+    source: string;
+    source_version: number;
+  };
+  const existingPages = await Promise.all(
+    chunksOf([...new Set(targets.map((target) => target.employeeId))]).map((ids) =>
+      fetchAllPages<CurrentStatusRow>("applyDailyStatus: fallo leyendo attendance_status_records", (from, to) =>
+        supabase
+          .from("attendance_status_records")
+          .select("id, employee_id, attendance_status_id, source, source_version")
+          .in("employee_id", ids)
+          .eq("work_date", date)
+          .eq("is_current", true)
+          .order("employee_id")
+          .order("id")
+          .range(from, to) as unknown as PromiseLike<PageResponse<CurrentStatusRow>>
+      )
+    )
+  );
 
-  const currentByEmployee = new Map((existing ?? []).map((r) => [r.employee_id, r]));
+  const currentByEmployee = new Map(existingPages.flat().map((r) => [r.employee_id, r]));
   let written = 0;
 
   for (const target of targets) {
@@ -254,19 +349,22 @@ async function applyDailyStatus(
 export async function processAttendanceDay(
   supabase: SupabaseClient<Database>,
   date: string,
-  options: ProcessAttendanceDayOptions = {},
+  options: ProcessAttendanceDayOptions,
   deps: ProcessAttendanceDayDeps = DEFAULT_DEPS
 ): Promise<ProcessAttendanceDayResult> {
-  const employeeIds = await loadEmployeesInScope(supabase, options);
+  const companyId = requireCompanyId(options.companyId);
+  const employeeIds = await loadEmployeesInScope(supabase, date, { ...options, companyId });
   const birthdays = await loadBirthdays(supabase, employeeIds);
   // Se carga ANTES del bucle a propósito: una corrección solo puede existir
   // sobre un attendance_record que ya existía. Un registro recién derivado en
   // esta misma corrida nunca tiene corrección, y para él la marcación efectiva
   // es la cruda -- que es justo el fallback de abajo.
-  const effectivePunches = await loadEffectivePunches(supabase, date);
+  const effectivePunches = await loadEffectivePunches(supabase, date, employeeIds);
   // Un feriado legal es día de descanso pagado: si nadie marca, NO es
   // ausencia ni tarjeta no marcada. Una sola consulta para toda la fecha.
-  const isHoliday = (await loadHolidaySet(supabase, date, date).catch(() => new Set<string>())).has(date);
+  // Fallar cerrado: continuar sin calendario puede convertir un feriado en
+  // ausencia o calcular una tasa de horas extra incorrecta.
+  const isHoliday = (await loadHolidaySet(supabase, date, date)).has(date);
 
   const outcomes: EmployeeProcessOutcome[] = [];
   const failures: { employeeId: string; message: string }[] = [];
@@ -296,25 +394,49 @@ export async function processAttendanceDay(
       const clockIn = effective?.clockIn ?? derived.clockIn;
       const clockOut = effective?.clockOut ?? derived.clockOut;
 
-      // MB-4: día laboral con marcación -> P; sin ninguna marcación -> "?".
-      statusTargets.push({ employeeId, code: clockIn ? "P" : "?" });
-
-      const lateArrival = await deps.generateLateArrivalCandidate(supabase, employeeId, date, derived.attendanceRecordId, clockIn);
-      const earlyDeparture = await deps.generateEarlyDepartureCandidate(
+      // Un feriado trabajado no tiene hora ordinaria de entrada/salida contra
+      // la cual medir atraso o salida anticipada. Sí conserva el candidato de
+      // horas extra, clasificado HH100 por el trigger de base de datos. Antes
+      // de omitir esos generadores se retira cualquier candidato que hubiera
+      // quedado vigente cuando la jornada todavía no estaba marcada feriado.
+      if (isHoliday) {
+        await deps.retireCurrentLateArrivalCandidate(supabase, employeeId, date);
+        await deps.retireCurrentEarlyDepartureCandidate(supabase, employeeId, date);
+      }
+      const lateArrival = isHoliday
+        ? null
+        : await deps.generateLateArrivalCandidate(supabase, employeeId, date, derived.attendanceRecordId, clockIn);
+      const earlyDeparture = isHoliday
+        ? null
+        : await deps.generateEarlyDepartureCandidate(
+            supabase,
+            employeeId,
+            date,
+            derived.attendanceRecordId,
+            clockOut,
+            birthdays.get(employeeId) ?? null
+          );
+      const overtime = await deps.generateOvertimeCandidate(
         supabase,
         employeeId,
         date,
         derived.attendanceRecordId,
         clockOut,
-        birthdays.get(employeeId) ?? null
+        clockIn,
+        isHoliday
       );
-      const overtime = await deps.generateOvertimeCandidate(supabase, employeeId, date, derived.attendanceRecordId, clockOut);
+
+      // MB-4: día laboral con marcación -> P; sin ninguna marcación -> "?".
+      // Se agrega solo DESPUÉS de completar todos los generadores: si alguno
+      // falla, no publicamos un P/? que haga parecer cerrada una jornada cuyo
+      // grafo financiero quedó parcialmente recalculado.
+      statusTargets.push({ employeeId, code: clockIn ? "P" : "?" });
 
       outcomes.push({
         employeeId,
         attendance: derived.status,
-        lateArrival: lateArrival.status,
-        earlyDeparture: earlyDeparture.status,
+        lateArrival: lateArrival?.status ?? null,
+        earlyDeparture: earlyDeparture?.status ?? null,
         overtime: overtime.status,
         error: null,
       });
@@ -382,11 +504,19 @@ export interface RuleEngineRunOutcome {
 
 const STALE_RUNNING_SECONDS = 900;
 
+function requireCompanyId(companyId: string | undefined): string {
+  const normalized = companyId?.trim();
+  if (!normalized) {
+    throw new Error("processAttendanceDay: companyId es obligatorio para una operación con service_role.");
+  }
+  return normalized;
+}
+
 /**
  * Envuelve `processAttendanceDay` con la bitácora y el control de concurrencia.
  * El índice único parcial `rule_engine_runs_no_concurrent_running_key` impide
- * dos corridas simultáneas para la misma fecha; la segunda recibe 23505 de
- * Postgres y termina como `ALREADY_RUNNING` sin tocar nada.
+ * dos corridas simultáneas para la misma empresa y fecha; la segunda recibe
+ * 23505 de Postgres y termina como `ALREADY_RUNNING` sin tocar nada.
  *
  * `supabase` debe ser el cliente admin (service_role): la tabla no tiene
  * policy de escritura para `authenticated` a propósito, y el camino del cron
@@ -396,17 +526,26 @@ export async function runRuleEngineForDate(
   supabase: SupabaseClient<Database>,
   date: string,
   params: {
+    companyId: string;
     triggeredBy: "CRON" | "MANUAL";
     triggeredByProfile?: string | null;
-    options?: ProcessAttendanceDayOptions;
+    options?: Omit<ProcessAttendanceDayOptions, "companyId">;
     deps?: ProcessAttendanceDayDeps;
-  } = { triggeredBy: "MANUAL" }
+  }
 ): Promise<RuleEngineRunOutcome> {
-  await supabase.rpc("reclaim_stale_rule_engine_runs", { p_stale_after_seconds: STALE_RUNNING_SECONDS });
+  const companyId = requireCompanyId(params.companyId);
+  const { error: reclaimError } = await supabase.rpc("reclaim_stale_rule_engine_runs", {
+    p_company_id: companyId,
+    p_stale_after_seconds: STALE_RUNNING_SECONDS,
+  });
+  if (reclaimError) {
+    throw new Error(`runRuleEngineForDate: fallo recuperando corridas abandonadas: ${reclaimError.message}`);
+  }
 
   const { data: run, error: runError } = await supabase
     .from("rule_engine_runs")
     .insert({
+      company_id: companyId,
       work_date: date,
       status: "RUNNING",
       triggered_by: params.triggeredBy,
@@ -423,10 +562,15 @@ export async function runRuleEngineForDate(
   }
 
   try {
-    const result = await processAttendanceDay(supabase, date, params.options ?? {}, params.deps ?? DEFAULT_DEPS);
+    const result = await processAttendanceDay(
+      supabase,
+      date,
+      { ...(params.options ?? {}), companyId },
+      params.deps ?? DEFAULT_DEPS
+    );
     const status = result.failures.length > 0 ? "PARTIAL" : "SUCCEEDED";
 
-    await supabase
+    const { data: finishedRun, error: finishError } = await supabase
       .from("rule_engine_runs")
       .update({
         status,
@@ -443,15 +587,42 @@ export async function runRuleEngineForDate(
             ? `${result.failures.length} trabajador(es) fallaron; primero: ${result.failures[0].message.slice(0, 200)}`
             : null,
       })
-      .eq("id", run.id);
+      .eq("id", run.id)
+      .eq("company_id", companyId)
+      .eq("status", "RUNNING")
+      .select("id")
+      .maybeSingle();
+    if (finishError) {
+      throw new Error(`runRuleEngineForDate: fallo cerrando la corrida ${run.id}: ${finishError.message}`);
+    }
+    if (!finishedRun) {
+      throw new Error(
+        `runRuleEngineForDate: la corrida ${run.id} perdió su lease antes de cerrar; no se sobrescribió su estado.`
+      );
+    }
 
     return { status, runId: run.id, date, result, errorSummary: null };
   } catch (err) {
     const message = err instanceof Error ? err.message : "error desconocido";
-    await supabase
+    const { data: failedRun, error: failedUpdateError } = await supabase
       .from("rule_engine_runs")
       .update({ status: "FAILED", finished_at: new Date().toISOString(), error_summary: message.slice(0, 500) })
-      .eq("id", run.id);
+      .eq("id", run.id)
+      .eq("company_id", companyId)
+      .eq("status", "RUNNING")
+      .select("id")
+      .maybeSingle();
+
+    if (failedUpdateError) {
+      throw new Error(
+        `runRuleEngineForDate: la corrida ${run.id} falló (${message}) y no se pudo registrar FAILED: ${failedUpdateError.message}`
+      );
+    }
+    if (!failedRun) {
+      throw new Error(
+        `runRuleEngineForDate: la corrida ${run.id} perdió su lease (${message}); no se sobrescribió el estado vigente.`
+      );
+    }
 
     return { status: "FAILED", runId: run.id, date, result: null, errorSummary: message };
   }
