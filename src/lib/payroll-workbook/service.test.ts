@@ -21,6 +21,7 @@ const STORAGE_IDENTITY = {
 const INPUT: AcceptTrustedPayrollWorkbookInput = {
   actorId: "11111111-1111-4111-8111-111111111111",
   companyId: "0a4c0000-0000-0000-0000-000000000001",
+  windowType: "MENSUAL",
   periodStart: "2026-08-16",
   periodEnd: "2026-09-15",
   expectedBaseVersionId: null,
@@ -117,6 +118,25 @@ test("acepta solo después de descargar Storage y recalcular SHA-256/tamaño", a
     p_storage_object_version: STORAGE_IDENTITY.version,
     p_storage_object_updated_at: STORAGE_IDENTITY.updatedAt,
   });
+});
+
+test("una ventana semanal usa el commit aislado e incluye su frecuencia en la huella", async () => {
+  const weekly: AcceptTrustedPayrollWorkbookInput = {
+    ...INPUT,
+    windowType: "SEMANAL",
+    periodStart: "2026-08-17",
+    periodEnd: "2026-08-23",
+    storagePath: `${INPUT.companyId}/2026-08-17_2026-08-23/22222222-2222-4222-8222-222222222222.xlsx`,
+  };
+  const { calls, deps } = dependencies();
+  const result = await acceptTrustedPayrollWorkbook(weekly, deps);
+  assert.equal(calls.at(-1)?.name, "register_accepted_working_workbook");
+  assert.equal((calls.at(-1)?.args as Record<string, unknown>).p_window_type, "SEMANAL");
+  const dailyResult = await acceptTrustedPayrollWorkbook({
+    ...weekly,
+    windowType: "DIARIO",
+  }, dependencies().deps);
+  assert.notEqual(result.idempotencyKey, dailyResult.idempotencyKey);
 });
 
 test("un objeto alterado nunca alcanza el RPC de commit", async () => {
@@ -305,4 +325,19 @@ test("la integridad final serializa fuentes, evita idempotencia por hash y vuelv
   assert.match(migration, /o\.version is not distinct from p_storage_object_version/);
   assert.match(migration, /o\.updated_at = p_storage_object_updated_at/);
   assert.match(migration, /uuid, text, timestamptz[\s\S]*?to service_role/);
+});
+
+test("la migración de ventanas cortas separa versiones de trabajo y protege sus bytes", () => {
+  const migration = readFileSync(path.resolve(
+    import.meta.dirname,
+    "../../../supabase/migrations/20260906230000_payroll_working_window_versions.sql",
+  ), "utf8");
+  assert.match(migration, /create table public\.payroll_working_versions/);
+  assert.match(migration, /window_type in \('DIARIO', 'SEMANAL', 'QUINCENAL'\)/);
+  assert.match(migration, /create table public\.payroll_working_changes/);
+  assert.match(migration, /private\.payroll_working_acceptance_receipts/);
+  assert.match(migration, /register_accepted_working_workbook/);
+  assert.match(migration, /auth\.role\(\) is distinct from 'service_role'/);
+  assert.match(migration, /from public, anon, authenticated, service_role;[\s\S]*?grant execute[\s\S]*?to service_role/);
+  assert.match(migration, /from public\.payroll_working_versions w[\s\S]*?w\.storage_path = v_old_name/);
 });

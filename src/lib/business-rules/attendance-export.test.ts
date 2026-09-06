@@ -908,6 +908,34 @@ test("libro 2026: genera las tres hojas y no combina ninguna celda de las tablas
   ]);
 });
 
+test("libro 2026: identifica y conserva exactamente los cuatro rangos descargables", async () => {
+  const periods: AttendanceExportPeriod[] = [
+    { type: "DIARIO", startDate: "2026-08-17", endDate: "2026-08-17", label: "Día de prueba" },
+    PERIOD,
+    { type: "QUINCENAL", startDate: "2026-08-01", endDate: "2026-08-15", label: "Quincena de prueba" },
+    PAYROLL_PERIOD,
+  ];
+
+  for (const period of periods) {
+    const { bytes } = await buildWorkbook({ employees: ONE_WORKER }, period);
+    const workbook = readWorkbook(bytes);
+    const metadata = XLSX.utils.sheet_to_json<(string | number)[]>(workbook.Sheets._GESTORA_TECNICA, {
+      header: 1,
+      defval: "",
+    });
+
+    assert.deepEqual(workbook.SheetNames.slice(0, 3), [
+      "RESUMEN_NOMINA",
+      "CONTROL_PENDIENTES",
+      "MATRIZ_DIARIA_SABANA",
+    ]);
+    assert.equal(metadata[2][1], period.type);
+    assert.equal(metadata[3][1], period.startDate);
+    assert.equal(metadata[4][1], period.endDate);
+    assert.equal(workbook.Workbook?.Sheets?.[3]?.Hidden, 2, "la identidad técnica no se expone como hoja editable");
+  }
+});
+
 test("libro 2026: resumen y sábana usan una sola fila por trabajador", async () => {
   const { bytes } = await buildWorkbook({
     employees: [

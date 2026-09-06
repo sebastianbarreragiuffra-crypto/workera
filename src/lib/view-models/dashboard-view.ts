@@ -1,4 +1,5 @@
 import "server-only";
+import { currentIsoWeekRange } from "../shared/date-time";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 import { getDailyReview, type CallerRole, type DailyReviewCategory } from "../business-rules/daily-review";
@@ -155,17 +156,7 @@ export function initialsOf(displayName: string): string {
 
 /** Lunes-domingo (ISO), en el dominio calendario sintético UTC (mismo patrón que sync/target-date.ts). */
 export function currentWeekRange(date: string): { start: string; end: string } {
-  const [y, m, d] = date.split("-").map(Number);
-  const asUtc = Date.UTC(y, m - 1, d);
-  const dow = new Date(asUtc).getUTCDay(); // 0=domingo..6=sábado
-  const isoDow = dow === 0 ? 7 : dow;
-  const startMs = asUtc - (isoDow - 1) * 86_400_000;
-  const endMs = startMs + 6 * 86_400_000;
-  const fmt = (ms: number) => {
-    const dt = new Date(ms);
-    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
-  };
-  return { start: fmt(startMs), end: fmt(endMs) };
+  return currentIsoWeekRange(date);
 }
 
 async function getScopedEmployeeIds(supabase: SupabaseClient<Database>, areaCodes: AreaCode[]): Promise<string[]> {

@@ -113,6 +113,7 @@ export const SERVICE_ROLE_CAPABILITIES = {
       "bucket privado payroll-workbooks READ y limpieza DELETE fail-closed",
       "get_payroll_workbook_object_identity() service_role-only",
       "register_accepted_payroll_workbook() con atestación física service_role-only",
+      "register_accepted_working_workbook() para diario/semanal/quincenal con atestación física service_role-only",
     ],
   },
   "staging-data-inventory": {

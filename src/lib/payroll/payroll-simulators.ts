@@ -1698,6 +1698,7 @@ export async function runPayrollSimulators(): Promise<PayrollSimulatorResult[]> 
   const acceptanceBase = {
     actorId: "55555555-5555-4555-8555-555555555555",
     companyId: COMPANY_A,
+    windowType: "MENSUAL" as const,
     periodStart: PERIOD.startDate,
     periodEnd: PERIOD.endDate,
     expectedBaseVersionId: null,

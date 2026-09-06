@@ -51,6 +51,7 @@ export interface PayrollWorkbookConflictInput {
 export interface PayrollWorkbookIdentity {
   schema: string;
   companyId: string;
+  periodType: "DIARIO" | "SEMANAL" | "QUINCENAL" | "PAGO";
   periodStart: string;
   periodEnd: string;
   payrollMonth: string;
@@ -154,11 +155,12 @@ function readIdentity(book: XLSX.WorkBook): PayrollWorkbookIdentity {
   if (!sheet) fail("falta la identificación técnica.");
   const rows = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, { header: 1, raw: false });
   const values = new Map(rows.map((row) => [String(row[0] ?? ""), String(row[1] ?? "")]));
-  const identity = { schema: values.get("Esquema") ?? "", companyId: values.get("Empresa") ?? "", periodStart: values.get("Inicio") ?? "", periodEnd: values.get("Fin") ?? "", payrollMonth: values.get("Mes de remuneración") ?? "", baseVersion: values.get("Versión base") ?? "" };
+  const identity = { schema: values.get("Esquema") ?? "", companyId: values.get("Empresa") ?? "", periodType: values.get("Tipo de período") ?? "", periodStart: values.get("Inicio") ?? "", periodEnd: values.get("Fin") ?? "", payrollMonth: values.get("Mes de remuneración") ?? "", baseVersion: values.get("Versión base") ?? "" };
   if (identity.schema !== "GESTORA_PRENOMINA_2026_V2") fail("la versión del esquema no es compatible.");
   if (!UUID_PATTERN.test(identity.companyId)) fail("la empresa técnica no contiene un UUID válido.");
+  if (!["DIARIO", "SEMANAL", "QUINCENAL", "PAGO"].includes(identity.periodType)) fail("el tipo de período técnico no es válido.");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(identity.periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(identity.periodEnd)) fail("el período técnico no es válido.");
-  return identity;
+  return identity as PayrollWorkbookIdentity;
 }
 
 export function parsePayrollWorkbook(bytes: Uint8Array): { book: XLSX.WorkBook; identity: PayrollWorkbookIdentity; sha256: string } {

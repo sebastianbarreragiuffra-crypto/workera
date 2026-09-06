@@ -14,6 +14,10 @@ test("DescargarAsistenciaCard ofrece exactamente las cuatro ventanas acordadas",
 test("la ventana diaria envía una fecha y la mensual usa el ciclo de remuneraciones", () => {
   assert.match(source, /params\.set\("tipo", "diario"\)[\s\S]*?params\.set\("fecha", diaFecha\)/);
   assert.match(source, /params\.set\("tipo", "mensual"\)[\s\S]*?params\.set\("mes", mensualMes\)/);
-  assert.match(source, /tipo === "MENSUAL" && <PayrollWorkbookUpload month=\{mensualMes\}/);
+  assert.match(source, /\{uploadPeriod && \([\s\S]*?<PayrollWorkbookUpload/);
+  assert.match(source, /resolveDailyPeriod\(diaFecha\)/);
+  assert.match(source, /resolveWeeklyPeriod\(semanaFecha\)/);
+  assert.match(source, /resolveFortnightPeriod\(quincenaMes/);
+  assert.match(source, /resolvePayrollPeriod\(mensualMes\)/);
   assert.doesNotMatch(source, /<option value="PAGO">/);
 });

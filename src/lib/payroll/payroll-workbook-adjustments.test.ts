@@ -79,7 +79,7 @@ test("ajustes aceptados: pagina versiones y divide consultas de cambios sin trun
 
   const result = await loadAcceptedPayrollWorkbookAdjustments(
     { from: (table: string) => query(table) } as never,
-    { companyId: "company-1", periodStart: "2026-08-16", periodEnd: "2026-09-15" },
+    { companyId: "company-1", windowType: "MENSUAL", periodStart: "2026-08-16", periodEnd: "2026-09-15" },
   );
 
   assert.equal(result.length, 1_001);
@@ -88,4 +88,31 @@ test("ajustes aceptados: pagina versiones y divide consultas de cambios sin trun
   assert.equal(requestedOrders.filter((item) => item === "payroll_workbook_changes:decided_at").length, 11);
   assert.equal(requestedOrders.filter((item) => item === "payroll_workbook_changes:id").length, 11);
   assert.equal(result.at(-1)?.versionNumber, 1_001);
+});
+
+test("ajustes aceptados: las ventanas cortas consultan su historial separado", async () => {
+  const tables: string[] = [];
+  function query(table: string) {
+    tables.push(table);
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      order: () => chain,
+      in: () => chain,
+      range: () => chain,
+      then: (resolve: (value: { data: Record<string, unknown>[]; error: null }) => unknown) => Promise.resolve(resolve({
+        data: table === "payroll_working_versions"
+          ? [{ id: "working-1", version_number: 1 }]
+          : [{ working_version_id: "working-1", stable_key: "emp-1|Ajuste bono (CLP)", new_value: 1_000, source_value_at_accept: 0, decided_at: "2026-09-06T12:00:00Z" }],
+        error: null,
+      })),
+    };
+    return chain;
+  }
+  const result = await loadAcceptedPayrollWorkbookAdjustments(
+    { from: (table: string) => query(table) } as never,
+    { companyId: "company-1", windowType: "SEMANAL", periodStart: "2026-08-17", periodEnd: "2026-08-23" },
+  );
+  assert.deepEqual(tables, ["payroll_working_versions", "payroll_working_changes"]);
+  assert.equal(result[0]?.value, 1_000);
 });

@@ -59,6 +59,7 @@ async function runIdempotentRpcWithTransportRetry(
 export interface AcceptTrustedPayrollWorkbookInput {
   actorId: string;
   companyId: string;
+  windowType: "DIARIO" | "SEMANAL" | "QUINCENAL" | "MENSUAL";
   periodStart: string;
   periodEnd: string;
   expectedBaseVersionId: string | null;
@@ -108,6 +109,9 @@ function validateInput(input: AcceptTrustedPayrollWorkbookInput): void {
   }
   if (!DATE_PATTERN.test(input.periodStart) || !DATE_PATTERN.test(input.periodEnd)) {
     throw new Error("El período de la pre-nómina no es válido.");
+  }
+  if (!["DIARIO", "SEMANAL", "QUINCENAL", "MENSUAL"].includes(input.windowType)) {
+    throw new Error("La frecuencia de la pre-nómina no es válida.");
   }
   if (input.expectedBaseVersionId !== null && !UUID_PATTERN.test(input.expectedBaseVersionId)) {
     throw new Error("La versión base de la pre-nómina no es válida.");
@@ -194,7 +198,7 @@ function acceptanceIdempotencyKey(input: AcceptTrustedPayrollWorkbookInput): str
   // La ruta se excluye deliberadamente: una repetición HTTP puede volver a
   // subir los mismos bytes bajo otro UUID. El contenido y toda la decisión
   // empresarial sí quedan ligados a la huella.
-  const command = {
+  const command: Record<string, unknown> = {
     actorId: input.actorId,
     changes: input.changes,
     companyId: input.companyId,
@@ -207,6 +211,10 @@ function acceptanceIdempotencyKey(input: AcceptTrustedPayrollWorkbookInput): str
     periodStart: input.periodStart,
     schemaVersion: "GESTORA_PRENOMINA_2026_V2",
   };
+  // Se conserva la huella histórica del mensual. Las versiones de trabajo
+  // agregan su frecuencia para que dos ámbitos distintos nunca compartan un
+  // recibo idempotente por accidente.
+  if (input.windowType !== "MENSUAL") command.windowType = input.windowType;
   return createHash("sha256").update(canonicalJson(command)).digest("hex");
 }
 
@@ -247,7 +255,7 @@ export async function acceptTrustedPayrollWorkbook(
     throw new Error("Los bytes guardados no coinciden con la evidencia revisada.");
   }
 
-  const rpcArgs = {
+  const rpcArgs: Record<string, unknown> = {
     p_actor_id: input.actorId,
     p_company_id: input.companyId,
     p_period_start: input.periodStart,
@@ -266,9 +274,13 @@ export async function acceptTrustedPayrollWorkbook(
     p_storage_object_version: identityAfterDownload.version,
     p_storage_object_updated_at: identityAfterDownload.updatedAt,
   };
+  if (input.windowType !== "MENSUAL") rpcArgs.p_window_type = input.windowType;
 
+  const rpc = input.windowType === "MENSUAL"
+    ? "register_accepted_payroll_workbook"
+    : "register_accepted_working_workbook";
   const committed = await runIdempotentRpcWithTransportRetry(
-    () => trusted.rpc("register_accepted_payroll_workbook", rpcArgs),
+    () => trusted.rpc(rpc, rpcArgs),
   );
   if (committed.error || typeof committed.data !== "string" || !UUID_PATTERN.test(committed.data)) {
     const error = new Error("No pudimos confirmar la aceptación confiable del XLSX.");

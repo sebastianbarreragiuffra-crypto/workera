@@ -14,6 +14,13 @@ type WorkbookVersion = {
   general_reason: string;
   accepted_at: string | null;
   closed_snapshot_at: string | null;
+  scope: "monthly" | "working";
+};
+
+type UploadPeriod = {
+  type: "DIARIO" | "SEMANAL" | "QUINCENAL" | "PAGO";
+  startDate: string;
+  endDate: string;
 };
 
 function visibleValue(value: unknown): string {
@@ -26,22 +33,27 @@ function changeCountLabel(count: number): string {
   return `${count} ${count === 1 ? "cambio" : "cambios"}`;
 }
 
-export function PayrollWorkbookUpload({ month, canUpload }: { month: string; canUpload: boolean }) {
+export function PayrollWorkbookUpload({ period, canUpload }: { period: UploadPeriod; canUpload: boolean }) {
   const [file, setFile] = useState<File | null>(null); const [preview, setPreview] = useState<Preview | null>(null);
   const [reason, setReason] = useState(""); const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
   const [conflictResolutions, setConflictResolutions] = useState<Record<string, ConflictResolutionDraft>>({});
   const [versions, setVersions] = useState<WorkbookVersion[]>([]); const [historyNonce, setHistoryNonce] = useState(0);
   useEffect(() => {
     let active = true;
-    void fetch(`/dashboard/import-asistencia?month=${encodeURIComponent(month)}`, { cache: "no-store" })
+    const params = new URLSearchParams({
+      periodType: period.type,
+      periodStart: period.startDate,
+      periodEnd: period.endDate,
+    });
+    void fetch(`/dashboard/import-asistencia?${params.toString()}`, { cache: "no-store" })
       .then(async (response) => response.ok ? response.json() : { versions: [] })
       .then((data) => { if (active) setVersions(Array.isArray(data.versions) ? data.versions : []); })
       .catch(() => { if (active) setVersions([]); });
     return () => { active = false; };
-  }, [month, historyNonce]);
+  }, [period.type, period.startDate, period.endDate, historyNonce]);
   async function submit(confirm: boolean) {
     if (!file) return; setBusy(true); setMessage("");
-    const body = new FormData(); body.set("file", file); body.set("month", month); body.set("confirm", String(confirm)); body.set("reason", reason); if (preview?.baseVersionId) body.set("baseVersionId", preview.baseVersionId);
+    const body = new FormData(); body.set("file", file); body.set("periodType", period.type); body.set("periodStart", period.startDate); body.set("periodEnd", period.endDate); body.set("confirm", String(confirm)); body.set("reason", reason); if (preview?.baseVersionId) body.set("baseVersionId", preview.baseVersionId);
     if (preview) {
       body.set("uploadedHash", preview.hash); body.set("previewToken", preview.previewToken); body.set("previewIssuedAt", String(preview.previewIssuedAt));
       body.set("conflictResolutions", JSON.stringify(preview.conflicts.map((conflict) => {
@@ -111,13 +123,14 @@ export function PayrollWorkbookUpload({ month, canUpload }: { month: string; can
     </>}
     {message && <p className="mt-2 text-xs text-slate-700" aria-live="polite">{message}</p>}
     <div className={canUpload ? "mt-4 border-t border-slate-200 pt-3" : ""}>
-      <h3 className="text-sm font-semibold text-slate-900">Historial de versiones y cierres</h3>
+      <h3 className="text-sm font-semibold text-slate-900">Historial de esta frecuencia y período</h3>
       {versions.length === 0
         ? <p className="mt-1 text-xs text-slate-500">No hay versiones ni snapshots para este período.</p>
         : <ul className="mt-2 space-y-1 text-xs text-slate-600">{versions.map((version) => {
           const occurredAt = version.closed_snapshot_at ?? version.accepted_at;
           const kind = version.status === "CLOSED_SNAPSHOT" ? "Snapshot de cierre" : "Versión aceptada";
-          return <li key={version.id} className="flex items-center justify-between gap-2"><span>v{version.version_number} · {kind}{occurredAt ? ` · ${new Date(occurredAt).toLocaleString("es-CL")}` : ""} · {version.general_reason}</span><a className="font-medium text-arcotex-blue underline" href={`/dashboard/import-asistencia?version=${encodeURIComponent(version.id)}`}>Descargar exacta</a></li>;
+          const scope = version.scope === "working" ? "&scope=working" : "";
+          return <li key={version.id} className="flex items-center justify-between gap-2"><span>v{version.version_number} · {kind}{occurredAt ? ` · ${new Date(occurredAt).toLocaleString("es-CL")}` : ""} · {version.general_reason}</span><a className="font-medium text-arcotex-blue underline" href={`/dashboard/import-asistencia?version=${encodeURIComponent(version.id)}${scope}`}>Descargar exacta</a></li>;
         })}</ul>}
     </div>
   </div>;

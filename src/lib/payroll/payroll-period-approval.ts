@@ -180,6 +180,7 @@ export async function approvePayrollPeriodReady(
       dependencies.buildExportData(supabase, input.callerRole, period, input.companyId),
       dependencies.loadAdjustments(supabase, {
         companyId: input.companyId,
+        windowType: "MENSUAL",
         periodStart: period.startDate,
         periodEnd: period.endDate,
       }),

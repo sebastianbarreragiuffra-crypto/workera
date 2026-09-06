@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parsePayrollMultipart, payrollWorkbookPreviewToken, requestWithLimitedBody } from "./route";
+import { parsePayrollMultipart, payrollWorkbookPreviewToken, requestWithLimitedBody, resolveSubmittedWorkbookPeriod } from "./route";
 
 const change = {
   sheet: "RESUMEN_NOMINA",
@@ -48,6 +48,14 @@ test("subida de pre-nómina: multipart truncado se clasifica como entrada invál
   });
 
   assert.equal(await parsePayrollMultipart(request), null);
+});
+
+test("subida de pre-nómina: acepta las cuatro frecuencias y rechaza rangos arbitrarios", () => {
+  assert.equal(resolveSubmittedWorkbookPeriod({ periodType: "DIARIO", periodStart: "2026-09-06", periodEnd: "2026-09-06" }).type, "DIARIO");
+  assert.equal(resolveSubmittedWorkbookPeriod({ periodType: "SEMANAL", periodStart: "2026-08-17", periodEnd: "2026-08-23" }).type, "SEMANAL");
+  assert.equal(resolveSubmittedWorkbookPeriod({ periodType: "QUINCENAL", periodStart: "2026-08-16", periodEnd: "2026-08-31" }).type, "QUINCENAL");
+  assert.equal(resolveSubmittedWorkbookPeriod({ periodType: "PAGO", periodStart: "2026-08-16", periodEnd: "2026-09-15" }).type, "PAGO");
+  assert.throws(() => resolveSubmittedWorkbookPeriod({ periodType: "SEMANAL", periodStart: "2026-08-18", periodEnd: "2026-08-24" }), /no coinciden/i);
 });
 
 test("confirmación XLSX: la sesión exige MFA y nunca ejecuta directamente el commit privilegiado", () => {

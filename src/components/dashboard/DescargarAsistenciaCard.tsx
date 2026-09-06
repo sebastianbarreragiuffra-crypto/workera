@@ -2,6 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { PayrollWorkbookUpload } from "./PayrollWorkbookUpload";
+import {
+  resolveDailyPeriod,
+  resolveFortnightPeriod,
+  resolvePayrollPeriod,
+  resolveWeeklyPeriod,
+} from "../../lib/business-rules/attendance-export-periods";
 
 /**
  * Exportador operacional respaldado por `attendance_status_records`. Mantiene
@@ -51,6 +57,18 @@ export function DescargarAsistenciaCard({ now = new Date(), role = "SUPER_ADMIN"
       params.set("mes", mensualMes);
     }
     return `/dashboard/export-asistencia?${params.toString()}`;
+  }, [tipo, diaFecha, semanaFecha, quincenaMes, quincena, mensualMes]);
+
+  const uploadPeriod = useMemo(() => {
+    try {
+      if (tipo === "DIARIO" && /^\d{4}-\d{2}-\d{2}$/.test(diaFecha)) return resolveDailyPeriod(diaFecha);
+      if (tipo === "SEMANAL" && /^\d{4}-\d{2}-\d{2}$/.test(semanaFecha)) return resolveWeeklyPeriod(semanaFecha);
+      if (tipo === "QUINCENAL" && /^\d{4}-(0[1-9]|1[0-2])$/.test(quincenaMes)) return resolveFortnightPeriod(quincenaMes, quincena === "1" ? 1 : 2);
+      if (tipo === "MENSUAL" && /^\d{4}-(0[1-9]|1[0-2])$/.test(mensualMes)) return resolvePayrollPeriod(mensualMes);
+    } catch {
+      return null;
+    }
+    return null;
   }, [tipo, diaFecha, semanaFecha, quincenaMes, quincena, mensualMes]);
 
   return (
@@ -135,7 +153,17 @@ export function DescargarAsistenciaCard({ now = new Date(), role = "SUPER_ADMIN"
       >
         Descargar Excel para RR. HH.
       </a>
-      {tipo === "MENSUAL" && <PayrollWorkbookUpload month={mensualMes} canUpload={role === "ADMIN_RRHH"} />}
+      {uploadPeriod && (
+        <PayrollWorkbookUpload
+          key={`${uploadPeriod.type}-${uploadPeriod.startDate}-${uploadPeriod.endDate}`}
+          period={{
+            type: uploadPeriod.type as "DIARIO" | "SEMANAL" | "QUINCENAL" | "PAGO",
+            startDate: uploadPeriod.startDate,
+            endDate: uploadPeriod.endDate,
+          }}
+          canUpload={role === "ADMIN_RRHH"}
+        />
+      )}
     </section>
   );
 }

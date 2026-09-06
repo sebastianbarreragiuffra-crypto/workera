@@ -323,6 +323,7 @@ export async function closePayrollPeriodWithSnapshot(
       dependencies.buildExportData(supabase, input.callerRole, period, input.companyId),
       dependencies.loadAdjustments(supabase, {
         companyId: input.companyId,
+        windowType: "MENSUAL",
         periodStart: period.startDate,
         periodEnd: period.endDate,
       }),

@@ -114,19 +114,31 @@ function batches<T>(values: readonly T[], size: number): T[][] {
 
 export async function loadAcceptedPayrollWorkbookAdjustments(
   supabase: SupabaseClient<Database>,
-  input: { companyId: string; periodStart: string; periodEnd: string }
+  input: {
+    companyId: string;
+    windowType: "DIARIO" | "SEMANAL" | "QUINCENAL" | "MENSUAL";
+    periodStart: string;
+    periodEnd: string;
+  }
 ): Promise<AcceptedPayrollWorkbookAdjustment[]> {
   const loose = supabase as unknown as { from(name: string): Query };
+  const isMonthly = input.windowType === "MENSUAL";
+  const versionTable = isMonthly ? "payroll_workbook_versions" : "payroll_working_versions";
+  const changeTable = isMonthly ? "payroll_workbook_changes" : "payroll_working_changes";
+  const changeVersionColumn = isMonthly ? "workbook_version_id" : "working_version_id";
   let versionRows: Record<string, unknown>[];
   try {
-    versionRows = await allPages((from, to) => loose.from("payroll_workbook_versions")
-      .select("id, version_number")
-      .eq("company_id", input.companyId)
-      .eq("period_start", input.periodStart)
-      .eq("period_end", input.periodEnd)
-      .eq("status", "ACCEPTED")
-      .order("version_number", { ascending: true })
-      .range(from, to));
+    versionRows = await allPages((from, to) => {
+      let query = loose.from(versionTable)
+        .select("id, version_number")
+        .eq("company_id", input.companyId)
+        .eq("period_start", input.periodStart)
+        .eq("period_end", input.periodEnd);
+      query = isMonthly
+        ? query.eq("status", "ACCEPTED")
+        : query.eq("window_type", input.windowType);
+      return query.order("version_number", { ascending: true }).range(from, to);
+    });
   } catch (error) {
     throw new Error(`loadAcceptedPayrollWorkbookAdjustments: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -139,9 +151,9 @@ export async function loadAcceptedPayrollWorkbookAdjustments(
   const changeRows: Record<string, unknown>[] = [];
   try {
     for (const ids of batches([...versionNumbers.keys()], VERSION_ID_BATCH_SIZE)) {
-      changeRows.push(...await allPages((from, to) => loose.from("payroll_workbook_changes")
-        .select("id, workbook_version_id, stable_key, new_value, source_value_at_accept, decided_at")
-        .in("workbook_version_id", ids)
+      changeRows.push(...await allPages((from, to) => loose.from(changeTable)
+        .select(`id, ${changeVersionColumn}, stable_key, new_value, source_value_at_accept, decided_at`)
+        .in(changeVersionColumn, ids)
         .eq("consequence", "AJUSTE_EMPRESARIAL")
         .order("decided_at", { ascending: true })
         .order("id", { ascending: true })
@@ -155,6 +167,8 @@ export async function loadAcceptedPayrollWorkbookAdjustments(
     new_value: row.new_value,
     source_value_at_accept: row.source_value_at_accept,
     decided_at: typeof row.decided_at === "string" ? row.decided_at : "",
-    version_number: typeof row.workbook_version_id === "string" ? versionNumbers.get(row.workbook_version_id) ?? 0 : 0,
+    version_number: typeof row[changeVersionColumn] === "string"
+      ? versionNumbers.get(String(row[changeVersionColumn])) ?? 0
+      : 0,
   })));
 }

@@ -11,7 +11,12 @@ import {
   payrollWorkbookConflicts,
   type PayrollWorkbookConflictPreview,
 } from "../../../../lib/business-rules/attendance-export";
-import { resolvePayrollPeriod } from "../../../../lib/business-rules/attendance-export-periods";
+import {
+  resolvePayrollPeriod,
+  resolveWorkbookPeriodIdentity,
+  workbookWindowType,
+  type AttendanceExportPeriod,
+} from "../../../../lib/business-rules/attendance-export-periods";
 import {
   comparePayrollWorkbooks,
   applyPayrollWorkbookConflictResolutions,
@@ -94,6 +99,25 @@ function equalToken(expected: string, received: string): boolean {
   return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(received, "hex"));
 }
 
+export function resolveSubmittedWorkbookPeriod(input: {
+  periodType: string;
+  periodStart: string;
+  periodEnd: string;
+  legacyMonth?: string;
+}): AttendanceExportPeriod {
+  if (!input.periodType && /^\d{4}-(0[1-9]|1[0-2])$/.test(input.legacyMonth ?? "")) {
+    return resolvePayrollPeriod(input.legacyMonth!);
+  }
+  if (!["DIARIO", "SEMANAL", "QUINCENAL", "PAGO"].includes(input.periodType)) {
+    throw new Error("La frecuencia del archivo no es válida.");
+  }
+  return resolveWorkbookPeriodIdentity({
+    periodType: input.periodType as "DIARIO" | "SEMANAL" | "QUINCENAL" | "PAGO",
+    periodStart: input.periodStart,
+    periodEnd: input.periodEnd,
+  });
+}
+
 /** Lee el stream con un límite antes de invocar formData(), incluso sin Content-Length. */
 export async function requestWithLimitedBody(request: Request, maxBytes: number): Promise<Request> {
   if (!request.body) return request;
@@ -148,7 +172,19 @@ export async function POST(request: Request) {
   }
   const form = await parsePayrollMultipart(boundedRequest);
   if (!form) return NextResponse.json({ error: "El formulario de subida no es válido." }, { status: 400 });
-  const file = form.get("file"); const month = String(form.get("month") ?? ""); const confirm = form.get("confirm") === "true";
+  const file = form.get("file"); const legacyMonth = String(form.get("month") ?? ""); const confirm = form.get("confirm") === "true";
+  let period: AttendanceExportPeriod;
+  try {
+    period = resolveSubmittedWorkbookPeriod({
+      periodType: String(form.get("periodType") ?? ""),
+      periodStart: String(form.get("periodStart") ?? ""),
+      periodEnd: String(form.get("periodEnd") ?? ""),
+      legacyMonth,
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "El período no es válido." }, { status: 400 });
+  }
+  const windowType = workbookWindowType(period);
   const reason = String(form.get("reason") ?? "").trim(); const expectedBaseVersionId = String(form.get("baseVersionId") ?? "") || null;
   const expectedPreviewToken = String(form.get("previewToken") ?? "");
   const expectedUploadedHash = String(form.get("uploadedHash") ?? "");
@@ -163,10 +199,8 @@ export async function POST(request: Request) {
   }
   if (!(file instanceof File) || !file.name.toLowerCase().endsWith(".xlsx") || file.type !== XLSX_MIME) return NextResponse.json({ error: "Selecciona un archivo .xlsx válido, sin macros." }, { status: 400 });
   if (file.size > PAYROLL_WORKBOOK_LIMITS.maxBytes) return NextResponse.json({ error: "El archivo supera 15 MB." }, { status: 413 });
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return NextResponse.json({ error: "Mes de remuneración inválido." }, { status: 400 });
   if (confirm && !reason) return NextResponse.json({ error: "El motivo general es obligatorio." }, { status: 400 });
 
-  const period = resolvePayrollPeriod(month);
   const access = await authorizeWorkforceDataAccess(supabase, {
     scope: "attendance.export",
     period,
@@ -179,14 +213,29 @@ export async function POST(request: Request) {
     const uploaded = parsePayrollWorkbook(bytes);
     const loose = supabase as unknown as LooseClient;
     const sourceRevisionBefore = await readPayrollSourceRevision(loose);
-    const latest = await loose.from("payroll_workbook_versions").select("id").eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID).eq("period_start", period.startDate).eq("period_end", period.endDate).eq("status", "ACCEPTED").order("version_number", { ascending: false }).limit(1).maybeSingle();
+    const latestScope = loose
+      .from(windowType === "MENSUAL" ? "payroll_workbook_versions" : "payroll_working_versions")
+      .select("id")
+      .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
+      .eq("period_start", period.startDate)
+      .eq("period_end", period.endDate);
+    const latest = await (windowType === "MENSUAL"
+      ? latestScope.eq("status", "ACCEPTED")
+      : latestScope.eq("window_type", windowType))
+      .order("version_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
     if (latest.error) throw new Error(latest.error.message);
     const latestId = typeof latest.data?.id === "string" ? latest.data.id : null;
     const expectedWorkbookBase = latestId ?? "ORIGEN_ACTUAL";
     if (uploaded.identity.baseVersion !== expectedWorkbookBase) {
       return NextResponse.json({ error: "La descarga base ya no es la vigente. Descarga nuevamente antes de comparar." }, { status: 409 });
     }
-    if (uploaded.identity.payrollMonth !== month || uploaded.identity.periodStart !== period.startDate || uploaded.identity.periodEnd !== period.endDate) {
+    const expectedPayrollMonth = period.type === "PAGO" ? period.endDate.slice(0, 7) : "";
+    if (uploaded.identity.periodType !== period.type
+        || uploaded.identity.payrollMonth !== expectedPayrollMonth
+        || uploaded.identity.periodStart !== period.startDate
+        || uploaded.identity.periodEnd !== period.endDate) {
       return NextResponse.json({ error: "El archivo no corresponde al período seleccionado." }, { status: 409 });
     }
     if ("companyId" in uploaded.identity && uploaded.identity.companyId !== ARCOTEX_WORKFORCE_COMPANY_ID) {
@@ -196,6 +245,7 @@ export async function POST(request: Request) {
     data.workbookBaseVersionId = latestId;
     data.workbookAdjustments = await loadAcceptedPayrollWorkbookAdjustments(supabase, {
       companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+      windowType,
       periodStart: period.startDate,
       periodEnd: period.endDate,
     });
@@ -247,6 +297,7 @@ export async function POST(request: Request) {
     const accepted = await acceptTrustedPayrollWorkbook({
       actorId: profile.id,
       companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+      windowType,
       periodStart: period.startDate,
       periodEnd: period.endDate,
       expectedBaseVersionId,
@@ -258,7 +309,12 @@ export async function POST(request: Request) {
       changes: preview.changes,
     });
     versionRegistered = true;
-    const stored = await loose.from("payroll_workbook_versions").select("storage_path").eq("id", accepted.versionId).eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID).maybeSingle();
+    const stored = await loose
+      .from(windowType === "MENSUAL" ? "payroll_workbook_versions" : "payroll_working_versions")
+      .select("storage_path")
+      .eq("id", accepted.versionId)
+      .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
+      .maybeSingle();
     if (stored.error) throw new Error(stored.error.message);
     if (stored.data?.storage_path !== uploadedStoragePath) {
       try {
@@ -316,32 +372,56 @@ export async function GET(request: Request) {
   const versionId = searchParams.get("version");
   const loose = supabase as unknown as LooseClient;
   if (!versionId) {
-    const month = searchParams.get("month") ?? "";
-    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return NextResponse.json({ error: "Mes inválido." }, { status: 400 });
-    const period = resolvePayrollPeriod(month);
+    let period: AttendanceExportPeriod;
+    try {
+      period = resolveSubmittedWorkbookPeriod({
+        periodType: searchParams.get("periodType") ?? "",
+        periodStart: searchParams.get("periodStart") ?? "",
+        periodEnd: searchParams.get("periodEnd") ?? "",
+        legacyMonth: searchParams.get("month") ?? "",
+      });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "El período no es válido." }, { status: 400 });
+    }
+    const windowType = workbookWindowType(period);
     const access = await authorizeWorkforceDataAccess(supabase, { scope: "attendance.export", period });
     if (access.status !== "ALLOWED") return workforceDataAccessFailureResponse(access)!;
-    const rows = await loose.from("payroll_workbook_versions")
-      .select("id, version_number, base_version_id, status, content_sha256, file_size, general_reason, accepted_at, accepted_by, closed_snapshot_at")
+    const history = loose
+      .from(windowType === "MENSUAL" ? "payroll_workbook_versions" : "payroll_working_versions")
+      .select(windowType === "MENSUAL"
+        ? "id, version_number, base_version_id, status, content_sha256, file_size, general_reason, accepted_at, accepted_by, closed_snapshot_at"
+        : "id, version_number, base_version_id, content_sha256, file_size, general_reason, accepted_at, accepted_by")
       .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
       .eq("period_start", period.startDate)
-      .eq("period_end", period.endDate)
-      .in("status", ["ACCEPTED", "CLOSED_SNAPSHOT"])
+      .eq("period_end", period.endDate);
+    const rows = await (windowType === "MENSUAL"
+      ? history.in("status", ["ACCEPTED", "CLOSED_SNAPSHOT"])
+      : history.eq("window_type", windowType))
       .order("version_number", { ascending: false })
       .limit(20);
     if (rows.error) return NextResponse.json({ error: "No pudimos cargar el historial." }, { status: 500 });
-    return NextResponse.json({ versions: rows.data ?? [] });
+    return NextResponse.json({
+      versions: (rows.data ?? []).map((row) => windowType === "MENSUAL"
+        ? { ...row, scope: "monthly" }
+        : { ...row, status: "ACCEPTED", closed_snapshot_at: null, scope: "working" }),
+    });
   }
   if (!isUuid(versionId)) return NextResponse.json({ error: "Versión inválida." }, { status: 400 });
-  const row = await loose.from("payroll_workbook_versions")
-    .select("storage_path, file_size, period_start, period_end, content_sha256, status")
+  const workingScope = searchParams.get("scope") === "working";
+  const versionQuery = loose
+    .from(workingScope ? "payroll_working_versions" : "payroll_workbook_versions")
+    .select(workingScope
+      ? "storage_path, file_size, period_start, period_end, content_sha256, window_type"
+      : "storage_path, file_size, period_start, period_end, content_sha256, status")
     .eq("id", versionId)
-    .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
-    .in("status", ["ACCEPTED", "CLOSED_SNAPSHOT"])
+    .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID);
+  const row = await (workingScope
+    ? versionQuery
+    : versionQuery.in("status", ["ACCEPTED", "CLOSED_SNAPSHOT"]))
     .maybeSingle();
   if (row.error || !row.data || typeof row.data.storage_path !== "string") return NextResponse.json({ error: "Versión no disponible." }, { status: 404 });
   const period = {
-    type: "PAGO" as const,
+    type: (workingScope ? String(row.data.window_type) : "PAGO") as "DIARIO" | "SEMANAL" | "QUINCENAL" | "PAGO",
     startDate: String(row.data.period_start),
     endDate: String(row.data.period_end),
     label: `Pre-nómina ${String(row.data.period_start)} al ${String(row.data.period_end)}`,
@@ -356,7 +436,7 @@ export async function GET(request: Request) {
     console.error("[payroll-workbook-download] hash o tamaño de Storage no coincide con la versión", versionId);
     return NextResponse.json({ error: "La versión no superó la verificación de integridad." }, { status: 500 });
   }
-  const artifactLabel = row.data.status === "CLOSED_SNAPSHOT" ? "cierre" : "version";
+  const artifactLabel = !workingScope && row.data.status === "CLOSED_SNAPSHOT" ? "cierre" : "version";
   const filename = `pre-nomina-${String(row.data.period_start)}-al-${String(row.data.period_end)}-${artifactLabel}.xlsx`;
   return new NextResponse(bytes, { headers: privateAttachmentHeaders(filename, bytes.byteLength, { limit: access.requestLimit, remaining: access.remaining }) });
 }

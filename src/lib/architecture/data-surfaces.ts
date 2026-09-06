@@ -360,8 +360,8 @@ export const RPC_CONSUMER_SURFACES = [
   {
     source: "src/lib/payroll-workbook/service.ts",
     domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "payroll-workbook-acceptance",
-    tenantScope: "LEGACY_ARCOTEX", literalRpcs: ["get_payroll_workbook_object_identity", "register_accepted_payroll_workbook"], dynamicRpcs: [],
-    authorization: "Ruta ADMIN_RRHH+MFA y vista previa firmada; el RPC revalida actor/membresía y recibe solo hash/tamaño recalculados desde Storage.",
+    tenantScope: "LEGACY_ARCOTEX", literalRpcs: ["get_payroll_workbook_object_identity"], dynamicRpcs: ["register_accepted_payroll_workbook", "register_accepted_working_workbook"],
+    authorization: "Ruta ADMIN_RRHH+MFA y vista previa firmada; el RPC mensual o de trabajo revalida actor/membresía y recibe solo hash/tamaño recalculados desde Storage.",
     auditControl: "BUSINESS_LEDGER", dataClass: "FINANCIAL",
     blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
   },

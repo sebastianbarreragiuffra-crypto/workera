@@ -7,6 +7,7 @@ import {
   resolveWeeklyPeriod,
   resolveFortnightPeriod,
   resolvePayrollPeriod,
+  workbookWindowType,
   type AttendanceExportPeriod,
 } from "../../../../lib/business-rules/attendance-export-periods";
 import { buildAttendanceExportData, buildAttendanceExportWorkbook } from "../../../../lib/business-rules/attendance-export";
@@ -169,28 +170,30 @@ export async function GET(request: NextRequest) {
   let data;
   try {
     data = await buildAttendanceExportData(supabase, payrollRole, period, ARCOTEX_WORKFORCE_COMPANY_ID);
-    if (period.type === "PAGO") {
-      const [latest, adjustments] = await Promise.all([
-        (supabase as unknown as { from(name: string): LatestPayrollWorkbookQuery })
-          .from("payroll_workbook_versions")
-          .select("id")
-          .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
-          .eq("period_start", period.startDate)
-          .eq("period_end", period.endDate)
-          .eq("status", "ACCEPTED")
-          .order("version_number", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        loadAcceptedPayrollWorkbookAdjustments(supabase, {
-          companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
-          periodStart: period.startDate,
-          periodEnd: period.endDate,
-        }),
-      ]);
-      if (latest.error) throw new Error(latest.error.message);
-      data.workbookBaseVersionId = typeof latest.data?.id === "string" ? latest.data.id : null;
-      data.workbookAdjustments = adjustments;
-    }
+    const windowType = workbookWindowType(period);
+    const latestQuery = (supabase as unknown as { from(name: string): LatestPayrollWorkbookQuery })
+      .from(windowType === "MENSUAL" ? "payroll_workbook_versions" : "payroll_working_versions")
+      .select("id")
+      .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
+      .eq("period_start", period.startDate)
+      .eq("period_end", period.endDate);
+    const [latest, adjustments] = await Promise.all([
+      (windowType === "MENSUAL"
+        ? latestQuery.eq("status", "ACCEPTED")
+        : latestQuery.eq("window_type", windowType))
+        .order("version_number", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      loadAcceptedPayrollWorkbookAdjustments(supabase, {
+        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        windowType,
+        periodStart: period.startDate,
+        periodEnd: period.endDate,
+      }),
+    ]);
+    if (latest.error) throw new Error(latest.error.message);
+    data.workbookBaseVersionId = typeof latest.data?.id === "string" ? latest.data.id : null;
+    data.workbookAdjustments = adjustments;
   } catch (err) {
     // El mensaje interno lleva el error crudo de PostgREST (nombres de tabla,
     // detalle de la consulta). Se registra en el servidor y al cliente le
