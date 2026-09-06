@@ -124,12 +124,38 @@ const diego = worker({
   exempt: true,
 });
 
+const simulatedWorkers: AttendanceExportWorker[] = [];
+for (let index = 5; index <= 55; index += 1) {
+  const area = index % 3 === 0 ? "INSTALLATION" : index % 3 === 1 ? "PRODUCTION" : "ADMINISTRATION";
+  simulatedWorkers.push(worker({
+    id: `sim-${String(index).padStart(3, "0")}`,
+    code: `SIM-${String(index).padStart(3, "0")}`,
+    rut: `FICTICIO-${String(index).padStart(3, "0")}`,
+    name: `PERSONA SIMULADA ${String(index).padStart(2, "0")}`,
+    area,
+    costCenter: area === "PRODUCTION" ? "CC-PROD — Producción" : area === "INSTALLATION" ? "CC-INST — Instalaciones" : "CC-ADM — Administración",
+    schedule: area === "ADMINISTRATION" ? "L-V 08:30-17:30" : "L-V 08:00-17:00",
+  }));
+}
+
+// Incidencias ficticias representativas para validar lectura visual con 55 filas.
+simulatedWorkers[0].days.set("2026-07-18", attendanceDay("P", { overtime50CandidateMinutes: 59, overtime50DecisionPending: true }));
+simulatedWorkers[1].days.set("2026-07-25", attendanceDay("P", { overtime50Minutes: 120, bonusAmount: 1_000 }));
+simulatedWorkers[2].days.set("2026-07-26", attendanceDay("P", { overtime100Minutes: 480, bonusAmount: 1_000 }));
+simulatedWorkers[3].days.set("2026-08-03", attendanceDay("F-P"));
+simulatedWorkers[4].days.set("2026-08-04", attendanceDay("F-J"));
+simulatedWorkers[5].days.set("2026-08-05", attendanceDay("P-L"));
+simulatedWorkers[6].days.set("2026-08-06", attendanceDay("P-M"));
+simulatedWorkers[7].days.set("2026-08-07", attendanceDay("L-M"));
+simulatedWorkers[8].days.set("2026-08-10", attendanceDay("P", { earlyDepartureDetectedMinutes: 25, earlyDepartureDecisionPending: true }));
+simulatedWorkers[9].days.set("2026-08-11", attendanceDay("?", { missingPunchPending: true }));
+
 const data: AttendanceExportData = {
   period,
   days,
-  workers: [carla, diego, juan, maria],
-  holidays: new Set<string>(),
-  reportingPeriodStatus: "CLOSED",
+  workers: [carla, diego, juan, maria, ...simulatedWorkers],
+  holidays: new Set<string>(["2026-07-16"]),
+  reportingPeriodStatus: "IN_REVIEW",
   ruleEngineProblemDates: new Set<string>(),
 };
 

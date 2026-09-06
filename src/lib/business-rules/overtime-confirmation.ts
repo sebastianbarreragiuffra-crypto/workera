@@ -16,7 +16,11 @@ import { santiagoWallClockMinutesSinceMidnight, scheduledTimeToMinutes } from ".
  * Fórmula confirmada (docs/BUSINESS_RULES_PRE_PHASE2.md §6-7):
  *   raw_overtime_minutes = clock_out - scheduled_end (horario EFECTIVO,
  *     nunca 17:00 fijo)
- *   candidate_overtime_minutes = MAX(0, MIN(raw, max_overtime_minutes))
+ *   candidate_overtime_minutes = MAX(0, raw)
+ *
+ * El candidato conserva SIEMPRE el tiempo real. El límite de la política se
+ * aplica recién al decidir las horas pagables; recortar acá destruía la
+ * evidencia necesaria para alertar 2:01 o 6:01 y para auditar real vs pago.
  *
  * Alcance por grupo (PASO 34-37, decisión explícita, no una detección
  * heurística de "horario estándar vs individual" -- la política de
@@ -212,12 +216,7 @@ export async function generateOvertimeCandidate(
   if (!Number.isFinite(rawMinutes)) {
     throw new Error("generateOvertimeCandidate: marcaciones inválidas para calcular horas extra.");
   }
-  // En Producción, un feriado usa el límite HH100 confirmado (6h), aunque la
-  // fila semanal normal de overtime_policies tenga 120 minutos.
-  const candidateLimit = groupCode === "PRODUCTION" && isHoliday
-    ? 360
-    : (policy.max_overtime_minutes ?? rawMinutes);
-  const candidateMinutes = Math.max(0, Math.min(rawMinutes, candidateLimit));
+  const candidateMinutes = Math.max(0, rawMinutes);
 
   if (candidateMinutes === 0) {
     await retireCurrentOvertimeRecord(supabase, employeeId, workDate);

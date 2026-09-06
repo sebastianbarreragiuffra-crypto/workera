@@ -47,6 +47,13 @@ export interface RpcConsumerSurface {
 
 export const RPC_CONSUMER_SURFACES = [
   {
+    source: "src/app/(app)/dashboard/import-asistencia/route.ts",
+    domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "LEGACY_ARCOTEX",
+    literalRpcs: ["register_accepted_payroll_workbook"], dynamicRpcs: [],
+    authorization: "ADMIN_RRHH y MFA; RPC repite rol, membresía, período 16-15, versión base y lock.",
+    auditControl: "BUSINESS_LEDGER", dataClass: "FINANCIAL", blockers: ["LABOR_MULTI_TENANCY", "EDGE_RATE_LIMIT"],
+  },
+  {
     source: "src/app/(expenses)/empresas/[companySlug]/rendiciones/actions.ts",
     domain: "expenses", executionIdentity: "SESSION", capability: null, tenantScope: "EXPLICIT_COMPANY",
     literalRpcs: [
@@ -362,6 +369,18 @@ export interface StorageConsumerSurface {
 }
 
 export const STORAGE_CONSUMER_SURFACES = [
+  {
+    source: "src/app/(app)/dashboard/import-asistencia/route.ts", bucket: "payroll-workbooks", operation: "upload", occurrences: 1,
+    domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
+    authorization: "ADMIN_RRHH; policy repite rol y membresía por prefijo de empresa.",
+    securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
+  },
+  {
+    source: "src/app/(app)/dashboard/import-asistencia/route.ts", bucket: "payroll-workbooks", operation: "download", occurrences: 1,
+    domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
+    authorization: "ADMIN_RRHH o SUPER_ADMIN; RLS repite membresía y la respuesta es attachment privada.",
+    securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
+  },
   {
     source: "src/app/(app)/licencias/documento/[documentId]/route.ts", bucket: "supporting-documents", operation: "download", occurrences: 1,
     domain: "workforce", executionIdentity: "SESSION", tenantScope: "RESOURCE_COMPANY",

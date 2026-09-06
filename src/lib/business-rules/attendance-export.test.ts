@@ -750,10 +750,11 @@ test("libro 2026: genera las tres hojas y no combina ninguna celda de las tablas
     "RESUMEN_NOMINA",
     "CONTROL_PENDIENTES",
     "MATRIZ_DIARIA_SABANA",
+    "_GESTORA_TECNICA",
   ]);
   for (const name of workbook.SheetNames) {
     const merges = workbook.Sheets[name]["!merges"] ?? [];
-    const tableHeaderRow = name === "CONTROL_PENDIENTES" ? 3 : 4;
+    const tableHeaderRow = name === "CONTROL_PENDIENTES" ? 3 : name === "_GESTORA_TECNICA" ? 0 : 4;
     assert.ok(merges.every((range) => range.e.r < tableHeaderRow), name + " solo puede combinar metadatos sobre la tabla");
   }
 });
@@ -769,17 +770,17 @@ test("libro 2026: resumen y sábana usan una sola fila por trabajador", async ()
   const matrix = readSheet(bytes, "MATRIZ_DIARIA_SABANA");
 
   assert.deepEqual(summary[4].slice(0, 5), [
-    "RUT", "Nombre_Completo", "Horario_Jornada", "Centro_Costo", "Codigo_Workera",
+    "Estado", "RUT", "Nombre completo", "Área", "Centro de costo",
   ]);
   assert.deepEqual(matrix[4].slice(0, 5), [
-    "RUT", "Codigo_Workera", "Nombre_Completo", "Horario_Jornada", "Centro_Costo",
+    "RUT", "Código Workera", "Nombre completo", "Jornada", "Centro de costo",
   ]);
-  assert.equal(summary[5][1], "TRABAJADOR DOS");
-  assert.equal(summary[6][1], "TRABAJADOR UNO");
-  assert.equal(summary[7][1], "TOTAL EMPRESA");
+  assert.equal(summary[5][2], "TRABAJADOR DOS");
+  assert.equal(summary[6][2], "TRABAJADOR UNO");
+  assert.equal(summary[7][2], "TOTAL EMPRESA");
   assert.equal(matrix.length, 7, "cinco filas de cabecera y dos personas");
   const summarySheet = readWorkbook(bytes).Sheets.RESUMEN_NOMINA;
-  assert.match(String(summarySheet.F6.f), /MATCH\(\$E6,'MATRIZ_DIARIA_SABANA'!\$B\$6:\$B\$7,0\)/, "la conciliación usa código estable y resiste ordenación independiente");
+  assert.match(String(summarySheet.G6.f), /MATCH\(\$AB6,'MATRIZ_DIARIA_SABANA'!\$B\$6:\$B\$7,0\)/, "la conciliación usa código estable y resiste ordenación independiente");
 });
 
 test("libro 2026: la sábana tiene fechas contiguas y códigos oficiales en una fila", async () => {
@@ -814,15 +815,11 @@ test("libro 2026: fórmulas cuentan la matriz y escapan el signo ? como literal"
   const workbook = readWorkbook(bytes);
   const summary = workbook.Sheets.RESUMEN_NOMINA;
 
-  assert.equal(summary.F6.v, 1);
-  assert.equal(summary.F6.f, "COUNTIF(INDEX('MATRIZ_DIARIA_SABANA'!$F$6:$L$6,MATCH($E6,'MATRIZ_DIARIA_SABANA'!$B$6:$B$6,0),0),\"P\")");
   assert.equal(summary.G6.v, 1);
-  assert.equal(summary.H6.v, 1);
-  assert.equal(summary.I6.v, 0, "L-M se conserva separado de la licencia común");
-  assert.equal(summary.J6.v, 1);
-  assert.match(String(summary.AC6.f), /COUNTIF\(INDEX\('MATRIZ_DIARIA_SABANA'![^,]+,MATCH\(\$E6,[^,]+,0\),0\),"~\?"\)/);
-  assert.doesNotMatch(String(summary.AC6.f), /,"\\?"\)/);
-  assert.equal(summary.AC6.v, "BLOQUEADO POR PENDIENTES");
+  assert.equal(summary.G6.f, "COUNTIF(INDEX('MATRIZ_DIARIA_SABANA'!$F$6:$L$6,MATCH($AB6,'MATRIZ_DIARIA_SABANA'!$B$6:$B$6,0),0),\"P\")");
+  assert.match(String(summary.A6.f), /COUNTIF\(INDEX\('MATRIZ_DIARIA_SABANA'![^,]+,MATCH\(\$AB6,[^,]+,0\),0\),"~\?"\)/);
+  assert.doesNotMatch(String(summary.A6.f), /,"\\?"\)/);
+  assert.equal(summary.A6.v, "BLOQUEADO");
 });
 
 test("libro 2026: separa Workera, ajuste y total final para horas y bonos", async () => {
@@ -846,21 +843,21 @@ test("libro 2026: separa Workera, ajuste y total final para horas y bonos", asyn
   });
   const summary = readWorkbook(bytes).Sheets.RESUMEN_NOMINA;
 
-  assert.deepEqual([summary.A6.v, summary.B6.v, summary.E6.v], ["11111111-1", "TRABAJADOR UNO", "WK-001"]);
-  assert.equal(summary.K6.v, 120 / 1_440);
-  assert.equal(summary.L6.v, 0);
-  assert.equal(summary.M6.f, "K6+L6/1440");
-  assert.equal(summary.M6.v, 120 / 1_440);
-  assert.equal(summary.O6.v, 180 / 1_440);
-  assert.equal(summary.Q6.f, "O6+P6/1440");
-  assert.equal(summary.U6.v, 1_000);
-  assert.equal(summary.W6.f, "U6+V6");
-  assert.equal(summary.Y6.v, 1, "el monto agregado conserva sus días de origen");
+  assert.deepEqual([summary.B6.v, summary.C6.v, summary.AB6.v], ["11111111-1", "TRABAJADOR UNO", "WK-001"]);
+  assert.equal(summary.Q6.v, 120 / 1_440);
+  assert.equal(summary.R6.v, 0);
+  assert.equal(summary.I6.f, "Q6+R6/1440");
+  assert.equal(summary.I6.v, 120 / 1_440);
+  assert.equal(summary.T6.v, 180 / 1_440);
+  assert.equal(summary.J6.f, "T6+U6/1440");
+  assert.equal(summary.W6.v, 1_000);
+  assert.equal(summary.N6.f, "W6+X6");
+  assert.equal(summary.M6.v, 1, "el monto agregado conserva sus días de origen");
   assert.equal(summary.Z6.v, "17/08");
-  assert.equal(summary.K6.z, "[h]:mm");
-  assert.equal(summary.U6.z, "\"$\"#,##0");
-  assert.equal(summary.M7.f, "SUM(M6:M6)");
-  assert.equal(summary.M7.t, "n", "el valor cacheado del total debe seguir siendo numérico");
+  assert.equal(summary.Q6.z, "[h]:mm");
+  assert.equal(summary.W6.z, "\"$\"#,##0");
+  assert.equal(summary.I7.f, "SUM(I6:I6)");
+  assert.equal(summary.I7.t, "n", "el valor cacheado del total debe seguir siendo numérico");
 });
 
 test("libro 2026: ajustes tienen formato condicional real, paneles congelados y recálculo", async () => {
@@ -870,9 +867,9 @@ test("libro 2026: ajustes tienen formato condicional real, paneles congelados y 
   const bookXml = workbookXml(bytes, "xl/workbook.xml");
 
   assert.match(summaryXml, /<[^>]*pane [^>]*xSplit="5"[^>]*ySplit="5"[^>]*topLeftCell="F6"/);
-  assert.match(summaryXml, /conditionalFormatting sqref="L6:L6"/);
-  assert.match(summaryXml, /<[^>]*formula>L6&lt;&gt;0<\/[^>]*formula>/);
-  assert.match(summaryXml, /conditionalFormatting sqref="AC6:AC6"/);
+  assert.match(summaryXml, /conditionalFormatting sqref="R6:R6"/);
+  assert.match(summaryXml, /<[^>]*formula>R6&lt;&gt;0<\/[^>]*formula>/);
+  assert.match(summaryXml, /conditionalFormatting sqref="A6:A6"/);
   assert.match(stylesXml, /<[^>]*dxfs count="17">/);
   assert.match(bookXml, /calcMode="auto"[^>]*fullCalcOnLoad="1"[^>]*forceFullCalc="1"/);
 });
@@ -890,8 +887,8 @@ test("libro 2026: un atraso pendiente nunca se convierte en descuento", async ()
   const summary = readSheet(bytes, "RESUMEN_NOMINA");
   const pending = readSheet(bytes, "CONTROL_PENDIENTES");
 
-  assert.match(workbookXml(bytes, "xl/worksheets/sheet1.xml"), /<[^>]*c r="S6"[^>]*>[\s\S]*?<[^>]*v>0<\/[^>]*v><\/[^>]*c>/);
-  assert.equal(summary[5][26], 1);
+  assert.match(workbookXml(bytes, "xl/worksheets/sheet1.xml"), /<[^>]*c r="K6"[^>]*>[\s\S]*?<[^>]*v>0<\/[^>]*v><\/[^>]*c>/);
+  assert.equal(summary[5][14], 1);
   assert.ok(pending.some((row) => row[6] === "Atraso por resolver" && row[7] === 15));
 });
 
@@ -914,9 +911,9 @@ test("libro 2026: licencia en trámite aparece como ? y no entra al total defini
   const matrix = readSheet(bytes, "MATRIZ_DIARIA_SABANA");
 
   assert.equal(matrix[5][6], "?");
-  assert.equal(summary[5][7], 0);
-  assert.equal(summary[5][28], "SOLO CONTROL - NO PAGO");
-  assert.match(String(summary[5][29]), /Ausencias\/licencias por resolver/);
+  assert.equal(readWorkbook(bytes).Sheets.RESUMEN_NOMINA.K6.v, 0);
+  assert.equal(summary[5][0], "REVISAR");
+  assert.match(String(summary[5][15]), /Ausencias\/licencias por resolver/);
 });
 
 test("libro 2026: código R y códigos desconocidos bloquean y quedan trazados", async () => {
@@ -959,7 +956,7 @@ test("libro 2026: un hecho anterior al ingreso se vuelve ? y no afecta totales",
   const pending = readSheet(bytes, "CONTROL_PENDIENTES");
 
   assert.equal(matrix[5][5], "?");
-  assert.equal(summary[5][6], 0);
+  assert.equal(summary[5][6], 1);
   assert.ok(pending.some((row) => row[6] === "Hecho de asistencia anterior al ingreso"));
 });
 
@@ -983,7 +980,7 @@ test("libro 2026: una corrida incompleta invalida el código diario anterior", a
   assert.ok(pending.some((row) => row[6] === "Procesamiento de asistencia incompleto"));
 });
 
-test("libro 2026: período 16-15 cerrado y sin pendientes queda aprobado para pago", async () => {
+test("libro 2026: período 16-15 cerrado y sin pendientes queda cerrado, nunca autoaprobado", async () => {
   const statuses = calendarDaysBetween(PAYROLL_PERIOD.startDate, PAYROLL_PERIOD.endDate)
     .filter((date) => !isWeekend(date))
     .map((date) => ({ employee_id: "emp-1", work_date: date, code: "P" }));
@@ -997,17 +994,17 @@ test("libro 2026: período 16-15 cerrado y sin pendientes queda aprobado para pa
   const pending = readSheet(bytes, "CONTROL_PENDIENTES");
 
   assert.match(String(summary[2][0]), /^CONTROL/);
-  assert.equal(summary[5][28], "APROBADO PARA PAGO");
+  assert.equal(summary[5][0], "CERRADO");
   assert.equal(pending[4][6], "Sin bloqueos detectados");
   assert.match(String(summary[3][0]), /no reemplaza el cierre formal ni un snapshot inmutable/);
 });
 
-test("libro 2026: período 16-15 abierto queda bloqueado aunque no haya incidencias personales", async () => {
+test("libro 2026: período 16-15 abierto y conciliado queda listo para revisión, no aprobado", async () => {
   const statuses = calendarDaysBetween(PAYROLL_PERIOD.startDate, PAYROLL_PERIOD.endDate)
     .filter((date) => !isWeekend(date))
     .map((date) => ({ employee_id: "emp-1", work_date: date, code: "P" }));
   const { bytes } = await buildWorkbook({
-    employees: ONE_WORKER,
+    employees: [{ ...ONE_WORKER[0], rut: "11111111-1", external_workera_id: "WK-001" }],
     reportingPeriodStatus: "OPEN",
     schedules: MONDAY_FRIDAY_SCHEDULE,
     statuses,
@@ -1015,8 +1012,8 @@ test("libro 2026: período 16-15 abierto queda bloqueado aunque no haya incidenc
   const summary = readSheet(bytes, "RESUMEN_NOMINA");
   const pending = readSheet(bytes, "CONTROL_PENDIENTES");
 
-  assert.equal(summary[5][28], "BLOQUEADO POR PENDIENTES");
-  assert.ok(pending.some((row) => row[6] === "Período de pago abierto"));
+  assert.equal(summary[5][0], "LISTO PARA REVISIÓN RR. HH.");
+  assert.equal(pending[4][6], "Sin bloqueos detectados");
 });
 
 test("libro 2026: centro de costo ausente bloquea y el estado superior no contradice el detalle", async () => {
@@ -1033,8 +1030,8 @@ test("libro 2026: centro de costo ausente bloquea y el estado superior no contra
   const summary = readSheet(bytes, "RESUMEN_NOMINA");
   const pending = readSheet(bytes, "CONTROL_PENDIENTES");
 
-  assert.equal(summary[5][3], "");
-  assert.equal(summary[5][28], "BLOQUEADO POR PENDIENTES");
+  assert.equal(summary[5][4], "");
+  assert.equal(summary[5][0], "BLOQUEADO");
   assert.match(String(summary[2][0]), /^REVISAR/);
   assert.ok(pending.some((row) => row[6] === "Centro de costo ausente"));
 });
@@ -1052,7 +1049,7 @@ test("libro 2026: RUT o código Workera ausente bloquea una pre-nómina", async 
   const summary = readSheet(bytes, "RESUMEN_NOMINA");
   const pending = readSheet(bytes, "CONTROL_PENDIENTES");
 
-  assert.equal(summary[5][28], "BLOQUEADO POR PENDIENTES");
+  assert.equal(summary[5][0], "BLOQUEADO");
   assert.ok(pending.some((row) => row[6] === "RUT ausente"));
 });
 
@@ -1070,7 +1067,7 @@ test("libro 2026: una persona exenta no genera falsos signos ?", async () => {
   const matrix = readSheet(bytes, "MATRIZ_DIARIA_SABANA");
 
   assert.deepEqual(matrix[5].slice(5, 12), ["", "", "", "", "", "", ""]);
-  assert.match(String(summary[5][29]), /Exento de marcación/);
+  assert.match(String(summary[5][15]), /Exento de marcación/);
 });
 
 test("libro 2026: sin trabajadores sigue siendo un XLSX válido", async () => {
@@ -1079,8 +1076,8 @@ test("libro 2026: sin trabajadores sigue siendo un XLSX válido", async () => {
   const summary = readSheet(bytes, "RESUMEN_NOMINA");
   const matrix = readSheet(bytes, "MATRIZ_DIARIA_SABANA");
 
-  assert.deepEqual(workbook.SheetNames, ["RESUMEN_NOMINA", "CONTROL_PENDIENTES", "MATRIZ_DIARIA_SABANA"]);
-  assert.equal(summary[5][1], "TOTAL EMPRESA");
+  assert.deepEqual(workbook.SheetNames, ["RESUMEN_NOMINA", "CONTROL_PENDIENTES", "MATRIZ_DIARIA_SABANA", "_GESTORA_TECNICA"]);
+  assert.equal(summary[5][2], "TOTAL EMPRESA");
   assert.equal(matrix.length, 5);
 });
 

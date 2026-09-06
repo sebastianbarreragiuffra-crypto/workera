@@ -204,6 +204,21 @@ export const REQUEST_SURFACES = [
     blockers: ["LABOR_MULTI_TENANCY"],
   },
   {
+    source: "src/app/(app)/dashboard/import-asistencia/route.ts", route: "/dashboard/import-asistencia", method: "POST", kind: "USER_API",
+    domain: "workforce", authentication: "SESSION_PRIVILEGED_ROLE", tenantScope: "LEGACY_ARCOTEX",
+    authorization: "Solo ADMIN_RRHH; RPC revalida rol, MFA, empresa, período y versión base.",
+    mutates: true, maxBodyBytes: 15 * MIB, idempotency: "DATABASE_CONSTRAINT", abuseControl: "MISSING",
+    auditControl: "BUSINESS_LEDGER", featureFlag: null, dataClass: "FINANCIAL",
+    blockers: ["APPLICATION_RATE_LIMIT", "EDGE_RATE_LIMIT", "ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
+  },
+  {
+    source: "src/app/(app)/dashboard/import-asistencia/route.ts", route: "/dashboard/import-asistencia", method: "GET", kind: "DOWNLOAD",
+    domain: "workforce", authentication: "SESSION_PRIVILEGED_ROLE", tenantScope: "LEGACY_ARCOTEX",
+    authorization: "ADMIN_RRHH o SUPER_ADMIN; fila y Storage se aíslan por empresa.",
+    mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "READ_ONLY_NO_LIMIT",
+    auditControl: "BUSINESS_LEDGER", featureFlag: null, dataClass: "FINANCIAL", blockers: ["LABOR_MULTI_TENANCY"],
+  },
+  {
     source: "src/app/(app)/nomina-de-pago/proveedores/descargar/route.ts", route: "/nomina-de-pago/proveedores/descargar", method: "GET", kind: "DOWNLOAD",
     domain: "workforce", authentication: "SESSION_PRIVILEGED_ROLE", tenantScope: "LEGACY_ARCOTEX",
     authorization: "SUPER_ADMIN/ADMIN_RRHH; RPC y Storage revalidan ARCOTEX, MFA, fila ACTIVE y cuota; sin signed URL.",

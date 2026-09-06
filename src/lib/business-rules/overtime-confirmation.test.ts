@@ -91,7 +91,7 @@ test("overtime PRODUCTION: genera candidato usando el horario efectivo (nunca 17
   assert.equal(result.candidateMinutes, 60);
 });
 
-test("overtime PRODUCTION: candidato se topa en max_overtime_minutes (cap confirmado, Gate D)", async () => {
+test("overtime PRODUCTION: candidato conserva horas reales aunque exceda el tope pagable", async () => {
   const mock = createMockSupabase({
     employee_time_control_policies: () => ({ data: null, error: null }),
     schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
@@ -104,7 +104,7 @@ test("overtime PRODUCTION: candidato se topa en max_overtime_minutes (cap confir
   });
   // 20:00 -04 = 3h reales tras el scheduled_end 17:00 -> topado a 120.
   const result = await generateOvertimeCandidate(mock as never, "emp-1", "2026-08-17", "att-1", "2026-08-18T00:00:00.000Z");
-  assert.equal(result.candidateMinutes, 120);
+  assert.equal(result.candidateMinutes, 180);
 });
 
 test("overtime INSTALLATION: genera minutos exactos, sin selector 1h/2h", async () => {
@@ -147,7 +147,7 @@ test("overtime INSTALLATION: en día libre usa el tramo real entrada-salida", as
   assert.equal(result.candidateMinutes, 250);
 });
 
-test("overtime PRODUCTION: un feriado trabajado usa todo el tramo y el tope HH100 de 360 minutos", async () => {
+test("overtime PRODUCTION: un feriado conserva todo el tramo real; el pago se topa después", async () => {
   const mock = createMockSupabase({
     employee_time_control_policies: () => ({ data: null, error: null }),
     schedule_assignments: () => ({ data: { work_schedule_id: "ws-production" }, error: null }),
@@ -168,7 +168,7 @@ test("overtime PRODUCTION: un feriado trabajado usa todo el tramo y el tope HH10
     true
   );
   assert.equal(result.status, "GENERATED");
-  assert.equal(result.candidateMinutes, 360);
+  assert.equal(result.candidateMinutes, 540);
 });
 
 test("overtime ADMINISTRATION: NOT_ELIGIBLE, nunca genera candidato", async () => {

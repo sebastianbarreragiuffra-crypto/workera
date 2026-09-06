@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { PayrollWorkbookUpload } from "./PayrollWorkbookUpload";
 
 /**
  * Exportador operacional respaldado por `attendance_status_records`. Mantiene
@@ -134,6 +135,7 @@ export function DescargarAsistenciaCard({ now = new Date() }: { now?: Date }) {
       >
         Descargar Excel para RR. HH.
       </a>
+      {tipo === "PAGO" && <PayrollWorkbookUpload month={pagoMes} />}
     </section>
   );
 }
