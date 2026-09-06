@@ -159,17 +159,21 @@ export function currentWeekRange(date: string): { start: string; end: string } {
   return currentIsoWeekRange(date);
 }
 
-async function getScopedEmployeeIds(supabase: SupabaseClient<Database>, areaCodes: AreaCode[]): Promise<string[]> {
-  const { data: groups, error: groupsError } = await supabase.from("employee_groups").select("id, code").in("code", areaCodes);
+async function getScopedEmployeeIds(supabase: SupabaseClient<Database>, areaCodes: AreaCode[], companyId?: string): Promise<string[]> {
+  let groupsQuery = supabase.from("employee_groups").select("id, code").in("code", areaCodes);
+  if (companyId) groupsQuery = groupsQuery.eq("company_id", companyId);
+  const { data: groups, error: groupsError } = await groupsQuery;
   if (groupsError) throw new Error(`getScopedEmployeeIds: fallo leyendo employee_groups: ${groupsError.message}`);
   const groupIds = (groups ?? []).map((g) => g.id);
   if (groupIds.length === 0) return [];
 
-  const { data: employees, error: employeesError } = await supabase
+  let employeesQuery = supabase
     .from("employees")
     .select("id")
     .in("employee_group_id", groupIds)
     .eq("active", true);
+  if (companyId) employeesQuery = employeesQuery.eq("company_id", companyId);
+  const { data: employees, error: employeesError } = await employeesQuery;
   if (employeesError) throw new Error(`getScopedEmployeeIds: fallo leyendo employees: ${employeesError.message}`);
   return (employees ?? []).map((e) => e.id);
 }
@@ -382,10 +386,20 @@ export async function getWeekSummary(supabase: SupabaseClient<Database>, employe
   };
 }
 
-export async function getPeriodStatus(supabase: SupabaseClient<Database>, date: string): Promise<PeriodStatus> {
+export async function getPeriodStatus(
+  supabase: SupabaseClient<Database>,
+  date: string,
+  companyId?: string,
+): Promise<PeriodStatus> {
+  let reportingPeriodQuery = supabase
+    .from("reporting_periods")
+    .select("period_start, period_end, status")
+    .lte("period_start", date)
+    .gte("period_end", date);
+  if (companyId) reportingPeriodQuery = reportingPeriodQuery.eq("company_id", companyId);
   const [weeklyRes, periodRes] = await Promise.all([
     supabase.from("weekly_reviews").select("period_start, period_end, status").lte("period_start", date).gte("period_end", date).maybeSingle(),
-    supabase.from("reporting_periods").select("period_start, period_end, status").lte("period_start", date).gte("period_end", date).maybeSingle(),
+    reportingPeriodQuery.maybeSingle(),
   ]);
   if (weeklyRes.error) throw new Error(`getPeriodStatus: fallo leyendo weekly_reviews: ${weeklyRes.error.message}`);
   if (periodRes.error) throw new Error(`getPeriodStatus: fallo leyendo reporting_periods: ${periodRes.error.message}`);
@@ -468,20 +482,23 @@ async function computeKpis(
   };
 }
 
-export async function getAdminDashboard(supabase: SupabaseClient<Database>, date: string): Promise<AdminDashboardViewModel> {
+export async function getAdminDashboard(supabase: SupabaseClient<Database>, date: string, companyId?: string): Promise<AdminDashboardViewModel> {
   const areaCodes: AreaCode[] = ["PRODUCTION", "INSTALLATION", "ADMINISTRATION"];
 
-  const [reviews, syncHealth, employeeIds, weekSummary, periodStatus, upcomingEvents] = await Promise.all([
-    Promise.all(areaCodes.map(async (code) => ({ review: await getDailyReview(supabase, "SUPER_ADMIN", code, date), area: code }))),
-    getWorkeraSyncHealth(),
-    getScopedEmployeeIds(supabase, areaCodes),
-    getWeekSummary(supabase, null, date),
-    getPeriodStatus(supabase, date),
-    getUpcomingEvents(supabase, null, date),
+  const [reviews, syncHealth, employeeIds, periodStatus] = await Promise.all([
+    Promise.all(areaCodes.map(async (code) => ({ review: await getDailyReview(supabase, "SUPER_ADMIN", code, date, companyId), area: code }))),
+    getWorkeraSyncHealth(companyId ? { companyId } : undefined),
+    getScopedEmployeeIds(supabase, areaCodes, companyId),
+    getPeriodStatus(supabase, date, companyId),
   ]);
 
   const pendingToClose = reviews.reduce((sum, r) => sum + r.review.requiresReview.length, 0);
-  const [kpis, queues] = await Promise.all([computeKpis(supabase, employeeIds, date, pendingToClose), buildPriorityAndReviewQueue(supabase, reviews, date)]);
+  const [kpis, queues, weekSummary, upcomingEvents] = await Promise.all([
+    computeKpis(supabase, employeeIds, date, pendingToClose),
+    buildPriorityAndReviewQueue(supabase, reviews, date),
+    getWeekSummary(supabase, employeeIds, date),
+    getUpcomingEvents(supabase, employeeIds, date),
+  ]);
 
   return {
     kind: "ADMIN",
@@ -499,14 +516,15 @@ export async function getAdminDashboard(supabase: SupabaseClient<Database>, date
 export async function getSupervisorDashboard(
   supabase: SupabaseClient<Database>,
   callerRole: CallerRole,
-  date: string
+  date: string,
+  companyId?: string,
 ): Promise<SupervisorDashboardViewModel> {
   const areaCode = areasVisibleToRole(callerRole)[0];
 
   const [review, employeeIds, periodStatus] = await Promise.all([
-    getDailyReview(supabase, callerRole, areaCode, date),
-    getScopedEmployeeIds(supabase, [areaCode]),
-    getPeriodStatus(supabase, date),
+    getDailyReview(supabase, callerRole, areaCode, date, companyId),
+    getScopedEmployeeIds(supabase, [areaCode], companyId),
+    getPeriodStatus(supabase, date, companyId),
   ]);
 
   const pendingToClose = review.requiresReview.length;
@@ -533,10 +551,11 @@ export async function getSupervisorDashboard(
 export async function getDashboardForRole(
   supabase: SupabaseClient<Database>,
   callerRole: CallerRole,
-  date: string
+  date: string,
+  companyId?: string,
 ): Promise<DashboardViewModel> {
   if (callerRole === "SUPER_ADMIN" || callerRole === "ADMIN_RRHH") {
-    return getAdminDashboard(supabase, date);
+    return getAdminDashboard(supabase, date, companyId);
   }
-  return getSupervisorDashboard(supabase, callerRole, date);
+  return getSupervisorDashboard(supabase, callerRole, date, companyId);
 }

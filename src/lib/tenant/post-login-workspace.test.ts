@@ -37,7 +37,7 @@ test("una identidad con Arcotex y otra empresa recibe selector, no queda anclada
   }), "/empresas");
 });
 
-test("Arcotex único y laboral conserva su dashboard", () => {
+test("una empresa única con workspace laboral conserva su dashboard", () => {
   assert.equal(resolveWorkspaceDestination({
     hasPlatformMembership: false,
     legacyProfileRole: "ADMIN_RRHH",
@@ -46,7 +46,7 @@ test("Arcotex único y laboral conserva su dashboard", () => {
   }), "/dashboard");
 });
 
-test("un tenant no Arcotex nunca recibe el workspace laboral aunque conserve flags legacy", () => {
+test("un tenant no Arcotex recibe el workspace laboral cuando está habilitado", () => {
   const companies = {
     kind: "SINGLE" as const,
     membership: member({ companySlug: "cliente-renombrado", workspaceEnabled: true, legacyRole: "ADMIN_RRHH" }),
@@ -56,7 +56,33 @@ test("un tenant no Arcotex nunca recibe el workspace laboral aunque conserve fla
     legacyProfileRole: "ADMIN_RRHH",
     companies,
     expenseCompanyIds: new Set(),
-  }), "/empresas/cliente-renombrado");
+  }), "/dashboard");
+});
+
+test("el rol laboral de la membresía basta aunque el perfil global no tenga rol legacy", () => {
+  const companies = {
+    kind: "SINGLE" as const,
+    membership: member({ workspaceEnabled: true, legacyRole: "SUPERVISOR_PRODUCTION" }),
+  };
+  assert.equal(resolveWorkspaceDestination({
+    hasPlatformMembership: false,
+    legacyProfileRole: null,
+    companies,
+    expenseCompanyIds: new Set(),
+  }), "/dashboard");
+});
+
+test("una empresa en onboarding no abre el workspace laboral aunque tenga rol y flag", () => {
+  const companies = {
+    kind: "SINGLE" as const,
+    membership: member({ status: "ONBOARDING", workspaceEnabled: true, legacyRole: "ADMIN_RRHH" }),
+  };
+  assert.equal(resolveWorkspaceDestination({
+    hasPlatformMembership: false,
+    legacyProfileRole: "ADMIN_RRHH",
+    companies,
+    expenseCompanyIds: new Set(),
+  }), "/empresas/cliente-uno");
 });
 
 test("tenant único con Rendiciones entra al módulo y sin módulo entra a su portada", () => {

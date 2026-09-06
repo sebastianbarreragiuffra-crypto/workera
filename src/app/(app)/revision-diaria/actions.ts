@@ -15,7 +15,7 @@ import {
 import { markAbsencePendingDocument, confirmAbsenceDocument, disputeAbsence } from "../../../lib/decisions/absence-decisions";
 import { submitAttendanceCorrection } from "../../../lib/decisions/attendance-corrections";
 import { reprocessEmployeeDay } from "../../../lib/rule-engine/service";
-import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../lib/tenant/legacy-workforce";
+import { resolveActiveWorkforceCompany } from "../../../lib/tenant/active-workforce-company";
 import { uploadSupportingDocument, MAX_SUPPORTING_DOCUMENT_SIZE_BYTES, type SupportingDocumentType, type SupportingDocumentRelation } from "../../../lib/decisions/documents";
 import { getDailyReviewBoard, sortPendingCards, findNextPendingEmployeeId } from "../../../lib/view-models/daily-review-view";
 import { assertEmployeeAccessAllowed, type AreaCode, type CallerRole } from "../../../lib/access/scope";
@@ -38,11 +38,13 @@ import { resolvePayrollCompanyRole } from "../../../lib/payroll/payroll-company-
 
 async function requireActiveProfile() {
   const profile = await getCurrentProfile();
-  if (!profile?.role) redirect("/login");
+  if (!profile) redirect("/login");
   const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
   const workforceRole = await resolvePayrollCompanyRole(
     supabase,
-    ARCOTEX_WORKFORCE_COMPANY_ID,
+    workforceCompany.companyId,
     ["ADMIN_RRHH", "SUPER_ADMIN", "SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"],
   );
   if (!workforceRole) redirect("/acceso-pendiente");
@@ -50,7 +52,7 @@ async function requireActiveProfile() {
     redirect("/revision-diaria?error=super-admin-solo-lectura");
   }
   await enforceWorkforceActionRateLimit(supabase, "workforce.review.mutate");
-  return { ...profile, role: workforceRole };
+  return { ...profile, role: workforceRole, companyId: workforceCompany.companyId };
 }
 
 async function goToNextPending(area: AreaCode, date: string, decidedEmployeeId: string, feedback: string): Promise<never> {
@@ -59,16 +61,18 @@ async function goToNextPending(area: AreaCode, date: string, decidedEmployeeId: 
   const profile = await getCurrentProfile();
   const supabase = await createClient();
 
-  if (!profile?.role) redirect(`/revision-diaria?fecha=${date}&area=${area}&filtro=pendientes&hecho=${feedback}`);
+  if (!profile) redirect(`/revision-diaria?fecha=${date}&area=${area}&filtro=pendientes&hecho=${feedback}`);
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
 
   const workforceRole = await resolvePayrollCompanyRole(
     supabase,
-    ARCOTEX_WORKFORCE_COMPANY_ID,
+    workforceCompany.companyId,
     ["ADMIN_RRHH", "SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"],
   );
   if (!workforceRole) redirect("/acceso-pendiente");
 
-  const board = await getDailyReviewBoard(supabase, workforceRole, area, date);
+  const board = await getDailyReviewBoard(supabase, workforceRole, area, date, workforceCompany.companyId);
   const pending = sortPendingCards(board.cards.filter((c) => c.needsReview));
   const nextId = findNextPendingEmployeeId(pending, decidedEmployeeId);
 
@@ -232,7 +236,7 @@ export async function submitAttendanceCorrectionAction(formData: FormData) {
   const reprocessResult = await reprocessEmployeeDay(
     employeeId,
     date,
-    ARCOTEX_WORKFORCE_COMPANY_ID,
+    profile.companyId,
     profile.id,
   );
   if (reprocessResult.failures.length > 0) {

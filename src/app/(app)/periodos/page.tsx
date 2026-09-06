@@ -5,7 +5,7 @@ import { PageHeader } from "../../../components/shell/PageHeader";
 import { getReportingPeriodsBoard } from "../../../lib/periods/reporting-periods";
 import { PeriodsClient } from "./PeriodsClient";
 import { resolvePayrollCompanyRole } from "../../../lib/payroll/payroll-company-role";
-import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../lib/tenant/legacy-workforce";
+import { resolveActiveWorkforceCompany } from "../../../lib/tenant/active-workforce-company";
 
 /**
  * Períodos de pago (MB-7). El ciclo de la empresa es 16-al-15 (confirmado
@@ -15,15 +15,17 @@ import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../lib/tenant/legacy-workfor
  */
 export default async function ReportingPeriodsPage() {
   const profile = await getCurrentProfile();
-  if (!profile?.role) redirect("/login");
+  if (!profile) redirect("/login");
   const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
   const payrollRole = await resolvePayrollCompanyRole(
     supabase,
-    ARCOTEX_WORKFORCE_COMPANY_ID,
+    workforceCompany.companyId,
     ["ADMIN_RRHH", "SUPER_ADMIN"],
   );
   if (!payrollRole) redirect("/dashboard");
-  const board = await getReportingPeriodsBoard(supabase, ARCOTEX_WORKFORCE_COMPANY_ID);
+  const board = await getReportingPeriodsBoard(supabase, workforceCompany.companyId);
 
   return (
     <div className="space-y-4">

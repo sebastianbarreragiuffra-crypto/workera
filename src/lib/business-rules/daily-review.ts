@@ -54,24 +54,28 @@ async function getDailyReviewUncached(
   supabase: SupabaseClient<Database>,
   callerRole: CallerRole,
   groupCode: DailyReviewResult["groupCode"],
-  date: string
+  date: string,
+  companyId?: string,
 ): Promise<DailyReviewResult> {
   assertGroupAccessAllowed(callerRole, groupCode);
 
-  const { data: group, error: groupError } = await supabase
+  let groupQuery = supabase
     .from("employee_groups")
     .select("id")
-    .eq("code", groupCode)
-    .single();
+    .eq("code", groupCode);
+  if (companyId) groupQuery = groupQuery.eq("company_id", companyId);
+  const { data: group, error: groupError } = await groupQuery.single();
   if (groupError || !group) {
     throw new Error(`getDailyReview: fallo resolviendo employee_groups.code=${groupCode}: ${groupError?.message ?? "sin fila"}`);
   }
 
-  const { data: employees, error: employeesError } = await supabase
+  let employeesQuery = supabase
     .from("employees")
     .select("id, display_name")
     .eq("employee_group_id", group.id)
     .eq("active", true);
+  if (companyId) employeesQuery = employeesQuery.eq("company_id", companyId);
+  const { data: employees, error: employeesError } = await employeesQuery;
   if (employeesError) {
     throw new Error(`getDailyReview: fallo listando employees del área: ${employeesError.message}`);
   }

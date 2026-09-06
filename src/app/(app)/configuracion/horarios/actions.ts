@@ -14,7 +14,7 @@ import {
   type WorkScheduleRule,
 } from "../../../../lib/schedules/schedule-administration";
 import { enforceWorkforceActionRateLimit } from "../../../../lib/decisions/workforce-action-rate-limit";
-import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../../lib/tenant/legacy-workforce";
+import { resolveActiveWorkforceCompany } from "../../../../lib/tenant/active-workforce-company";
 import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
 
 /**
@@ -34,18 +34,20 @@ export interface ScheduleActionState {
 
 async function requireScheduleAdmin() {
   const profile = await getCurrentProfile();
-  if (!profile?.role) redirect("/login");
+  if (!profile) redirect("/login");
   const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
   const payrollRole = await resolvePayrollCompanyRole(
     supabase,
-    ARCOTEX_WORKFORCE_COMPANY_ID,
+    workforceCompany.companyId,
     ["ADMIN_RRHH"],
   );
   if (payrollRole !== "ADMIN_RRHH") {
     throw new Error("Solo RR. HH. puede confirmar o cambiar horarios.");
   }
   await enforceWorkforceActionRateLimit(supabase, "workforce.schedules.manage");
-  return profile;
+  return { profile, companyId: workforceCompany.companyId };
 }
 
 function revalidateScheduleViews() {
@@ -117,7 +119,7 @@ export async function assignScheduleToUnassignedAction(
 const VALID_LEGAL_BASIS: LegalBasis[] = ["NO_MARKING_REQUIRED", "ARTICLE_22", "OTHER"];
 
 export async function setExemptionAction(_prev: ScheduleActionState, formData: FormData): Promise<ScheduleActionState> {
-  const profile = await requireScheduleAdmin();
+  const { profile } = await requireScheduleAdmin();
   try {
     const employeeId = readRequired(formData, "employeeId", "El trabajador");
     const effectiveFrom = readDate(formData, "effectiveFrom");
@@ -164,7 +166,7 @@ export async function clearExemptionAction(_prev: ScheduleActionState, formData:
  * es solo la entrada de la UI.
  */
 export async function createScheduleAction(_prev: ScheduleActionState, formData: FormData): Promise<ScheduleActionState> {
-  await requireScheduleAdmin();
+  const { companyId } = await requireScheduleAdmin();
   try {
     const name = readRequired(formData, "name", "El nombre del horario");
     const start = readRequired(formData, "start", "La hora de entrada");
@@ -185,7 +187,7 @@ export async function createScheduleAction(_prev: ScheduleActionState, formData:
 
     const supabase = await createClient();
     await upsertWorkSchedule(supabase, {
-      companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+      companyId,
       scheduleId: null,
       name,
       rules,

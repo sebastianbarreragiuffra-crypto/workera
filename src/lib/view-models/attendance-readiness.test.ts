@@ -16,9 +16,9 @@ import { resolveTargetDate } from "../sync/target-date";
  */
 
 const GROUPS = [
-  { id: "grp-production", code: "PRODUCTION" },
-  { id: "grp-installation", code: "INSTALLATION" },
-  { id: "grp-administration", code: "ADMINISTRATION" },
+  { id: "grp-production", code: "PRODUCTION", company_id: "0a4c0000-0000-0000-0000-000000000001" },
+  { id: "grp-installation", code: "INSTALLATION", company_id: "0a4c0000-0000-0000-0000-000000000001" },
+  { id: "grp-administration", code: "ADMINISTRATION", company_id: "0a4c0000-0000-0000-0000-000000000001" },
 ];
 
 interface Fixture {
@@ -93,7 +93,7 @@ function mockSupabase(fixture: Fixture) {
   return {
     from(table: string) {
       if (table === "employee_groups") return selectBuilder(GROUPS);
-      if (table === "employees") return selectBuilder(fixture.employees ?? []);
+      if (table === "employees") return selectBuilder((fixture.employees ?? []).map((row) => ({ company_id: COMPANY_ID, ...(row as object) })));
       if (table === "late_arrival_records") return selectBuilder(fixture.late_arrival_records ?? []);
       if (table === "early_departure_records") return selectBuilder(fixture.early_departure_records ?? []);
       if (table === "attendance_missing_punch_flags") return selectBuilder(fixture.attendance_missing_punch_flags ?? []);
@@ -216,6 +216,7 @@ test("getAttendanceReadiness: atraso + horas extra + licencia médica pendiente 
     employees: [
       { id: "emp-5", display_name: "Elena Paz", employee_group_id: "grp-production", active: true },
       { id: "emp-6", display_name: "Franco Lima", employee_group_id: "grp-production", active: true },
+      { id: "emp-7", display_name: "Gina Torres", employee_group_id: "grp-production", active: true },
     ],
     late_arrival_records: [{ employee_id: "emp-5", work_date: CUTOFF, is_current: true, attendance_records: { is_current: true }, late_arrival_decisions: [] }],
     overtime_records: [{ employee_id: "emp-6", work_date: CUTOFF, is_current: true, attendance_records: { is_current: true }, overtime_decisions: [] }],

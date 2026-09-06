@@ -13,7 +13,7 @@ import { UpcomingEventsCard } from "../../../components/dashboard/UpcomingEvents
 import { WeekSummaryCard } from "../../../components/dashboard/WeekSummaryCard";
 import { DescargarAsistenciaCard } from "../../../components/dashboard/DescargarAsistenciaCard";
 import { AttendanceReadinessCard } from "../../../components/dashboard/AttendanceReadinessCard";
-import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../lib/tenant/legacy-workforce";
+import { resolveActiveWorkforceCompany } from "../../../lib/tenant/active-workforce-company";
 import { resolvePayrollCompanyRole } from "../../../lib/payroll/payroll-company-role";
 
 const AREA_LABEL: Record<"PRODUCTION" | "INSTALLATION" | "ADMINISTRATION", string> = {
@@ -24,7 +24,7 @@ const AREA_LABEL: Record<"PRODUCTION" | "INSTALLATION" | "ADMINISTRATION", strin
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const profile = await getCurrentProfile();
-  if (!profile?.role) redirect("/login");
+  if (!profile) redirect("/login");
 
   const today = todayInSantiago();
   const params = await searchParams;
@@ -34,9 +34,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // cualquiera puede provocar desde la barra de direcciones.
   const date = requestedDate && isCalendarDate(requestedDate) ? requestedDate : today;
   const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
   const workforceRole = await resolvePayrollCompanyRole(
     supabase,
-    ARCOTEX_WORKFORCE_COMPANY_ID,
+    workforceCompany.companyId,
     ["ADMIN_RRHH", "SUPER_ADMIN", "SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"],
   );
   if (!workforceRole) redirect("/acceso-pendiente");
@@ -45,8 +47,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   let readiness;
   try {
     [dashboard, readiness] = await Promise.all([
-      getDashboardForRole(supabase, workforceRole, date),
-      getAttendanceReadiness(supabase, workforceRole, ARCOTEX_WORKFORCE_COMPANY_ID),
+      getDashboardForRole(supabase, workforceRole, date, workforceCompany.companyId),
+      getAttendanceReadiness(supabase, workforceRole, workforceCompany.companyId),
     ]);
   } catch {
     return <ErrorState retryHref="/dashboard" />;

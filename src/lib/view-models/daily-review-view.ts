@@ -161,9 +161,10 @@ export async function getDailyReviewBoard(
   supabase: SupabaseClient<Database>,
   callerRole: CallerRole,
   areaCode: DailyReviewResult["groupCode"],
-  date: string
+  date: string,
+  companyId?: string,
 ): Promise<DailyReviewBoardViewModel> {
-  const review = await getDailyReview(supabase, callerRole, areaCode, date);
+  const review = await getDailyReview(supabase, callerRole, areaCode, date, companyId);
 
   const allEmployees = [...review.requiresReview, ...review.noIssues];
   const employeeIds = allEmployees.map((e) => e.employeeId);

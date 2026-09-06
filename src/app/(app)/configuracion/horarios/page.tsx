@@ -9,7 +9,7 @@ import { getScheduleAdminBoard } from "../../../../lib/schedules/schedule-admini
 import { ScheduleAdminClient } from "./ScheduleAdminClient";
 import { BulkAssignCard } from "./BulkAssignCard";
 import { CreateScheduleCard } from "./CreateScheduleCard";
-import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../../lib/tenant/legacy-workforce";
+import { resolveActiveWorkforceCompany } from "../../../../lib/tenant/active-workforce-company";
 import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
 
 /**
@@ -24,18 +24,20 @@ import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-compa
  */
 export default async function HorariosPage() {
   const profile = await getCurrentProfile();
-  if (!profile?.role) redirect("/login");
+  if (!profile) redirect("/login");
   const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
   const payrollRole = await resolvePayrollCompanyRole(
     supabase,
-    ARCOTEX_WORKFORCE_COMPANY_ID,
+    workforceCompany.companyId,
     ["ADMIN_RRHH", "SUPER_ADMIN"],
   );
   if (!payrollRole) redirect("/dashboard");
   const canManageSchedules = payrollRole === "ADMIN_RRHH";
 
   const today = todayInSantiago();
-  const board = await getScheduleAdminBoard(supabase, today, ARCOTEX_WORKFORCE_COMPANY_ID);
+  const board = await getScheduleAdminBoard(supabase, today, workforceCompany.companyId);
 
   const coveredCount = board.totalActive - board.unassignedCount - board.exemptCount;
 

@@ -28,7 +28,7 @@ import {
   type PayrollWorkbookConflictResolution,
 } from "../../../../lib/payroll/payroll-workbook-upload";
 import { createClient } from "../../../../lib/supabase/server";
-import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../../lib/tenant/legacy-workforce";
+import { resolveActiveWorkforceCompany } from "../../../../lib/tenant/active-workforce-company";
 import { privateAttachmentHeaders } from "../../../../lib/shared/private-download";
 import {
   authorizeWorkforceDataAccess,
@@ -77,9 +77,9 @@ export function payrollWorkbookPreviewToken(input: {
     .digest("hex");
 }
 
-async function readPayrollSourceRevision(loose: LooseClient): Promise<number> {
+async function readPayrollSourceRevision(loose: LooseClient, companyId: string): Promise<number> {
   const result = await loose.rpc("get_payroll_source_revision", {
-    p_company_id: ARCOTEX_WORKFORCE_COMPANY_ID,
+    p_company_id: companyId,
   });
   const revision = typeof result.data === "number" ? result.data : Number(result.data);
   if (result.error || !Number.isSafeInteger(revision) || revision < 0) {
@@ -154,9 +154,12 @@ export async function POST(request: Request) {
   const profile = await getCurrentProfile();
   if (!profile) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) return NextResponse.json({ error: "Selecciona una empresa laboral activa." }, { status: 403 });
+  const companyId = workforceCompany.companyId;
   const payrollRole = await resolvePayrollCompanyRole(
     supabase as unknown as Parameters<typeof resolvePayrollCompanyRole>[0],
-    ARCOTEX_WORKFORCE_COMPANY_ID,
+    companyId,
     ["ADMIN_RRHH"],
   );
   if (payrollRole !== "ADMIN_RRHH") return NextResponse.json({ error: "Solo RR. HH. puede confirmar una subida." }, { status: 403 });
@@ -212,11 +215,11 @@ export async function POST(request: Request) {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const uploaded = parsePayrollWorkbook(bytes);
     const loose = supabase as unknown as LooseClient;
-    const sourceRevisionBefore = await readPayrollSourceRevision(loose);
+    const sourceRevisionBefore = await readPayrollSourceRevision(loose, companyId);
     const latestScope = loose
       .from(windowType === "MENSUAL" ? "payroll_workbook_versions" : "payroll_working_versions")
       .select("id")
-      .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
+      .eq("company_id", companyId)
       .eq("period_start", period.startDate)
       .eq("period_end", period.endDate);
     const latest = await (windowType === "MENSUAL"
@@ -238,13 +241,13 @@ export async function POST(request: Request) {
         || uploaded.identity.periodEnd !== period.endDate) {
       return NextResponse.json({ error: "El archivo no corresponde al período seleccionado." }, { status: 409 });
     }
-    if ("companyId" in uploaded.identity && uploaded.identity.companyId !== ARCOTEX_WORKFORCE_COMPANY_ID) {
+    if ("companyId" in uploaded.identity && uploaded.identity.companyId !== companyId) {
       return NextResponse.json({ error: "El archivo no corresponde a la empresa activa." }, { status: 409 });
     }
-    const data = await buildAttendanceExportData(supabase, payrollRole, period, ARCOTEX_WORKFORCE_COMPANY_ID);
+    const data = await buildAttendanceExportData(supabase, payrollRole, period, companyId);
     data.workbookBaseVersionId = latestId;
     data.workbookAdjustments = await loadAcceptedPayrollWorkbookAdjustments(supabase, {
-      companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+      companyId,
       windowType,
       periodStart: period.startDate,
       periodEnd: period.endDate,
@@ -260,7 +263,7 @@ export async function POST(request: Request) {
         : rawChanges,
       conflicts,
     };
-    const sourceRevision = await readPayrollSourceRevision(loose);
+    const sourceRevision = await readPayrollSourceRevision(loose, companyId);
     if (sourceRevision !== sourceRevisionBefore) {
       return NextResponse.json({ error: "Los datos de Workera cambiaron durante la comparación. Vuelve a comparar." }, { status: 409 });
     }
@@ -291,12 +294,12 @@ export async function POST(request: Request) {
     // reutilizar las validaciones SQL antiguas. Solo se cruza después de que
     // la sesión real demostró su segundo factor en esta misma petición.
     await assertSecondFactorForPrivileged(supabase);
-    uploadedStoragePath = `${ARCOTEX_WORKFORCE_COMPANY_ID}/${period.startDate}_${period.endDate}/${crypto.randomUUID()}.xlsx`;
+    uploadedStoragePath = `${companyId}/${period.startDate}_${period.endDate}/${crypto.randomUUID()}.xlsx`;
     const upload = await supabase.storage.from("payroll-workbooks").upload(uploadedStoragePath, bytes, { contentType: XLSX_MIME, upsert: false });
     if (upload.error) throw new Error(upload.error.message);
     const accepted = await acceptTrustedPayrollWorkbook({
       actorId: profile.id,
-      companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+      companyId,
       windowType,
       periodStart: period.startDate,
       periodEnd: period.endDate,
@@ -313,13 +316,13 @@ export async function POST(request: Request) {
       .from(windowType === "MENSUAL" ? "payroll_workbook_versions" : "payroll_working_versions")
       .select("storage_path")
       .eq("id", accepted.versionId)
-      .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
+      .eq("company_id", companyId)
       .maybeSingle();
     if (stored.error) throw new Error(stored.error.message);
     if (stored.data?.storage_path !== uploadedStoragePath) {
       try {
         await removeUnregisteredPayrollWorkbook({
-          companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+          companyId,
           periodStart: period.startDate,
           periodEnd: period.endDate,
           storagePath: uploadedStoragePath,
@@ -337,7 +340,7 @@ export async function POST(request: Request) {
     if (uploadedStoragePath && !versionRegistered) {
       try {
         await removeUnregisteredPayrollWorkbook({
-          companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+          companyId,
           periodStart: period.startDate,
           periodEnd: period.endDate,
           storagePath: uploadedStoragePath,
@@ -362,9 +365,12 @@ export async function GET(request: Request) {
   const profile = await getCurrentProfile();
   if (!profile) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) return NextResponse.json({ error: "Selecciona una empresa laboral activa." }, { status: 403 });
+  const companyId = workforceCompany.companyId;
   const payrollRole = await resolvePayrollCompanyRole(
     supabase as unknown as Parameters<typeof resolvePayrollCompanyRole>[0],
-    ARCOTEX_WORKFORCE_COMPANY_ID,
+    companyId,
     ["ADMIN_RRHH", "SUPER_ADMIN"],
   );
   if (!payrollRole) return NextResponse.json({ error: "Sin permiso para descargar esta versión." }, { status: 403 });
@@ -391,7 +397,7 @@ export async function GET(request: Request) {
       .select(windowType === "MENSUAL"
         ? "id, version_number, base_version_id, status, content_sha256, file_size, general_reason, accepted_at, accepted_by, closed_snapshot_at"
         : "id, version_number, base_version_id, content_sha256, file_size, general_reason, accepted_at, accepted_by")
-      .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
+      .eq("company_id", companyId)
       .eq("period_start", period.startDate)
       .eq("period_end", period.endDate);
     const rows = await (windowType === "MENSUAL"
@@ -414,7 +420,7 @@ export async function GET(request: Request) {
       ? "storage_path, file_size, period_start, period_end, content_sha256, window_type"
       : "storage_path, file_size, period_start, period_end, content_sha256, status")
     .eq("id", versionId)
-    .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID);
+    .eq("company_id", companyId);
   const row = await (workingScope
     ? versionQuery
     : versionQuery.in("status", ["ACCEPTED", "CLOSED_SNAPSHOT"]))

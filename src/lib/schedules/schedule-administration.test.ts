@@ -74,8 +74,9 @@ test("el tablero y la creación de horarios exigen el companyId laboral explíci
   );
   assert.match(administration, /\.eq\("employees\.company_id", companyId\)/);
   assert.match(administration, /p_company_id: params\.companyId/);
-  assert.match(actions, /companyId: ARCOTEX_WORKFORCE_COMPANY_ID/);
-  assert.match(page, /getScheduleAdminBoard\(supabase, today, ARCOTEX_WORKFORCE_COMPANY_ID\)/);
+  assert.match(actions, /companyId: workforceCompany\.companyId|companyId,/);
+  assert.match(actions, /resolveActiveWorkforceCompany\(supabase\)/);
+  assert.match(page, /getScheduleAdminBoard\(supabase, today, workforceCompany\.companyId\)/);
 });
 
 test("la migración vuelve tenant-aware e inmutable toda definición que ya fue asignada", () => {

@@ -13,7 +13,7 @@ import { PageHeader } from "../../../components/shell/PageHeader";
 import { FilterBar, type FilterOption } from "../../../components/shell/FilterBar";
 import { SearchInput } from "../../../components/shell/SearchInput";
 import { resolvePayrollCompanyRole } from "../../../lib/payroll/payroll-company-role";
-import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../lib/tenant/legacy-workforce";
+import { resolveActiveWorkforceCompany } from "../../../lib/tenant/active-workforce-company";
 
 const AREA_LABEL: Record<AreaCode, string> = {
   PRODUCTION: "Producción",
@@ -99,7 +99,7 @@ export default async function DailyReviewPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const profile = await getCurrentProfile();
-  if (!profile?.role) redirect("/login");
+  if (!profile) redirect("/login");
 
   const params = await searchParams;
   // `fecha` viene de la URL. Postgres acepta "2026-8-17" sin ceros y la
@@ -108,9 +108,11 @@ export default async function DailyReviewPage({
   // desde la barra de direcciones.
   const date = params.fecha && isCalendarDate(params.fecha) ? params.fecha : todayInSantiago();
   const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
   const workforceRole = await resolvePayrollCompanyRole(
     supabase,
-    ARCOTEX_WORKFORCE_COMPANY_ID,
+    workforceCompany.companyId,
     ["ADMIN_RRHH", "SUPER_ADMIN", "SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"],
   );
   if (!workforceRole) redirect("/acceso-pendiente");
@@ -134,7 +136,7 @@ export default async function DailyReviewPage({
 
   let board;
   try {
-    board = await getDailyReviewBoard(supabase, workforceRole, requestedArea, date);
+    board = await getDailyReviewBoard(supabase, workforceRole, requestedArea, date, workforceCompany.companyId);
   } catch {
     return <ErrorState retryHref={`/revision-diaria?fecha=${date}&area=${requestedArea}`} />;
   }

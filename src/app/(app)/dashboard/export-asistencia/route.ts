@@ -17,7 +17,7 @@ import {
 } from "../../../../lib/decisions/workforce-data-access";
 import { privateAttachmentHeaders } from "../../../../lib/shared/private-download";
 import { isCalendarDate } from "../../../../lib/view-models/date-utils";
-import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../../lib/tenant/legacy-workforce";
+import { resolveActiveWorkforceCompany } from "../../../../lib/tenant/active-workforce-company";
 import { loadAcceptedPayrollWorkbookAdjustments } from "../../../../lib/payroll/payroll-workbook-adjustments";
 import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
 
@@ -103,11 +103,16 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) {
+    return NextResponse.json({ error: "Selecciona una empresa laboral activa." }, { status: 403 });
+  }
+  const companyId = workforceCompany.companyId;
   // El libro contiene RUT y variables financieras: se exige el rol exacto de
-  // la membresía ARCOTEX, nunca solo la etiqueta global de profiles.role.
+  // la empresa activa, nunca solo la etiqueta global de profiles.role.
   const payrollRole = await resolvePayrollCompanyRole(
     supabase as unknown as Parameters<typeof resolvePayrollCompanyRole>[0],
-    ARCOTEX_WORKFORCE_COMPANY_ID,
+    companyId,
     ["ADMIN_RRHH", "SUPER_ADMIN"],
   );
   if (!payrollRole) {
@@ -128,7 +133,7 @@ export async function GET(request: NextRequest) {
     const loose = supabase as unknown as { from(name: string): ClosedPayrollQuery };
     const periodResult = await loose.from("reporting_periods")
       .select("id, status")
-      .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
+      .eq("company_id", companyId)
       .eq("period_start", period.startDate)
       .eq("period_end", period.endDate)
       .maybeSingle();
@@ -138,7 +143,7 @@ export async function GET(request: NextRequest) {
     if (periodResult.data?.status === "CLOSED") {
       const snapshot = await loose.from("payroll_workbook_versions")
         .select("storage_path, content_sha256, file_size")
-        .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
+        .eq("company_id", companyId)
         .eq("reporting_period_id", periodResult.data.id)
         .eq("status", "CLOSED_SNAPSHOT")
         .order("version_number", { ascending: false })
@@ -169,12 +174,12 @@ export async function GET(request: NextRequest) {
 
   let data;
   try {
-    data = await buildAttendanceExportData(supabase, payrollRole, period, ARCOTEX_WORKFORCE_COMPANY_ID);
+    data = await buildAttendanceExportData(supabase, payrollRole, period, companyId);
     const windowType = workbookWindowType(period);
     const latestQuery = (supabase as unknown as { from(name: string): LatestPayrollWorkbookQuery })
       .from(windowType === "MENSUAL" ? "payroll_workbook_versions" : "payroll_working_versions")
       .select("id")
-      .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
+      .eq("company_id", companyId)
       .eq("period_start", period.startDate)
       .eq("period_end", period.endDate);
     const [latest, adjustments] = await Promise.all([
@@ -185,7 +190,7 @@ export async function GET(request: NextRequest) {
         .limit(1)
         .maybeSingle(),
       loadAcceptedPayrollWorkbookAdjustments(supabase, {
-        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        companyId,
         windowType,
         periodStart: period.startDate,
         periodEnd: period.endDate,

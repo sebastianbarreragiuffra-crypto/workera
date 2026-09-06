@@ -13,7 +13,7 @@ import {
 import { enforceWorkforceActionRateLimit } from "../../../lib/decisions/workforce-action-rate-limit";
 import { closePayrollPeriodWithSnapshot } from "../../../lib/payroll/payroll-period-close";
 import { approvePayrollPeriodReady } from "../../../lib/payroll/payroll-period-approval";
-import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../lib/tenant/legacy-workforce";
+import { resolveActiveWorkforceCompany } from "../../../lib/tenant/active-workforce-company";
 import { resolvePayrollCompanyRole } from "../../../lib/payroll/payroll-company-role";
 
 /**
@@ -33,11 +33,13 @@ const VALID_STATUSES: ReportingPeriodStatus[] = ["OPEN", "IN_REVIEW", "READY_TO_
 
 async function requirePeriodAdmin() {
   const profile = await getCurrentProfile();
-  if (!profile?.role) redirect("/login");
+  if (!profile) redirect("/login");
   const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
   const payrollRole = await resolvePayrollCompanyRole(
     supabase,
-    ARCOTEX_WORKFORCE_COMPANY_ID,
+    workforceCompany.companyId,
     ["ADMIN_RRHH"],
   );
   if (payrollRole !== "ADMIN_RRHH") {
@@ -45,7 +47,7 @@ async function requirePeriodAdmin() {
   }
   await assertSecondFactorForPrivileged(supabase);
   await enforceWorkforceActionRateLimit(supabase, "workforce.periods.manage");
-  return { profile, supabase, payrollRole };
+  return { profile, supabase, payrollRole, companyId: workforceCompany.companyId };
 }
 
 function toError(err: unknown, fallback: string): PeriodActionState {
@@ -58,7 +60,7 @@ function revalidate() {
 }
 
 export async function createPeriodAction(_prev: PeriodActionState, formData: FormData): Promise<PeriodActionState> {
-  const { supabase } = await requirePeriodAdmin();
+  const { supabase, companyId } = await requirePeriodAdmin();
   try {
     const periodStart = String(formData.get("periodStart") ?? "").trim();
     const periodEnd = String(formData.get("periodEnd") ?? "").trim();
@@ -67,7 +69,7 @@ export async function createPeriodAction(_prev: PeriodActionState, formData: For
     }
 
     await createReportingPeriod(supabase, {
-      companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+      companyId,
       periodStart,
       periodEnd,
     });
@@ -79,7 +81,7 @@ export async function createPeriodAction(_prev: PeriodActionState, formData: For
 }
 
 export async function transitionPeriodAction(_prev: PeriodActionState, formData: FormData): Promise<PeriodActionState> {
-  const { profile, supabase, payrollRole } = await requirePeriodAdmin();
+  const { profile, supabase, payrollRole, companyId } = await requirePeriodAdmin();
   try {
     const periodId = String(formData.get("periodId") ?? "");
     const from = String(formData.get("from") ?? "") as ReportingPeriodStatus;
@@ -95,7 +97,7 @@ export async function transitionPeriodAction(_prev: PeriodActionState, formData:
         throw new Error("El cierre solo puede iniciarse desde Aprobado por RR. HH.");
       }
       await closePayrollPeriodWithSnapshot(supabase, {
-        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        companyId,
         reportingPeriodId: periodId,
         // requirePeriodAdmin ya redujo la identidad; el RPC vuelve a derivar
         // rol, membresía y MFA desde la sesión antes de confirmar el cierre.
@@ -107,14 +109,14 @@ export async function transitionPeriodAction(_prev: PeriodActionState, formData:
       }
       await approvePayrollPeriodReady(supabase, {
         actorId: profile.id,
-        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        companyId,
         reportingPeriodId: periodId,
         from,
         callerRole: payrollRole,
       });
     } else {
       await transitionReportingPeriod(supabase, {
-        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        companyId,
         periodId,
         from,
         to,
