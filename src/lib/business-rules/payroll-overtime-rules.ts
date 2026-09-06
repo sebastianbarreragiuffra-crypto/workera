@@ -59,7 +59,10 @@ export function evaluatePayrollOvertime(input: PayrollOvertimeInput): PayrollOve
   const cap = sunday ? Number.POSITIVE_INFINITY : input.isHoliday ? 360 : 120;
   const payableMinutes = Math.min(realMinutes, approved, cap);
   if (approved > realMinutes) warnings.push("La aprobación supera las horas reales y fue limitada.");
-  if (realMinutes > cap) warnings.push(`Las horas reales superan el tope pagable de ${cap / 60} hora(s).`);
+  if (realMinutes > cap) {
+    const hours = cap / 60;
+    warnings.push(`Las horas reales superan el tope pagable de ${hours} ${hours === 1 ? "hora" : "horas"}.`);
+  }
   return {
     rate,
     realMinutes,

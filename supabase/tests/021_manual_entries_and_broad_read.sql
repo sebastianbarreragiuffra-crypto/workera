@@ -11,10 +11,10 @@ insert into public.profiles (id, display_name, role) values
   ('35000000-0000-0000-0000-000000000002', 'Fixture Supervisor Prod Manual', 'SUPERVISOR_PRODUCTION'),
   ('35000000-0000-0000-0000-000000000003', 'Fixture Supervisor Install Manual', 'SUPERVISOR_INSTALLATION');
 
-insert into public.employees (external_workera_id, first_name, last_name, display_name, employee_group_id)
+insert into public.employees (external_workera_id, first_name, last_name, display_name, employee_group_id, hire_date)
 values (
   'TEST3-MANUAL-PROD-001', 'Fixture', 'ManualProd', 'Fixture ManualProd',
-  (select id from public.employee_groups where code = 'PRODUCTION')
+  (select id from public.employee_groups where code = 'PRODUCTION'), date '2026-08-01'
 );
 
 -- 1) SUPERVISOR_PRODUCTION registra una licencia manual para un trabajador de

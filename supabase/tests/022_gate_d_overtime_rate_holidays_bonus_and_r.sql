@@ -771,15 +771,10 @@ select is(
 );
 
 -- Corrección bajo 120 antes del cierre -> el bono se retira. ADMIN_RRHH
--- desactiva la decisión de 120 min de 2026-08-17 e inserta una corrección de
--- 60 min -> el bono automático generado antes desaparece.
+-- inserta el reemplazo atómico; el trigger conserva la decisión previa como
+-- historial no vigente y el bono automático desaparece.
 set local role authenticated;
 set local request.jwt.claim.sub = '40000000-0000-0000-0000-000000000001'; -- ADMIN_RRHH
-update public.overtime_decisions set is_current = false
-  where overtime_record_id = (
-    select id from public.overtime_records where employee_id =
-      (select id from public.employees where external_workera_id = 'GATED-PROD-001') and work_date = date '2026-08-17'
-  );
 -- RR. HH. reduce la aprobación a 60 con motivo y conserva 60 rechazados.
 insert into public.overtime_decisions
   (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by, reason)
@@ -798,23 +793,18 @@ select is(
   'bono: corrección bajo 120 min antes del cierre retira el bono ya otorgado'
 );
 
--- Período cerrado -> la corrección/recomputación falla (no muta en silencio).
--- Se usa el día 2026-09-05 (bono ya otorgado, 121 min) dentro de un
--- reporting_period CLOSED.
-set local role authenticated;
-set local request.jwt.claim.sub = '40000000-0000-0000-0000-000000000001'; -- ADMIN_RRHH
-insert into public.reporting_periods (period_start, period_end, status, closed_by, closed_at)
-values (date '2026-09-05', date '2026-09-05', 'CLOSED', '40000000-0000-0000-0000-000000000001', now());
-
+-- Un período CLOSED no se puede fabricar para eludir el protocolo de
+-- aprobación + snapshot; incluso el dueño debe comenzar en OPEN.
 select throws_ok(
-  $$ update public.overtime_decisions set is_current = false
-       where overtime_record_id = (
-         select id from public.overtime_records where employee_id =
-           (select id from public.employees where external_workera_id = 'GATED-PROD-001') and work_date = date '2026-09-05'
-       ) $$,
-  'P0001',
-  null,
-  'bono: recomputación se rechaza (no muta) si el work_date cae en un reporting_period CLOSED'
+  $$ insert into public.reporting_periods
+       (period_start, period_end, status, closed_by, closed_at)
+     values (
+       date '2026-09-05', date '2026-09-05', 'CLOSED',
+       '40000000-0000-0000-0000-000000000001', now()
+     ) $$,
+  '42501',
+  'Un período nuevo debe comenzar OPEN y sin evidencia de cierre o reapertura.',
+  'un período CLOSED solo puede surgir del protocolo de cierre verificado'
 );
 reset role;
 

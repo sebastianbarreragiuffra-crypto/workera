@@ -20,7 +20,8 @@ insert into public.profiles (id, display_name, role) values
 insert into public.employees (external_workera_id, first_name, last_name, display_name, employee_group_id)
 values
   ('GATED2-PROD-001', 'Fixture', 'ProdD2', 'Fixture ProdD2', (select id from public.employee_groups where code = 'PRODUCTION')),
-  ('GATED2-INSTALL-001', 'Fixture', 'InstallD2', 'Fixture InstallD2', (select id from public.employee_groups where code = 'INSTALLATION'));
+  ('GATED2-INSTALL-001', 'Fixture', 'InstallD2', 'Fixture InstallD2', (select id from public.employee_groups where code = 'INSTALLATION')),
+  ('GATED2-R-001', 'Fixture', 'RCodeD2', 'Fixture RCodeD2', (select id from public.employee_groups where code = 'PRODUCTION'));
 
 -- Helper repetido para crear attendance_record + overtime_record candidato,
 -- con marcación COMPLETA (necesaria para que la decisión no quede bloqueada
@@ -101,11 +102,13 @@ select lives_ok(
 );
 
 -- A3: candidato 60 -> intentar aprobar 120 rechazado (excede el candidato real).
+set local role authenticated;
+set local request.jwt.claim.sub = '50000000-0000-0000-0000-000000000001'; -- ADMIN_RRHH reemplaza
 select throws_ok(
   format(
     $$ insert into public.overtime_decisions
-         (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by)
-       values (%L, 120, 0, 'FULLY_APPROVED', %L) $$,
+         (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by, reason)
+       values (%L, 120, 0, 'FULLY_APPROVED', %L, 'Intento de reemplazo para probar el límite real.') $$,
     (select id from public.overtime_records where employee_id =
        (select id from public.employees where external_workera_id = 'GATED2-PROD-001') and work_date = date '2026-10-06'),
     '50000000-0000-0000-0000-000000000001'
@@ -113,6 +116,7 @@ select throws_ok(
   'P0001', null,
   'Matriz: candidato 60 min, aprobar 120 es rechazado porque excede lo real'
 );
+reset role;
 
 -- A4: candidato 90 -> aprobación exacta permitida, sin redondeo.
 insert into public.attendance_records
@@ -424,7 +428,7 @@ select throws_ok(
     :'gated2_selfapprove_record_id',
     '50000000-0000-0000-0000-000000000004'
   ),
-  'P0001', null,
+  '42501', null,
   'Autorización: un trabajador sin rol no puede autoaprobarse horas extra'
 );
 reset role;
@@ -757,10 +761,12 @@ select is(
 );
 
 -- G11: período cerrado bloquea una corrección nueva.
-set local role authenticated;
-set local request.jwt.claim.sub = '50000000-0000-0000-0000-000000000001';
+set local session_replication_role = replica;
 insert into public.reporting_periods (period_start, period_end, status, closed_by, closed_at)
 values (date '2026-10-17', date '2026-10-17', 'CLOSED', '50000000-0000-0000-0000-000000000001', now());
+set local session_replication_role = origin;
+set local role authenticated;
+set local request.jwt.claim.sub = '50000000-0000-0000-0000-000000000001';
 select throws_ok(
   format(
     $$ select public.replace_attendance_correction(
@@ -831,9 +837,6 @@ select is(
 -- ===========================================================================
 -- H. CÓDIGO "R" — UPDATE Y UPSERT, NO SOLO INSERT (3)
 -- ===========================================================================
-insert into public.employees (external_workera_id, first_name, last_name, display_name, employee_group_id)
-values ('GATED2-R-001', 'Fixture', 'RCodeD2', 'Fixture RCodeD2', (select id from public.employee_groups where code = 'PRODUCTION'));
-
 insert into public.attendance_status_records
   (employee_id, work_date, attendance_status_id, source, source_hash, created_by)
 values (

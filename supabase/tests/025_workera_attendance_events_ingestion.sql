@@ -21,19 +21,22 @@ values
   ('91000000-0000-0000-0000-00000000a001', 'S6A-PROD-001', 'Fixture', 'Prod6A', 'Fixture Prod6A',
     (select id from public.employee_groups where code = 'PRODUCTION'));
 
-insert into public.sync_runs (id, status, target_period_start, target_period_end, records_read, records_created)
-values ('91000000-0000-0000-0000-00000000b001', 'SUCCEEDED', current_date, current_date, 1, 1);
-
 -- ---------------------------------------------------------------------------
 -- 1) Persistencia de un evento crudo válido.
 set local role service_role;
 
-insert into public.workera_attendance_events
-  (employee_id, external_employee_code, attendance_timestamp_raw, attendance_type_code,
-   attendance_type_label, attendance_status, external_attendance_status, origin_code, sync_run_id)
-values
-  ('91000000-0000-0000-0000-00000000a001', 'S6A-PROD-001', '2026-08-18T08:01:00', 0,
-   'ENTRADA', 'ACTIVO', 'ACTIVO', 'RELOJ', '91000000-0000-0000-0000-00000000b001');
+select public.begin_workera_sync_run(
+  '0a4c0000-0000-0000-0000-000000000001'::uuid,
+  date '2026-08-18', date '2026-08-18', 'MANUAL', 1, null
+) as workera_sync_run_id \gset
+
+select public.upsert_workera_attendance_event(
+  '0a4c0000-0000-0000-0000-000000000001'::uuid,
+  :'workera_sync_run_id'::uuid,
+  '91000000-0000-0000-0000-00000000a001'::uuid,
+  'S6A-PROD-001', '2026-08-18T08:01:00', 0::smallint,
+  'ENTRADA', 'ACTIVO', 'ACTIVO', null, 'RELOJ', null, null
+);
 
 select is(
   (select count(*)::int from public.workera_attendance_events
@@ -83,36 +86,30 @@ select is(
 );
 
 -- ---------------------------------------------------------------------------
--- 6) Duplicado exacto (mismo fingerprint) sobre una fila is_current=true
---    es rechazado por el índice único parcial — idempotencia garantizada a
---    nivel de BD, no solo de aplicación.
-select throws_ok(
-  $$ insert into public.workera_attendance_events
-       (employee_id, external_employee_code, attendance_timestamp_raw, attendance_type_code,
-        attendance_type_label, attendance_status, external_attendance_status, origin_code, sync_run_id)
-     values
-       ('91000000-0000-0000-0000-00000000a001', 'S6A-PROD-001', '2026-08-18T08:01:00', 0,
-        'ENTRADA', 'ACTIVO', 'ACTIVO', 'RELOJ', '91000000-0000-0000-0000-00000000b001') $$,
-  '23505',
-  null,
-  'un evento con fingerprint idéntico a una fila vigente es rechazado por workera_attendance_events_fingerprint_current_key'
+-- 6) Duplicado exacto (mismo fingerprint y contenido) es idempotente.
+select is(
+  public.upsert_workera_attendance_event(
+    '0a4c0000-0000-0000-0000-000000000001'::uuid,
+    :'workera_sync_run_id'::uuid,
+    '91000000-0000-0000-0000-00000000a001'::uuid,
+    'S6A-PROD-001', '2026-08-18T08:01:00', 0::smallint,
+    'ENTRADA', 'ACTIVO', 'ACTIVO', null, 'RELOJ', null, null
+  ),
+  'UNCHANGED',
+  'un evento idéntico se reconoce como UNCHANGED sin duplicar la fila vigente'
 );
 
 -- ---------------------------------------------------------------------------
 -- 7) Versionado no destructivo: un evento reportado MODIFICADO no
 --    sobrescribe la fila anterior — la anterior pasa a is_current=false y
 --    se inserta una fila nueva con source_version+1.
-update public.workera_attendance_events
-  set is_current = false
-  where external_employee_code = 'S6A-PROD-001' and source_version = 1;
-
-insert into public.workera_attendance_events
-  (employee_id, external_employee_code, attendance_timestamp_raw, attendance_type_code,
-   attendance_type_label, attendance_status, external_attendance_status, origin_code, sync_run_id,
-   source_version)
-values
-  ('91000000-0000-0000-0000-00000000a001', 'S6A-PROD-001', '2026-08-18T08:01:00', 0,
-   'ENTRADA', 'MODIFICADO', 'MODIFICADO', 'RELOJ', '91000000-0000-0000-0000-00000000b001', 2);
+select public.upsert_workera_attendance_event(
+  '0a4c0000-0000-0000-0000-000000000001'::uuid,
+  :'workera_sync_run_id'::uuid,
+  '91000000-0000-0000-0000-00000000a001'::uuid,
+  'S6A-PROD-001', '2026-08-18T08:01:00', 0::smallint,
+  'ENTRADA', 'MODIFICADO', 'MODIFICADO', null, 'RELOJ', null, null
+);
 
 select is(
   (select count(*)::int from public.workera_attendance_events
@@ -138,17 +135,13 @@ select is(
 -- ---------------------------------------------------------------------------
 -- 8) Evento INACTIVO también se preserva (no se borra físicamente) — mismo
 --    patrón de versionado, no un caso especial.
-update public.workera_attendance_events
-  set is_current = false
-  where external_employee_code = 'S6A-PROD-001' and source_version = 2;
-
-insert into public.workera_attendance_events
-  (employee_id, external_employee_code, attendance_timestamp_raw, attendance_type_code,
-   attendance_type_label, attendance_status, external_attendance_status, origin_code, sync_run_id,
-   source_version)
-values
-  ('91000000-0000-0000-0000-00000000a001', 'S6A-PROD-001', '2026-08-18T08:01:00', 0,
-   'ENTRADA', 'INACTIVO', 'INACTIVO', 'RELOJ', '91000000-0000-0000-0000-00000000b001', 3);
+select public.upsert_workera_attendance_event(
+  '0a4c0000-0000-0000-0000-000000000001'::uuid,
+  :'workera_sync_run_id'::uuid,
+  '91000000-0000-0000-0000-00000000a001'::uuid,
+  'S6A-PROD-001', '2026-08-18T08:01:00', 0::smallint,
+  'ENTRADA', 'INACTIVO', 'INACTIVO', null, 'RELOJ', null, null
+);
 
 select is(
   (select count(*)::int from public.workera_attendance_events
@@ -160,12 +153,16 @@ select is(
 -- ---------------------------------------------------------------------------
 -- 9) attendance_type_code fuera de rango (0-5) es rechazado.
 select throws_ok(
-  $$ insert into public.workera_attendance_events
-       (employee_id, external_employee_code, attendance_timestamp_raw, attendance_type_code,
-        attendance_type_label, attendance_status, external_attendance_status, sync_run_id)
-     values
-       ('91000000-0000-0000-0000-00000000a001', 'S6A-PROD-001', '2026-08-18T09:00:00', 9,
-        'DESCONOCIDO', 'ACTIVO', 'ACTIVO', '91000000-0000-0000-0000-00000000b001') $$,
+  format(
+    $$ select public.upsert_workera_attendance_event(
+         '0a4c0000-0000-0000-0000-000000000001'::uuid,
+         %L::uuid,
+         '91000000-0000-0000-0000-00000000a001'::uuid,
+         'S6A-PROD-001', '2026-08-18T09:00:00', 9::smallint,
+         'DESCONOCIDO', 'ACTIVO', 'ACTIVO', null, null, null, null
+       ) $$,
+    :'workera_sync_run_id'
+  ),
   '23514',
   null,
   'attendance_type_code fuera del rango 0-5 es rechazado por workera_attendance_events_type_range_chk'
@@ -225,9 +222,7 @@ select throws_ok(
 );
 
 -- ---------------------------------------------------------------------------
--- 11) Ni siquiera service_role (bypassa RLS) puede tocar una columna
---     inmutable distinta de is_current — el trigger enforce_immutable_columns
---     aplica independientemente de RLS.
+-- 11) Ni siquiera service_role puede tocar directamente el origen.
 reset role;
 set local role service_role;
 
@@ -235,19 +230,21 @@ select throws_ok(
   $$ update public.workera_attendance_events
        set attendance_status = 'HACKEADO'
        where external_employee_code = 'S6A-PROD-001' and is_current = true $$,
-  'P0001',
+  '42501',
   null,
-  'ni siquiera service_role puede modificar columnas inmutables de un evento crudo (solo is_current puede cambiar)'
+  'service_role no tiene UPDATE directo sobre eventos crudos'
 );
 
 -- ---------------------------------------------------------------------------
--- 12) service_role SÍ puede modificar la única columna mutable (is_current)
---     — es el mecanismo de versionado, no un agujero de seguridad.
-select lives_ok(
-  $$ update public.workera_attendance_events
-       set is_current = is_current
-       where external_employee_code = 'S6A-PROD-001' and is_current = true $$,
-  'service_role puede escribir is_current (única columna mutable, mecanismo de versionado)'
+-- 12) El versionado solo queda expuesto por el RPC, no por UPDATE directo.
+select ok(
+  not has_table_privilege('service_role', 'public.workera_attendance_events', 'UPDATE')
+  and has_function_privilege(
+    'service_role',
+    'public.upsert_workera_attendance_event(uuid,uuid,uuid,text,text,smallint,text,text,text,text,text,text,text)',
+    'EXECUTE'
+  ),
+  'service_role versiona eventos exclusivamente mediante el RPC validado'
 );
 
 -- ---------------------------------------------------------------------------
@@ -319,30 +316,47 @@ select has_column('public', 'sync_runs', 'records_unchanged',
 
 set local role service_role;
 select throws_ok(
-  $$ update public.sync_runs set records_unchanged = -1 where id = '91000000-0000-0000-0000-00000000b001' $$,
-  '23514',
+  format(
+    $$ select public.finish_workera_sync_run(
+         '0a4c0000-0000-0000-0000-000000000001'::uuid,
+         %L::uuid, 'SUCCEEDED', 1, 1, 0, -1, null, null
+       ) $$,
+    :'workera_sync_run_id'
+  ),
+  '22023',
   null,
-  'records_unchanged no admite valores negativos (sync_runs_unchanged_chk)'
+  'finish_workera_sync_run no admite records_unchanged negativos'
 );
 
 -- ---------------------------------------------------------------------------
 -- 18) metadata de sync_run exitoso: status SUCCEEDED con conteos coherentes
 --     es una fila válida (camino feliz).
-select lives_ok(
-  $$ update public.sync_runs
-       set status = 'SUCCEEDED', finished_at = now(), records_read = 1, records_created = 1
-       where id = '91000000-0000-0000-0000-00000000b001' $$,
+select is(
+  public.finish_workera_sync_run(
+    '0a4c0000-0000-0000-0000-000000000001'::uuid,
+    :'workera_sync_run_id'::uuid, 'SUCCEEDED', 4, 1, 2, 1, null, null
+  ),
+  true,
   'sync_runs acepta metadata de un sync exitoso (status SUCCEEDED, conteos coherentes)'
 );
 
 -- ---------------------------------------------------------------------------
 -- 19) metadata de sync_run fallido: status FAILED con error_summary poblado
 --     es una fila válida (camino de error, no debe requerir workarounds).
-select lives_ok(
-  $$ update public.sync_runs
-       set status = 'FAILED', finished_at = now(),
-           error_summary = jsonb_build_object('reason', 'WORKERA_TIMEOUT_ERROR')
-       where id = '91000000-0000-0000-0000-00000000b001' $$,
+select public.begin_workera_sync_run(
+  '0a4c0000-0000-0000-0000-000000000001'::uuid,
+  date '2026-08-19', date '2026-08-19', 'MANUAL', 2,
+  :'workera_sync_run_id'::uuid
+) as failed_sync_run_id \gset
+
+select is(
+  public.finish_workera_sync_run(
+    '0a4c0000-0000-0000-0000-000000000001'::uuid,
+    :'failed_sync_run_id'::uuid, 'FAILED', 0, 0, 0, 0,
+    jsonb_build_object('reason', 'WORKERA_TIMEOUT'),
+    'WORKERA_TIMEOUT'
+  ),
+  true,
   'sync_runs acepta metadata de un sync fallido (status FAILED, error_summary poblado)'
 );
 

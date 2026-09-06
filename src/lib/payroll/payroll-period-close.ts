@@ -172,7 +172,7 @@ function closeBlocked(readiness: AttendanceExportCloseReadiness): PayrollPeriodC
   const visibleIssues = readiness.issues.slice(0, 5);
   const detail = visibleIssues.length > 0 ? ` ${visibleIssues.join(" | ")}` : "";
   return new PayrollPeriodCloseBlockedError(
-    `El período no se puede cerrar: quedan ${readiness.pendingCount} incidencia(s) o alertas por resolver.${detail}`,
+    `El período no se puede cerrar: ${readiness.pendingCount === 1 ? "queda" : "quedan"} ${readiness.pendingCount} ${readiness.pendingCount === 1 ? "incidencia o alerta por resolver" : "incidencias o alertas por resolver"}.${detail}`,
     readiness.pendingCount,
     readiness.issues
   );

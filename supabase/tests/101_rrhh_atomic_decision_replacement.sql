@@ -20,48 +20,48 @@ select ok(not has_function_privilege(
 
 select trigger_is(
   'public', 'overtime_decisions', 'overtime_decisions_prepare_rrhh_replacement',
-  'prepare_rrhh_labor_decision_replacement',
+  'public', 'prepare_rrhh_labor_decision_replacement',
   'horas extra preparan reemplazo atómico'
 );
 select trigger_is(
   'public', 'late_arrival_decisions', 'late_arrival_decisions_prepare_rrhh_replacement',
-  'prepare_rrhh_labor_decision_replacement',
+  'public', 'prepare_rrhh_labor_decision_replacement',
   'atrasos preparan reemplazo atómico'
 );
 select trigger_is(
   'public', 'early_departure_decisions', 'early_departure_decisions_prepare_rrhh_replacement',
-  'prepare_rrhh_labor_decision_replacement',
+  'public', 'prepare_rrhh_labor_decision_replacement',
   'salidas anticipadas preparan reemplazo atómico'
 );
 select trigger_is(
   'public', 'absence_decisions', 'absence_decisions_prepare_rrhh_replacement',
-  'prepare_rrhh_labor_decision_replacement',
+  'public', 'prepare_rrhh_labor_decision_replacement',
   'ausencias preparan reemplazo atómico'
 );
 
-select like(
-  pg_get_functiondef('public.prepare_rrhh_labor_decision_replacement()'::regprocedure),
-  '%for update%',
+select ok(
+  pg_get_functiondef('public.prepare_rrhh_labor_decision_replacement()'::regprocedure)
+    like '%for update%',
   'el reemplazo serializa sobre la decisión vigente'
 );
-select like(
-  pg_get_functiondef('public.prepare_rrhh_labor_decision_replacement()'::regprocedure),
-  '%has_company_app_role%',
+select ok(
+  pg_get_functiondef('public.prepare_rrhh_labor_decision_replacement()'::regprocedure)
+    like '%has_company_app_role%',
   'solo RR. HH. de la empresa del hecho reemplaza'
 );
-select unlike(
-  pg_get_functiondef('public.prepare_rrhh_labor_decision_replacement()'::regprocedure),
-  '%is_admin_rrhh%',
+select ok(
+  pg_get_functiondef('public.prepare_rrhh_labor_decision_replacement()'::regprocedure)
+    not like '%is_admin_rrhh%',
   'el reemplazo no combina el rol global con otra membresía'
 );
-select like(
-  pg_get_functiondef('public.prepare_rrhh_labor_decision_replacement()'::regprocedure),
-  '%btrim(new.reason)%',
+select ok(
+  pg_get_functiondef('public.prepare_rrhh_labor_decision_replacement()'::regprocedure)
+    like '%btrim(new.reason)%',
   'todo reemplazo exige motivo'
 );
-select like(
-  pg_get_functiondef('public.prepare_rrhh_labor_decision_replacement()'::regprocedure),
-  '%set is_current = false%',
+select ok(
+  pg_get_functiondef('public.prepare_rrhh_labor_decision_replacement()'::regprocedure)
+    like '%set is_current = false%',
   'la fila previa se conserva como historial no vigente'
 );
 select ok(

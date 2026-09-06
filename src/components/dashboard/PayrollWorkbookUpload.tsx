@@ -22,6 +22,10 @@ function visibleValue(value: unknown): string {
   return serialized.length > 140 ? `${serialized.slice(0, 137)}…` : serialized;
 }
 
+function changeCountLabel(count: number): string {
+  return `${count} ${count === 1 ? "cambio" : "cambios"}`;
+}
+
 export function PayrollWorkbookUpload({ month, canUpload }: { month: string; canUpload: boolean }) {
   const [file, setFile] = useState<File | null>(null); const [preview, setPreview] = useState<Preview | null>(null);
   const [reason, setReason] = useState(""); const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
@@ -54,7 +58,7 @@ export function PayrollWorkbookUpload({ month, canUpload }: { month: string; can
     }
     const response = await fetch("/dashboard/import-asistencia", { method: "POST", body }); const data = await response.json(); setBusy(false);
     if (!response.ok) { setMessage(data.error ?? "No se pudo procesar el archivo."); return; }
-    if (confirm) { setMessage(`Versión confirmada. Se conservaron ${data.totalChanges} cambio(s).`); setPreview(null); setFile(null); setHistoryNonce((value) => value + 1); }
+    if (confirm) { setMessage(`Versión confirmada. Se conservaron ${changeCountLabel(data.totalChanges)}.`); setPreview(null); setFile(null); setHistoryNonce((value) => value + 1); }
     else {
       setPreview(data);
       setConflictResolutions(Object.fromEntries((data.conflicts ?? []).map((conflict: PreviewConflict) => [
@@ -74,7 +78,7 @@ export function PayrollWorkbookUpload({ month, canUpload }: { month: string; can
       <input className="mt-3 block w-full text-xs" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setPreview(null); }} />
       <button type="button" disabled={!file || busy} onClick={() => submit(false)} className="mt-2 rounded-md border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-50">Comparar cambios</button>
       {preview && <div className="mt-3 rounded-md bg-amber-50 p-3 text-xs text-amber-900">
-      <p>{preview.totalChanges} cambio(s) detectado(s). Revisa hoja, celda y consecuencia antes de confirmar.</p>
+      <p>{changeCountLabel(preview.totalChanges)} {preview.totalChanges === 1 ? "detectado" : "detectados"}. Revisa hoja, celda y consecuencia antes de confirmar.</p>
       <ul className="mt-2 max-h-64 space-y-1 overflow-auto">{preview.changes.map((change, index) => <li key={`${change.sheet}-${change.cell}-${index}`} className="rounded border border-amber-200 bg-white px-2 py-1.5">
         <span className="font-semibold">{change.sheet} {change.cell}</span>: {change.kind} · {change.consequence === "AJUSTE_EMPRESARIAL" ? "ajuste reconocido" : "solo conservar archivo"}
         {(change.employeeName || change.workDate || change.fieldCode) && <span className="mt-0.5 block text-amber-800">{change.employeeName || "Cambio general"}{change.workDate ? ` · ${change.workDate}` : ""}{change.fieldCode ? ` · ${change.fieldCode}` : ""}</span>}

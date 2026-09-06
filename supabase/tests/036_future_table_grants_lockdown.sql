@@ -17,7 +17,7 @@ insert into expected_grants (table_name, privileges) values
   ('attendance_effective_punches', array['SELECT']),
   ('supporting_documents', array['SELECT']),
   ('supporting_documents_metadata', array['SELECT']),
-  ('employee_time_control_policies', array['DELETE', 'INSERT', 'SELECT', 'UPDATE']),
+  ('employee_time_control_policies', array['SELECT']),
   ('early_departure_records', array['SELECT']),
   ('early_departure_decisions', array['INSERT', 'SELECT']),
   ('employee_birthdays', array['DELETE', 'INSERT', 'SELECT', 'UPDATE']),

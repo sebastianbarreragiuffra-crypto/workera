@@ -1363,6 +1363,7 @@ test("libro 2026: período 16-15 abierto y conciliado queda listo para revisión
   assert.doesNotMatch(JSON.stringify(summary), /BORRADOR/);
   assert.equal(summary[5][0], "LISTO PARA REVISIÓN RR. HH.");
   assert.equal(pending[4][9], "Sin bloqueos detectados");
+  assert.doesNotMatch(String(pending[2][0]), /\(s\)/, "el texto visible usa plurales humanos, no abreviaturas técnicas");
 });
 
 test("libro 2026: READY_TO_CLOSE refleja la aprobación explícita de RR. HH.", async () => {

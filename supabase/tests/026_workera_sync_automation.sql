@@ -122,7 +122,9 @@ insert into public.sync_runs (id, status, target_period_start, target_period_end
 values ('93000000-0000-0000-0000-000000000003', 'RUNNING', '2026-08-22', '2026-08-22', now());
 
 select is(
-  (select public.reclaim_stale_workera_sync_runs(900)),
+  (select public.reclaim_stale_workera_sync_runs(
+    '0a4c0000-0000-0000-0000-000000000001'::uuid, 900
+  )),
   1,
   'reclaim_stale_workera_sync_runs reclama exactamente el RUNNING viejo (>900s), no el reciente'
 );
@@ -156,15 +158,15 @@ update public.sync_runs set status = 'SUCCEEDED', finished_at = now()
 -- ---------------------------------------------------------------------------
 -- 7) Grants: reclaim_stale_workera_sync_runs solo ejecutable por service_role.
 select ok(
-  not has_function_privilege('authenticated', 'public.reclaim_stale_workera_sync_runs(integer)', 'EXECUTE'),
+  not has_function_privilege('authenticated', 'public.reclaim_stale_workera_sync_runs(uuid,integer)', 'EXECUTE'),
   'authenticated NO puede ejecutar reclaim_stale_workera_sync_runs'
 );
 select ok(
-  not has_function_privilege('anon', 'public.reclaim_stale_workera_sync_runs(integer)', 'EXECUTE'),
+  not has_function_privilege('anon', 'public.reclaim_stale_workera_sync_runs(uuid,integer)', 'EXECUTE'),
   'anon NO puede ejecutar reclaim_stale_workera_sync_runs'
 );
 select ok(
-  has_function_privilege('service_role', 'public.reclaim_stale_workera_sync_runs(integer)', 'EXECUTE'),
+  has_function_privilege('service_role', 'public.reclaim_stale_workera_sync_runs(uuid,integer)', 'EXECUTE'),
   'service_role SÍ puede ejecutar reclaim_stale_workera_sync_runs'
 );
 

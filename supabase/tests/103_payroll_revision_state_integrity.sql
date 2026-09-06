@@ -204,7 +204,7 @@ select has_function(
 select trigger_is(
   'private', 'payroll_period_close_operations',
   'payroll_close_operation_requires_current_approval',
-  'require_current_payroll_approval_for_close',
+  'private', 'require_current_payroll_approval_for_close',
   'toda operacion de cierre exige aprobacion vigente'
 );
 
@@ -251,19 +251,19 @@ select ok(
 
 select trigger_is(
   'public', 'payroll_workbook_versions', 'payroll_workbook_versions_evidence_immutable',
-  'guard_payroll_workbook_evidence_immutable',
+  'public', 'guard_payroll_workbook_evidence_immutable',
   'versiones aceptadas/cerradas tienen guard universal de inmutabilidad'
 );
 
 select trigger_is(
   'public', 'payroll_workbook_changes', 'payroll_workbook_changes_evidence_immutable',
-  'guard_payroll_workbook_evidence_immutable',
+  'public', 'guard_payroll_workbook_evidence_immutable',
   'cambios de una version tienen guard universal de inmutabilidad'
 );
 
 select trigger_is(
   'public', 'payroll_workbook_conflicts', 'payroll_workbook_conflicts_evidence_immutable',
-  'guard_payroll_workbook_evidence_immutable',
+  'public', 'guard_payroll_workbook_evidence_immutable',
   'historia de conflictos tiene guard universal de inmutabilidad'
 );
 
@@ -274,7 +274,7 @@ select has_function(
 
 select trigger_is(
   'public', 'employees', 'employees_prevent_demo_cleanup_while_closed',
-  'prevent_arcotex_demo_cleanup_while_closed',
+  'private', 'prevent_arcotex_demo_cleanup_while_closed',
   'la limpieza demo revierte antes de eliminar empleados de un periodo cerrado'
 );
 
@@ -372,7 +372,7 @@ insert into public.employee_groups (
   id, company_id, code, name
 ) values (
   '0a4c0000-0000-0000-0000-000000000198'::uuid,
-  '0a4c0000-0000-0000-0000-000000000099'::uuid,
+  '0a4c0000-0000-0000-0000-000000000001'::uuid,
   'TENANT_HISTORY_099', 'Grupo histórico de prueba'
 );
 
@@ -381,7 +381,7 @@ insert into public.employees (
   employee_group_id, hire_date, created_at
 ) values (
   '0a4c0000-0000-0000-0000-000000000199'::uuid,
-  '0a4c0000-0000-0000-0000-000000000099'::uuid,
+  '0a4c0000-0000-0000-0000-000000000001'::uuid,
   'history-post-migration-099', 'Persona', 'Ficticia', 'Persona Ficticia',
   '0a4c0000-0000-0000-0000-000000000198'::uuid,
   current_date - 5, clock_timestamp()
@@ -539,7 +539,7 @@ select is(
 select trigger_is(
   'public', 'attendance_missing_punch_flags',
   'attendance_missing_punch_flags_identity_immutable',
-  'enforce_immutable_columns',
+  'public', 'enforce_immutable_columns',
   'una alerta no puede cambiar de hecho, trabajador, fecha ni tipo'
 );
 
@@ -639,7 +639,7 @@ select has_function(
 
 select trigger_is(
   'public', 'employees', 'employees_company_is_immutable',
-  'prevent_employee_company_reassignment',
+  'private', 'prevent_employee_company_reassignment',
   'company_id del trabajador es inmutable después del alta'
 );
 
@@ -776,7 +776,7 @@ select ok(
 
 select trigger_is(
   'public', 'employee_group_assignments', 'employee_group_assignments_tenant_guard',
-  'assert_employee_group_assignment_tenant',
+  'private', 'assert_employee_group_assignment_tenant',
   'el historial de grupos impide referencias cruzadas entre tenants'
 );
 
@@ -814,9 +814,9 @@ select is(
 );
 
 select ok(
-  pg_get_functiondef(
+  lower(pg_get_functiondef(
     'public.upsert_workera_attendance_event(uuid,uuid,uuid,text,text,smallint,text,text,text,text,text,text,text)'::regprocedure
-  ) like '%timestamp crudo Workera invalido o con zona horaria%'
+  )) like '%timestamp crudo workera invalido o con zona horaria%'
   and pg_get_functiondef(
     'public.upsert_workera_attendance_event(uuid,uuid,uuid,text,text,smallint,text,text,text,text,text,text,text)'::regprocedure
   ) like '%YYYY-MM-DD"T"HH24:MI:SS%'

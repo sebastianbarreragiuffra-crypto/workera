@@ -384,15 +384,14 @@ select ok(
   'reabrir exige actor, instante y motivo sin alterar la evidencia histórica del cierre'
 );
 select ok(
-  (select p.cmd = 'DELETE'
-      and lower(p.qual::text) like '%owner_id = (auth.uid())::text%'
-      and lower(p.qual::text) like '%payroll_workbook_versions%'
-      and lower(p.qual::text) like '%payroll_period_close_operations%status = ''prepared''%'
-   from pg_catalog.pg_policies p
-   where p.schemaname = 'storage'
-     and p.tablename = 'objects'
-     and p.policyname = 'payroll_workbooks_storage_delete_orphan_owner'),
-  'cleanup solo borra un objeto propio, huérfano y sin reserva vigente'
+  not exists (
+    select 1
+    from pg_catalog.pg_policies p
+    where p.schemaname = 'storage'
+      and p.tablename = 'objects'
+      and p.policyname = 'payroll_workbooks_storage_delete_orphan_owner'
+  ),
+  'authenticated no puede sustituir un XLSX huérfano entre hash y commit'
 );
 select ok(
   (select not i.indisunique

@@ -1374,12 +1374,12 @@ function summarizeWorker(worker: AttendanceExportWorker, data: AttendanceExportD
   if (worker.exemptDates.size > 0) informationNotes.push("Exento de marcación durante el período indicado");
   if (worker.scheduleConfirmationPending) reviewNotes.push("Jornada distinta de 17:00 pendiente de confirmación de RR. HH.");
   if (!worker.currentlyActive) reviewNotes.push("Persona inactiva: revisar fecha de salida");
-  if (missingScheduleDays > 0) reviewNotes.push(`Sin horario vigente: ${missingScheduleDays} día(s)`);
-  if (missingStatuses > 0) reviewNotes.push(`Marcación/estado pendiente: ${missingStatuses} día(s)`);
+  if (missingScheduleDays > 0) reviewNotes.push(`Sin horario vigente: ${countedLabel(missingScheduleDays, "día", "días")}`);
+  if (missingStatuses > 0) reviewNotes.push(`Marcación/estado pendiente: ${countedLabel(missingStatuses, "día", "días")}`);
   if (pendingMissingPunch > 0) reviewNotes.push(`Marcaciones incompletas por resolver: ${pendingMissingPunch}`);
-  if (pendingAbsenceDays > 0) reviewNotes.push(`Ausencias/licencias por resolver: ${pendingAbsenceDays} día(s)`);
-  if (pendingStatusPolicyDays > 0) reviewNotes.push(`Códigos sin efecto de nómina definido: ${pendingStatusPolicyDays} día(s)`);
-  if (preHireFactDays > 0) reviewNotes.push(`Hechos anteriores al ingreso: ${preHireFactDays} día(s)`);
+  if (pendingAbsenceDays > 0) reviewNotes.push(`Ausencias/licencias por resolver: ${countedLabel(pendingAbsenceDays, "día", "días")}`);
+  if (pendingStatusPolicyDays > 0) reviewNotes.push(`Códigos sin efecto de nómina definido: ${countedLabel(pendingStatusPolicyDays, "día", "días")}`);
+  if (preHireFactDays > 0) reviewNotes.push(`Hechos anteriores al ingreso: ${countedLabel(preHireFactDays, "día", "días")}`);
   if (pendingLate > 0) reviewNotes.push(`Atrasos por decidir: ${pendingLate}`);
   if (pendingEarlyDeparture > 0) reviewNotes.push(`Salidas anticipadas por decidir: ${pendingEarlyDeparture}`);
   if (pendingOvertime > 0) reviewNotes.push(`Horas extra por decidir: ${pendingOvertime}`);
@@ -1412,20 +1412,24 @@ function exportStatusLabel(data: AttendanceExportData, pendingItems: PendingExpo
   const pendingTotal = pendingItems.length;
   const engineProblemDates = ruleEngineProblemDatesAffectingPayroll(data);
   const engineNote = engineProblemDates.length > 0
-    ? `; procesamiento incompleto en ${engineProblemDates.length} fecha(s)`
+    ? `; procesamiento incompleto en ${countedLabel(engineProblemDates.length, "fecha", "fechas")}`
     : "";
   if (data.period.type === "PAGO" && data.reportingPeriodStatus !== "CLOSED") {
-    return `REVISAR — el período 16-15 no está cerrado${engineNote}${pendingWorkers > 0 ? ` y ${pendingWorkers} persona(s) requieren revisión` : ""}`;
+    return `REVISAR — el período 16-15 no está cerrado${engineNote}${pendingWorkers > 0 ? ` y ${countedLabel(pendingWorkers, "persona", "personas")} requieren revisión` : ""}`;
   }
   if (engineProblemDates.length > 0) {
-    return `REVISAR — procesamiento incompleto en ${engineProblemDates.length} fecha(s)${pendingWorkers > 0 ? ` y ${pendingWorkers} persona(s) con pendientes propios` : ""}`;
+    return `REVISAR — procesamiento incompleto en ${countedLabel(engineProblemDates.length, "fecha", "fechas")}${pendingWorkers > 0 ? ` y ${countedLabel(pendingWorkers, "persona", "personas")} con pendientes propios` : ""}`;
   }
   if (pendingTotal > 0) {
-    return `REVISAR — ${pendingTotal} incidencia(s)${pendingWorkers > 0 ? ` en ${pendingWorkers} persona(s)` : " global(es)"}`;
+    return `REVISAR — ${countedLabel(pendingTotal, "incidencia", "incidencias")}${pendingWorkers > 0 ? ` en ${countedLabel(pendingWorkers, "persona", "personas")}` : pendingTotal === 1 ? " global" : " globales"}`;
   }
   return data.period.type === "PAGO"
     ? "CONTROL — período cerrado, sin pendientes detectados"
     : "VISTA DE CONTROL — sin pendientes detectados";
+}
+
+function countedLabel(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function scheduleText(worker: AttendanceExportWorker, data: AttendanceExportData): string {
@@ -1716,7 +1720,7 @@ function buildPendingExportRows(data: AttendanceExportData): PendingExportRow[] 
         seen.add(value);
       }
       if (duplicates.size > 0) {
-        global("", `${label} duplicado en ${duplicates.size} valor(es)`, `Corregir la unicidad de ${label.toLowerCase()} antes de liquidar.`);
+        global("", `${label} duplicado en ${countedLabel(duplicates.size, "valor", "valores")}`, `Corregir la unicidad de ${label.toLowerCase()} antes de liquidar.`);
       }
     }
   }
@@ -1959,7 +1963,7 @@ export function getAttendanceExportCloseReadiness(
       .join(" · ")
   );
   if (pending.length > issues.length) {
-    issues.push(`… y ${pending.length - issues.length} incidencia(s) adicional(es).`);
+    issues.push(`… y ${countedLabel(pending.length - issues.length, "incidencia adicional", "incidencias adicionales")}.`);
   }
   if (data.period.type !== "PAGO") issues.unshift("El cierre final exige un período de pago 16-15.");
   if (data.reportingPeriodStatus !== "READY_TO_CLOSE") {
@@ -2319,8 +2323,8 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
     ["CONTROL DE PENDIENTES DE PRE-CIERRE"],
     [periodScopeLabel],
     [pendingItems.length > 0
-      ? `${pendingItems.length} incidencia(s) pendiente(s). Deben resolverse en GESTORA y luego regenerar el libro. Se incluyen también ${controlItems.length - pendingItems.length} incidencia(s) resuelta(s) como auditoría.`
-      : `Sin bloqueos detectados por las reglas configuradas. ${controlItems.length} incidencia(s) resuelta(s) permanecen como auditoría. Esto no sustituye el cierre del período ni el snapshot histórico.`],
+      ? `${countedLabel(pendingItems.length, "incidencia pendiente", "incidencias pendientes")}. Deben resolverse en GESTORA y luego regenerar el libro. Se incluyen también ${countedLabel(controlItems.length - pendingItems.length, "incidencia resuelta", "incidencias resueltas")} como auditoría.`
+      : `Sin bloqueos detectados por las reglas configuradas. ${countedLabel(controlItems.length, "incidencia resuelta", "incidencias resueltas")} ${controlItems.length === 1 ? "permanece" : "permanecen"} como auditoría. Esto no sustituye el cierre del período ni el snapshot histórico.`],
     [...PENDING_HEADERS_2026],
   ];
   if (controlItems.length === 0) {

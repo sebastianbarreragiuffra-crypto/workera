@@ -84,7 +84,7 @@ function asPeriod(row: Record<string, unknown> | null): ApprovalPeriodRow | null
 function approvalBlocked(readiness: AttendanceExportCloseReadiness): PayrollPeriodApprovalBlockedError {
   const detail = readiness.issues.slice(0, 5).join(" | ");
   return new PayrollPeriodApprovalBlockedError(
-    `No se puede aprobar: quedan ${readiness.pendingCount} incidencia(s) o alertas por resolver.${detail ? ` ${detail}` : ""}`,
+    `No se puede aprobar: ${readiness.pendingCount === 1 ? "queda" : "quedan"} ${readiness.pendingCount} ${readiness.pendingCount === 1 ? "incidencia o alerta por resolver" : "incidencias o alertas por resolver"}.${detail ? ` ${detail}` : ""}`,
     readiness.pendingCount,
     readiness.issues,
   );

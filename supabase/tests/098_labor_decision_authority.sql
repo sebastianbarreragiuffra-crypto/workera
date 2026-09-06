@@ -13,24 +13,24 @@ select has_function(
   'existe autoridad laboral segura para rangos de ausencia'
 );
 
-select unlike(
-  pg_get_functiondef('public.can_manage_employee(uuid)'::regprocedure),
-  '%is_privileged_admin%',
+select ok(
+  pg_get_functiondef('public.can_manage_employee(uuid)'::regprocedure)
+    not like '%is_privileged_admin%',
   'can_manage_employee no concede mutaciones laborales a SUPER_ADMIN'
 );
-select like(
-  pg_get_functiondef('public.can_manage_employee_on_date(uuid,date)'::regprocedure),
-  '%has_company_app_role%',
+select ok(
+  pg_get_functiondef('public.can_manage_employee_on_date(uuid,date)'::regprocedure)
+    like '%has_company_app_role%',
   'ADMIN_RRHH conserva autoridad laboral dentro de la empresa del hecho'
 );
-select like(
-  pg_get_functiondef('public.can_manage_employee_on_date(uuid,date)'::regprocedure),
-  '%employee_group_assignments%',
+select ok(
+  pg_get_functiondef('public.can_manage_employee_on_date(uuid,date)'::regprocedure)
+    like '%employee_group_assignments%',
   'la competencia del supervisor usa el grupo histórico'
 );
-select unlike(
-  pg_get_functiondef('public.can_manage_employee_on_date(uuid,date)'::regprocedure),
-  '%e.employee_group_id%',
+select ok(
+  pg_get_functiondef('public.can_manage_employee_on_date(uuid,date)'::regprocedure)
+    not like '%e.employee_group_id%',
   'la competencia histórica no depende del grupo actual del trabajador'
 );
 
@@ -49,21 +49,21 @@ select ok((select with_check like '%can_manage_employee%'
 select ok((select with_check like '%can_manage_employee_for_date_range%'
   from pg_policies where schemaname='public' and tablename='absence_decisions'
   and policyname='absence_decisions_insert'), 'la decisión de ausencia cubre todo su rango histórico');
-select unlike(
+select ok(
   coalesce((select with_check from pg_policies
     where schemaname='public' and tablename='absence_decisions'
-      and policyname='absence_decisions_insert'), ''),
-  '%can_manage_employee(ar.employee_id)%',
+      and policyname='absence_decisions_insert'), '')
+    not like '%can_manage_employee(ar.employee_id)%',
   'la ausencia no usa el grupo actual del trabajador'
 );
 select ok((select with_check like '%has_company_app_role%'
   from pg_policies where schemaname='public' and tablename='absence_records'
   and policyname='absence_records_insert'), 'la carga no manual exige RR. HH. del tenant exacto');
-select unlike(
+select ok(
   coalesce((select with_check from pg_policies
     where schemaname='public' and tablename='absence_records'
-      and policyname='absence_records_insert'), ''),
-  '%is_admin_rrhh%',
+      and policyname='absence_records_insert'), '')
+    not like '%is_admin_rrhh%',
   'la carga de ausencias no combina un rol global con otro tenant'
 );
 select has_function(
@@ -72,17 +72,17 @@ select has_function(
 );
 select trigger_is(
   'public', 'absence_decisions', 'absence_decisions_prevent_closed_period',
-  'prevent_labor_decision_on_closed_period',
+  'public', 'prevent_labor_decision_on_closed_period',
   'las ausencias respetan el cierre inmutable'
 );
-select like(
-  pg_get_functiondef('public.prevent_labor_decision_on_closed_period()'::regprocedure),
-  '%daterange(v_start_date, v_end_date%',
+select ok(
+  pg_get_functiondef('public.prevent_labor_decision_on_closed_period()'::regprocedure)
+    like '%daterange(v_start_date, v_end_date%',
   'el bloqueo de ausencia evalúa el rango completo'
 );
-select like(
-  pg_get_functiondef('public.prevent_labor_decision_on_closed_period()'::regprocedure),
-  '%rp.status = ''CLOSED''%',
+select ok(
+  pg_get_functiondef('public.prevent_labor_decision_on_closed_period()'::regprocedure)
+    like '%rp.status = ''CLOSED''%',
   'el bloqueo consulta el estado cerrado real'
 );
 select ok(

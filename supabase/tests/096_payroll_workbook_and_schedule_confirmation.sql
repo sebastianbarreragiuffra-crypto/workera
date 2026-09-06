@@ -166,7 +166,7 @@ select ok(
   ) like '%ATTENDANCE_STATUS_CODE%'
   and pg_get_functiondef(
     'public.register_accepted_payroll_workbook(uuid,date,date,uuid,text,integer,text,text,jsonb)'::regprocedure
-  not like '%''R''%Código asistencia%',
+  ) like '%v_change ->> ''next'' not in (''P'',''F'',''F-P'',''F-J'',''P-L'',''P-M'',''V'',''L'',''L-M'',''?'')%',
   'la matriz normaliza trabajador, fecha y código diario, sin permitir R'
 );
 select ok(

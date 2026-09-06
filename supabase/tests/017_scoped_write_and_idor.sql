@@ -9,15 +9,15 @@ insert into public.profiles (id, display_name, role) values
   ('31000000-0000-0000-0000-000000000001', 'Fixture Supervisor Prod', 'SUPERVISOR_PRODUCTION'),
   ('31000000-0000-0000-0000-000000000002', 'Fixture Supervisor Install', 'SUPERVISOR_INSTALLATION');
 
-insert into public.employees (external_workera_id, first_name, last_name, display_name, employee_group_id)
+insert into public.employees (external_workera_id, first_name, last_name, display_name, employee_group_id, hire_date)
 values (
   'TEST3-IDOR-PROD-001', 'Fixture', 'Prod', 'Fixture Prod',
-  (select id from public.employee_groups where code = 'PRODUCTION')
+  (select id from public.employee_groups where code = 'PRODUCTION'), date '2026-08-01'
 );
-insert into public.employees (external_workera_id, first_name, last_name, display_name, employee_group_id)
+insert into public.employees (external_workera_id, first_name, last_name, display_name, employee_group_id, hire_date)
 values (
   'TEST3-IDOR-INSTALL-001', 'Fixture', 'Install', 'Fixture Install',
-  (select id from public.employee_groups where code = 'INSTALLATION')
+  (select id from public.employee_groups where code = 'INSTALLATION'), date '2026-08-01'
 );
 
 insert into public.attendance_records

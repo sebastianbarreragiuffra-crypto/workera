@@ -13,8 +13,26 @@ select has_column('public','payroll_workbook_changes','previous_value','conserva
 select has_column('public','payroll_workbook_changes','new_value','conserva valor nuevo');
 select has_column('public','payroll_workbook_conflicts','workera_value','conserva nuevo origen Workera');
 select has_column('public','payroll_workbook_conflicts','rrhh_value','conserva veredicto RRHH');
-select row_security_active('public','payroll_workbook_versions','versiones protegidas por RLS');
-select row_security_active('public','payroll_workbook_changes','cambios protegidos por RLS');
+select ok(
+  coalesce((
+    select c.relrowsecurity
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'payroll_workbook_versions'
+  ), false),
+  'versiones protegidas por RLS'
+);
+select ok(
+  coalesce((
+    select c.relrowsecurity
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'payroll_workbook_changes'
+  ), false),
+  'cambios protegidos por RLS'
+);
 select has_function('public','accept_payroll_workbook_version',array['uuid','uuid'],'confirmación transaccional e idempotente');
 select * from finish();
 rollback;

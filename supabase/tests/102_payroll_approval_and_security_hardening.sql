@@ -16,7 +16,7 @@ select has_function(
 
 select trigger_is(
   'public', 'reporting_periods', 'reporting_periods_guard_initial_state',
-  'guard_reporting_period_initial_state',
+  'public', 'guard_reporting_period_initial_state',
   'todo INSERT de período pasa por el guard universal'
 );
 
@@ -41,7 +41,7 @@ select throws_ok(
       and period_end = date '2099-03-15'
   $$,
   '42501',
-  'Aprobar una pre-nómina exige una comprobación conciliada y estable.',
+  'La transicion de estado OPEN -> READY_TO_CLOSE no esta permitida.',
   'ni el dueño de migración puede aprobar mediante UPDATE directo'
 );
 
@@ -109,8 +109,10 @@ select ok(
 );
 
 select ok(
-  pg_get_functiondef('private.bump_arcotex_payroll_source_revision()'::regprocedure)
-    like '%PAYROLL_APPROVAL_INVALIDATED_BY_SOURCE_CHANGE%status = ''IN_REVIEW''%',
+  pg_get_functiondef('private.advance_arcotex_payroll_source_revision(uuid)'::regprocedure)
+    like '%PAYROLL_APPROVAL_INVALIDATED_BY_SOURCE_CHANGE%'
+  and pg_get_functiondef('private.advance_arcotex_payroll_source_revision(uuid)'::regprocedure)
+    like '%status = ''IN_REVIEW''%',
   'una fuente modificada invalida la aprobación visible'
 );
 
@@ -128,8 +130,13 @@ select ok(exists (
     and not t.tgisinternal
 ), 'bonus_policies participa en el fence MVCC');
 
-select has_check(
-  'public', 'bonus_policies', 'bonus_policies_payroll_2026_canonical_chk',
+select ok(
+  exists (
+    select 1 from pg_catalog.pg_constraint c
+    where c.conrelid = 'public.bonus_policies'::regclass
+      and c.conname = 'bonus_policies_payroll_2026_canonical_chk'
+      and c.contype = 'c'
+  ),
   'el bono canónico queda fijado por constraint'
 );
 
@@ -215,7 +222,11 @@ select ok(
 
 select ok(
   (select with_check from pg_policies where schemaname='storage' and tablename='objects'
-    and policyname='payroll_workbooks_storage_insert') like '%CASE%has_company_app_role%',
+    and policyname='payroll_workbooks_storage_insert') like '%owner_id = (auth.uid())::text%'
+  and (select with_check from pg_policies where schemaname='storage' and tablename='objects'
+    and policyname='payroll_workbooks_storage_insert') like '%has_company_app_role%'
+  and (select with_check from pg_policies where schemaname='storage' and tablename='objects'
+    and policyname='payroll_workbooks_storage_insert') like '%CASE%',
   'la subida privada valida UUID y rol dentro del mismo tenant'
 );
 
