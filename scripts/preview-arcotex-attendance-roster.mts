@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   computeArcotexAttendanceRosterPreview,
   parseArcotexAttendanceRoster,
+  type ArcotexAuthorizedProvisionalCreate,
   type ArcotexExistingEmployee,
   type ArcotexExplicitResolution,
 } from "../src/lib/employees/arcotex-attendance-roster";
@@ -13,8 +14,9 @@ import { CLAUDIO_BARRERA_PROVISIONAL_CODE } from "../src/lib/employees/local-pro
 const sourcePath = process.argv[2];
 const outputPath = process.argv[3];
 const companyId = process.argv[4];
+const approveUniqueCandidates = process.argv.slice(5).includes("--approve-unique-candidates");
 if (!sourcePath || !outputPath || !companyId) {
-  throw new Error("Uso: preview-arcotex-attendance-roster <origen.xls> <salida.json> <company-id>");
+  throw new Error("Uso: preview-arcotex-attendance-roster <origen.xls> <salida.json> <company-id> [--approve-unique-candidates]");
 }
 if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error("Falta la configuración de staging para una lectura de empleados.");
@@ -84,14 +86,42 @@ for (const spec of explicitSpecs) {
   resolutions.push({ sourceNormalizedName: spec.sourceNormalizedName, employeeId: employee.id, evidence: spec.evidence });
 }
 
-const preview = computeArcotexAttendanceRosterPreview(parsed, employees, resolutions, [
+const provisionalCreates: ArcotexAuthorizedProvisionalCreate[] = [
   {
     sourceNormalizedName: "BARRERA CLAUDIO",
     temporaryCode: CLAUDIO_BARRERA_PROVISIONAL_CODE,
     groupCode: "ADMINISTRATION",
     evidence: "Alta local provisional activa y exención NO_MARKING_REQUIRED autorizadas; RUT pendiente.",
   },
-]);
+];
+
+const preliminaryPreview = computeArcotexAttendanceRosterPreview(parsed, employees, resolutions, provisionalCreates);
+const uniqueCandidateApprovals: ArcotexExplicitResolution[] = [];
+if (approveUniqueCandidates) {
+  for (const row of preliminaryPreview.rows.filter((item) => item.status === "AMBIGUOUS")) {
+    if (row.candidates.length !== 1) {
+      throw new Error(`No se puede aprobar ${row.sourceName}: tiene ${row.candidates.length} candidatos.`);
+    }
+    const candidate = row.candidates[0];
+    uniqueCandidateApprovals.push({
+      sourceNormalizedName: row.normalizedName,
+      employeeId: candidate.employeeId,
+      evidence: `Aprobación del usuario del 2026-09-06: «${row.sourceName}» coincide por todos sus tokens con «${candidate.displayName}» y es la única ficha candidata de Arcotex en GESTORA (Workera ${candidate.externalWorkeraId}).`,
+    });
+  }
+}
+
+const preview = computeArcotexAttendanceRosterPreview(
+  parsed,
+  employees,
+  [...resolutions, ...uniqueCandidateApprovals],
+  provisionalCreates,
+);
+if (approveUniqueCandidates && (uniqueCandidateApprovals.length !== 51 || preview.ambiguousCount !== 0 || preview.missingIdentityCount !== 0)) {
+  throw new Error(
+    `La aprobación masiva no produjo el resultado esperado: aprobadas=${uniqueCandidateApprovals.length}, ambiguas=${preview.ambiguousCount}, sin identidad=${preview.missingIdentityCount}.`,
+  );
+}
 
 const report = {
   generatedAt: new Date().toISOString(),
@@ -102,6 +132,13 @@ const report = {
   stagingEmployeesRead: employees.length,
   parse: parsed,
   resolutionWarnings,
+  approvalSummary: {
+    requested: approveUniqueCandidates,
+    approvedUniqueCandidates: uniqueCandidateApprovals.length,
+    rejectedMultipleCandidates: preliminaryPreview.rows.filter((row) => row.status === "AMBIGUOUS" && row.candidates.length !== 1).length,
+    remainingAmbiguous: preview.ambiguousCount,
+    remainingMissingIdentity: preview.missingIdentityCount,
+  },
   preview,
 };
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -117,5 +154,6 @@ console.log(JSON.stringify({
   missingIdentity: preview.missingIdentityCount,
   okToApply: preview.okToApply,
   resolutionWarnings,
+  approvedUniqueCandidates: uniqueCandidateApprovals.length,
   stagingWritePerformed: false,
 }, null, 2));

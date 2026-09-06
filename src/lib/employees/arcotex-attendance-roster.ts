@@ -312,7 +312,7 @@ export function computeArcotexAttendanceRosterPreview(
 
   const linkedStatuses = new Set<ArcotexRosterMatchStatus>(["LINKED_EXACT_NAME", "LINKED_EXPLICIT"]);
   const blockingReasons = parsed.issues.filter((issue) => issue.blocking).map((issue) => issue.detail);
-  const unresolved = rows.filter((row) => !linkedStatuses.has(row.status));
+  const unresolved = rows.filter((row) => row.status === "AMBIGUOUS" || row.status === "MISSING_IDENTITY");
   if (unresolved.length > 0) blockingReasons.push(`${unresolved.length} personas no tienen una identidad vinculada con evidencia suficiente.`);
 
   return {
@@ -331,9 +331,13 @@ export function approvedArcotexEmployeeIds(preview: ArcotexRosterPreview): Set<s
   if (!preview.okToApply) {
     throw new Error(`El padrón Arcotex no está aprobado: ${preview.blockingReasons.join(" ")}`);
   }
+  const unpersistedRows = preview.rows.filter((row) => !row.matchedEmployee);
+  if (unpersistedRows.length > 0) {
+    throw new Error(
+      `El padrón Arcotex tiene ${unpersistedRows.length} altas autorizadas aún no persistidas; deben crearse y volver a conciliarse antes de exportar.`,
+    );
+  }
   return new Set(
-    preview.rows
-      .filter((row) => row.matchedEmployee)
-      .map((row) => row.matchedEmployee!.employeeId),
+    preview.rows.map((row) => row.matchedEmployee!.employeeId),
   );
 }

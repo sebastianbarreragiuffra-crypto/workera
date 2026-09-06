@@ -119,6 +119,21 @@ test("filtro Arcotex: falla cerrado con pendientes y entrega los 60 nombres auto
   const blocked = computeArcotexAttendanceRosterPreview(parsed, Array.from({ length: 59 }, (_, index) => employee(index + 1)));
   assert.throws(() => approvedArcotexEmployeeIds(blocked), /no está aprobado/);
 
+  const provisional = computeArcotexAttendanceRosterPreview(
+    parsed,
+    Array.from({ length: 59 }, (_, index) => employee(index + 1)),
+    [],
+    [{
+      sourceNormalizedName: personName(60),
+      temporaryCode: "LOCAL-PROVISIONAL:PERSONA-60",
+      groupCode: "ADMINISTRATION",
+      evidence: "Alta local provisional expresamente autorizada.",
+    }],
+  );
+  assert.equal(provisional.okToApply, true);
+  assert.equal(provisional.possibleNewCount, 1);
+  assert.throws(() => approvedArcotexEmployeeIds(provisional), /aún no persistidas/);
+
   const approved = computeArcotexAttendanceRosterPreview(parsed, Array.from({ length: 60 }, (_, index) => employee(index + 1)));
   assert.equal(approved.okToApply, true);
   assert.equal(approvedArcotexEmployeeIds(approved).size, 60);
