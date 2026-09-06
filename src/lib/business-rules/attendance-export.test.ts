@@ -469,6 +469,36 @@ test("buildAttendanceExportData: un SUPERVISOR_PRODUCTION nunca ve empleados de 
   assert.deepEqual(data.workers.map((w) => w.workerName), ["PROD UNO"]);
 });
 
+test("buildAttendanceExportData: el padrón aprobado limita la exportación sin alterar a las demás personas", async () => {
+  const employees = [
+    { id: "emp-approved", display_name: "PERSONA APROBADA", group: "PRODUCTION" },
+    { id: "emp-outside", display_name: "PERSONA FUERA DEL PILOTO", group: "PRODUCTION" },
+  ];
+  const data = await buildAttendanceExportDataForCompany(
+    mockSupabase({ employees }),
+    "ADMIN_RRHH",
+    PERIOD,
+    ARCOTEX_WORKFORCE_COMPANY_ID,
+    { employeeIds: ["emp-approved"] },
+  );
+
+  assert.deepEqual(data.workers.map((worker) => worker.employeeId), ["emp-approved"]);
+  assert.equal(employees.length, 2, "el filtro no elimina ni desactiva filas del padrón fuente");
+});
+
+test("buildAttendanceExportData: falla cerrado si un ID aprobado no pertenece al alcance autorizado", async () => {
+  await assert.rejects(
+    buildAttendanceExportDataForCompany(
+      mockSupabase({ employees: ONE_WORKER }),
+      "ADMIN_RRHH",
+      PERIOD,
+      ARCOTEX_WORKFORCE_COMPANY_ID,
+      { employeeIds: ["emp-1", "emp-no-autorizado"] },
+    ),
+    /no pertenece íntegramente/,
+  );
+});
+
 test("buildAttendanceExportData: solo RRHH y owner reciben identificadores de nómina", async () => {
   const employees = [{ ...ONE_WORKER[0], rut: "11111111-1", external_workera_id: "EXCEL-11111111-1" }];
   const supervisor = await buildAttendanceExportData(mockSupabase({ employees }), "SUPERVISOR_PRODUCTION", PERIOD);

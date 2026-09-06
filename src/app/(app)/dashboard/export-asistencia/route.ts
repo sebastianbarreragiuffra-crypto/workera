@@ -20,6 +20,7 @@ import { isCalendarDate } from "../../../../lib/view-models/date-utils";
 import { resolveActiveWorkforceCompany } from "../../../../lib/tenant/active-workforce-company";
 import { loadAcceptedPayrollWorkbookAdjustments } from "../../../../lib/payroll/payroll-workbook-adjustments";
 import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
+import { requireArcotexPilotEmployeeIds } from "../../../../lib/employees/arcotex-pilot-roster";
 
 /**
  * Descarga del Excel de asistencia, siempre generado en el momento de la
@@ -125,6 +126,15 @@ export async function GET(request: NextRequest) {
   if (access.status !== "ALLOWED") {
     return workforceDataAccessFailureResponse(access)!;
   }
+  let pilotEmployeeIds: readonly string[] | undefined;
+  try {
+    pilotEmployeeIds = workforceCompany.companySlug === "arcotex"
+      ? requireArcotexPilotEmployeeIds(process.env.ARCOTEX_PILOT_EMPLOYEE_IDS)
+      : undefined;
+  } catch (err) {
+    console.error("[attendance-export] configuración inválida del padrón piloto", err instanceof Error ? err.message : "error desconocido");
+    return NextResponse.json({ error: "La configuración del padrón piloto no es válida." }, { status: 503 });
+  }
 
   // Un período CLOSED se descarga desde el snapshot exacto que fue verificado
   // al cerrar. Regenerarlo desde tablas vivas podría producir bytes distintos
@@ -141,6 +151,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "No pudimos comprobar el estado del período." }, { status: 500 });
     }
     if (periodResult.data?.status === "CLOSED") {
+      if (pilotEmployeeIds) {
+        return NextResponse.json(
+          { error: "El snapshot cerrado no acredita el padrón acotado de la marcha blanca." },
+          { status: 409 },
+        );
+      }
       const snapshot = await loose.from("payroll_workbook_versions")
         .select("storage_path, content_sha256, file_size")
         .eq("company_id", companyId)
@@ -174,7 +190,7 @@ export async function GET(request: NextRequest) {
 
   let data;
   try {
-    data = await buildAttendanceExportData(supabase, payrollRole, period, companyId);
+    data = await buildAttendanceExportData(supabase, payrollRole, period, companyId, { employeeIds: pilotEmployeeIds });
     const windowType = workbookWindowType(period);
     const latestQuery = (supabase as unknown as { from(name: string): LatestPayrollWorkbookQuery })
       .from(windowType === "MENSUAL" ? "payroll_workbook_versions" : "payroll_working_versions")

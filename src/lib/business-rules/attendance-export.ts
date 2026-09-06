@@ -480,7 +480,8 @@ export async function buildAttendanceExportData(
   supabase: SupabaseClient<Database>,
   callerRole: CallerRole,
   period: AttendanceExportPeriod,
-  companyId: string
+  companyId: string,
+  options: { employeeIds?: readonly string[] } = {},
 ): Promise<AttendanceExportData> {
   const allowedAreas = areasVisibleToRole(callerRole);
   // El RUT es necesario para conciliación de nómina, pero no para supervisar
@@ -499,6 +500,11 @@ export async function buildAttendanceExportData(
         .order("id")
         .range(from, to) as unknown as PromiseLike<PageResponse<EmployeeRow>>
   );
+
+  const requestedEmployeeIds = options.employeeIds ? new Set(options.employeeIds) : null;
+  if (requestedEmployeeIds && requestedEmployeeIds.size !== options.employeeIds!.length) {
+    throw new Error("buildAttendanceExportData: el padrón solicitado contiene IDs duplicados.");
+  }
 
   const scoped = employees
     .map((row) => ({
@@ -523,8 +529,14 @@ export async function buildAttendanceExportData(
         hireDate: string | null;
         active: boolean;
         area: AreaCode;
-      } => employee.area !== null && (employee.hireDate === null || employee.hireDate <= period.endDate)
+      } => employee.area !== null
+        && (employee.hireDate === null || employee.hireDate <= period.endDate)
+        && (requestedEmployeeIds === null || requestedEmployeeIds.has(employee.id))
     );
+
+  if (requestedEmployeeIds && scoped.length !== requestedEmployeeIds.size) {
+    throw new Error("buildAttendanceExportData: el padrón solicitado no pertenece íntegramente a la empresa y alcance autorizados.");
+  }
 
   const days = calendarDaysBetween(period.startDate, period.endDate);
   // Una falla de calendario no puede convertir silenciosamente un feriado en

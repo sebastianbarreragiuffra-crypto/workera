@@ -35,6 +35,7 @@ Commit base funcional: `d13374f` (`docs: checkpoint workforce tenant selection`)
 - Las consultas agregadas modificadas filtran grupos, trabajadores, períodos, corridas del motor, versiones, ajustes y objetos de Storage por la empresa activa.
 - El menú laboral muestra el nombre de la empresa seleccionada y permite volver al selector.
 - El gate SQL de descarga acepta ahora `DIARIO` únicamente cuando inicio y término son el mismo día; conserva sesión, membresía Arcotex, MFA, cuota y auditoría.
+- Para Arcotex, descarga y reimportación quedan obligatoriamente acotadas al padrón conciliado mediante `ARCOTEX_PILOT_EMPLOYEE_IDS`: el servidor exige exactamente 60 UUID únicos y que todos pertenezcan al tenant/alcance autorizado. Si falta la configuración, la exportación se bloquea; jamás cae al padrón heredado de GESTORA. Las demás filas solo se leen para validar pertenencia y no se modifican. Un snapshot ya cerrado sin atestación de esos 60 se rechaza en vez de filtrarse o regenerarse.
 
 ## Fase 4: recorrido real del Excel completado
 

@@ -51,4 +51,5 @@ test("descarga de pre-nómina: exige rol del tenant y CLOSED usa el snapshot exa
   assert.doesNotMatch(source, /buildAttendanceExportData\(supabase, profile\.role/);
   assert.match(source, /status === "CLOSED"[\s\S]*?CLOSED_SNAPSHOT[\s\S]*?content_sha256/);
   assert.match(source, /createHash\("sha256"\)[\s\S]*?snapshot\.data\.content_sha256/);
+  assert.match(source, /status === "CLOSED"[\s\S]*?if \(pilotEmployeeIds\)[\s\S]*?status: 409/);
 });

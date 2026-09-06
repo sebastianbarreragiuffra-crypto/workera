@@ -40,6 +40,7 @@ import {
   removeUnregisteredPayrollWorkbook,
 } from "../../../../lib/payroll-workbook/service";
 import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
+import { requireArcotexPilotEmployeeIds } from "../../../../lib/employees/arcotex-pilot-roster";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const MAX_REVIEWABLE_CHANGES = 500;
@@ -244,7 +245,10 @@ export async function POST(request: Request) {
     if ("companyId" in uploaded.identity && uploaded.identity.companyId !== companyId) {
       return NextResponse.json({ error: "El archivo no corresponde a la empresa activa." }, { status: 409 });
     }
-    const data = await buildAttendanceExportData(supabase, payrollRole, period, companyId);
+    const pilotEmployeeIds = workforceCompany.companySlug === "arcotex"
+      ? requireArcotexPilotEmployeeIds(process.env.ARCOTEX_PILOT_EMPLOYEE_IDS)
+      : undefined;
+    const data = await buildAttendanceExportData(supabase, payrollRole, period, companyId, { employeeIds: pilotEmployeeIds });
     data.workbookBaseVersionId = latestId;
     data.workbookAdjustments = await loadAcceptedPayrollWorkbookAdjustments(supabase, {
       companyId,
