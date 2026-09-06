@@ -17,8 +17,8 @@ import { normalizeName } from "./name-matching";
  *   1. `employees.external_workera_id` ya existente (coincide con
  *      `roster.code` -- mismo espacio de identificador que
  *      `employee.code` de attendanceData).
- *   2. Un empleado `source='excel_roster'` (bootstrap administrativo, ver
- *      `personnel-roster-import.ts`) SIN vínculo real a Workera todavía,
+ *   2. Un empleado `source='excel_roster'` o `source='local_provisional'`
+ *      (bootstrap administrativo, ver `personnel-roster-import.ts`) SIN vínculo real a Workera todavía,
  *      con nombre completo EXACTO normalizado -- se "promueve" (se le
  *      asigna el `external_workera_id` real y pasa a `source='workera'`,
  *      la fuente de mayor confianza) EN VEZ de crear una fila duplicada.
@@ -30,7 +30,7 @@ import { normalizeName } from "./name-matching";
  *      queda documentado como una decisión de negocio pendiente de
  *      confirmar (ver reporte de la fase de roster bootstrap), no una
  *      limitación técnica que se pueda resolver aquí sin esa decisión.
- *   3. Si el nombre coincide con MÁS DE UN empleado `excel_roster` sin
+ *   3. Si el nombre coincide con MÁS DE UN empleado administrativo sin
  *      vincular -> NUNCA se elige uno al azar. Se crea una fila nueva (para
  *      no perder al empleado real de Workera) y se reporta en
  *      `reconciliationRequired` para revisión manual -- puede que dos
@@ -50,6 +50,8 @@ export interface BootstrapRosterResult {
   totalRosterEmployees: number;
   alreadyExisting: number;
   newlyBootstrapped: number;
+  promotedToWorkera: number;
+  /** @deprecated Usa promotedToWorkera; se conserva para compatibilidad de consumidores anteriores. */
   promotedFromExcelRoster: number;
   reconciliationRequired: RosterReconciliationRequired[];
 }
@@ -77,13 +79,13 @@ export async function bootstrapEmployeesFromRoster(
   }
 
   const existingCodes = new Set((existing ?? []).map((e) => e.external_workera_id));
-  const excelUnlinked = (existing ?? []).filter((e) => e.source === "excel_roster");
+  const unlinkedAdministrativeRows = (existing ?? []).filter((e) => e.source === "excel_roster" || e.source === "local_provisional");
 
   const seenInThisBatch = new Set<string>();
   const toInsert: { external_workera_id: string; first_name: string; last_name: string; display_name: string; source: string }[] = [];
   const reconciliationRequired: RosterReconciliationRequired[] = [];
   let alreadyExisting = 0;
-  let promotedFromExcelRoster = 0;
+  let promotedToWorkera = 0;
 
   for (const entry of roster) {
     if (existingCodes.has(entry.code) || seenInThisBatch.has(entry.code)) {
@@ -95,7 +97,7 @@ export async function bootstrapEmployeesFromRoster(
     const firstName = entry.firstName?.trim() || "(sin nombre Workera)";
     const lastName = entry.lastName?.trim() || "(sin apellido Workera)";
     const candidateName = normalizeName(`${firstName} ${lastName}`);
-    const nameMatches = excelUnlinked.filter((e) => normalizeName(`${e.first_name} ${e.last_name}`) === candidateName);
+    const nameMatches = unlinkedAdministrativeRows.filter((e) => normalizeName(`${e.first_name} ${e.last_name}`) === candidateName);
 
     if (nameMatches.length === 1) {
       const { error: promoteError } = await supabase
@@ -105,7 +107,7 @@ export async function bootstrapEmployeesFromRoster(
       if (promoteError) {
         throw new Error(`bootstrapEmployeesFromRoster: fallo promoviendo empleado ${entry.code}: ${promoteError.message}`);
       }
-      promotedFromExcelRoster += 1;
+      promotedToWorkera += 1;
       continue;
     }
 
@@ -133,7 +135,8 @@ export async function bootstrapEmployeesFromRoster(
     totalRosterEmployees: roster.length,
     alreadyExisting,
     newlyBootstrapped: toInsert.length,
-    promotedFromExcelRoster,
+    promotedToWorkera,
+    promotedFromExcelRoster: promotedToWorkera,
     reconciliationRequired,
   };
 }

@@ -137,6 +137,18 @@ test("bootstrapEmployeesFromRoster: nombre exacto coincide con UN empleado excel
   assert.deepEqual(mock.updated, [{ id: "emp-excel-1", patch: { external_workera_id: "90000300", source: "workera" } }]);
 });
 
+test("bootstrapEmployeesFromRoster: una ficha local_provisional con nombre completo exacto se promueve sobre la misma fila", async () => {
+  const mock = createMockSupabase([{ id: "emp-local-1", external_workera_id: "LOCAL-PROVISIONAL:PERSONA", source: "local_provisional", first_name: "PERSONA", last_name: "CONFIRMADA" }]);
+  const client = fakeWorkeraClient([{ code: "WORKERA-OFICIAL", firstName: "PERSONA", lastName: "CONFIRMADA" }]);
+
+  const result = await bootstrapEmployeesFromRoster(mock as never, client);
+
+  assert.equal(result.promotedFromExcelRoster, 1);
+  assert.equal(result.newlyBootstrapped, 0);
+  assert.equal(mock.inserted.length, 0);
+  assert.deepEqual(mock.updated, [{ id: "emp-local-1", patch: { external_workera_id: "WORKERA-OFICIAL", source: "workera" } }]);
+});
+
 test("bootstrapEmployeesFromRoster: nombre coincide con DOS empleados excel_roster -> nunca elige uno al azar, inserta fila nueva y marca reconciliationRequired", async () => {
   const mock = createMockSupabase([
     { id: "emp-excel-1", external_workera_id: "EXCEL-11111111-1", source: "excel_roster", first_name: "PEDRO", last_name: "GOMEZ" },
