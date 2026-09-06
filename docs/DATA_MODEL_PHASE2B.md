@@ -119,7 +119,7 @@ Documentado, **no implementado**: `storage_path` apuntará a un bucket **privado
 
 `amount bigint` (nunca float) representa pesos CLP directamente (`1000 = $1.000 CLP`) — CLP no tiene subunidades en uso práctico, así que no se introdujo un concepto de "unidades menores" que ningún caso real pide hoy. `currency` fijo a `'CLP'` por ahora (`CHECK`).
 
-**Sembrado:** única regla confirmada — `PRODUCTION` + `trigger_type = APPROVED_OVERTIME_MINUTES_THRESHOLD` + `threshold_minutes = 120` + `amount = 1000` + `currency = CLP`. **`INSTALLATION` NO tiene ninguna política sembrada** — confirmado por test (`011_bonus.sql` caso 6) — porque la regla está `PENDING_BUSINESS_CONFIRMATION` (sección 26 del encargo); ausencia de fila, no un valor inventado.
+**Estado histórico de Fase 2B:** originalmente solo se sembró `PRODUCTION`. La regla final 2026 también cubre `INSTALLATION`: al menos 120 minutos aprobados, HH50 o HH100, generan exactamente $1.000 CLP por trabajador y día.
 
 ---
 
@@ -127,7 +127,7 @@ Documentado, **no implementado**: `storage_path` apuntará a un bucket **privado
 
 `employee_daily_bonuses`: resultado **auditable**, no un flag booleano en `overtime_decisions`. Referencia una `overtime_decision_id` específica e inmutable (Fase 2A) — como esa fila nunca cambia tras insertarse, el bono queda con trazabilidad completa sin necesitar su propia cadena de versiones. `UNIQUE(overtime_decision_id)`: a lo sumo un bono por decisión de horas extra concreta (la elegibilidad es un hecho determinístico de esa decisión + esa política).
 
-**No se generó automáticamente por trigger** (`approved_minutes = 120 → INSERT bonus` es explícitamente responsabilidad de una fase de cálculo futura, sección 48 del encargo). Lo que **sí** se implementó es un trigger de **validación** (`validate_employee_daily_bonus()`) que verifica, antes de aceptar un `INSERT`:
+**Estado histórico de Fase 2B:** aún no se generaba automáticamente. Gate D y las migraciones finales añadieron la recomputación automática, idempotente y versionada desde la decisión vigente; el trigger de validación de esta fase fue la base estructural y verificaba, antes de aceptar un `INSERT`:
 - que `employee_id`/`work_date` coincidan con los de la `overtime_decision` referenciada;
 - que el `employee_group` de la política de bono coincida con el `employee_group` de la `overtime_policy` que originó la decisión de horas extra (mismo contexto de grupo, no solo el grupo *actual* del trabajador — evita inconsistencia si el trabajador cambió de grupo después);
 - que la política esté vigente en `work_date`;
@@ -152,7 +152,7 @@ Un bono aceptado es **completamente inmutable** (trigger `enforce_immutable_colu
 
 ## 17. ReportingPeriod
 
-`reporting_periods`: nivel superior a `WeeklyReview`, para el cierre final (~1 mes, ciclo exacto **sin confirmar**, `P0`). `period_start`/`period_end` son fechas libres — nunca se asume "día 1 a último día del mes calendario". Estados (`reporting_period_status`, enum): `OPEN → IN_REVIEW → READY_TO_CLOSE → CLOSED → REOPENED` — incluye `IN_REVIEW` (a diferencia de `weekly_review_status`) porque un período puede estar activamente en revisión durante varias semanas antes de estar listo para cerrar. `EXCLUDE USING gist` anti-solapamiento, mismo criterio que `weekly_reviews`.
+`reporting_periods`: nivel superior a `WeeklyReview`, para el cierre final. La regla final confirmó el corte inclusivo 16 del mes anterior–15 del mes de remuneración y la aplicación lo valida estrictamente. La tabla conserva fechas explícitas y estados técnicos; sigue pendiente agregar `company_id` y migrar su exclusión global para un aislamiento multiempresa completo.
 
 ---
 
@@ -207,8 +207,8 @@ Conflicto "licencia + marcación" (`L` + `clock_in`/`clock_out`) y "vacaciones +
 | `SYNC_CONFLICT` sin resolver | `BLOCKING` | Documentada (estado `daily_reviews`, Fase 2A) |
 | Documento con metadata inválida | `BLOCKING` (parcial) | **DB-enforced** (`CHECK` de `document_type`/`num_nonnulls`, Fase 2B) — la validez del archivo en sí (tamaño, tipo MIME real) queda para la integración de Storage, fuera de alcance |
 | `period_end < period_start` (`reporting_periods`) | `BLOCKING` | **DB-enforced** (`CHECK`, Fase 2B) |
-| `?` (tarjeta no marcada) | `WARNING`/`NEEDS_REVIEW` | `attendance_statuses.requires_review = true` — señal para la capa de aplicación, no un trigger que fuerce el estado de `daily_reviews` |
-| `R` (recuperan horas) sin regla confirmada | `WARNING` | Documentada — `requires_review = false` a propósito (no se inventa una regla) |
+| `?` (tarjeta no marcada) | `BLOCKING` | La capa final lo resalta, crea pendiente e impide aprobación/cierre mientras no se resuelva |
+| `R` histórico (recuperan horas) | `BLOCKING` | El código está inactivo para nuevas asignaciones; una aparición histórica conserva el origen, no compensa tiempo ni genera pago y exige resolución de RR. HH. |
 | Entrada manual posteriormente encontrada en Workera | `WARNING` | Resuelto estructuralmente por versionado (sección 22), la decisión de cuál prevalece es de la aplicación |
 
 No se implementaron todas como triggers — se diferenció explícitamente integridad estructural (lo que rompería la base si no se impide) de lógica operacional/de negocio (lo que pertenece a una fase de cálculo o revisión futura), siguiendo el criterio explícito del encargo.

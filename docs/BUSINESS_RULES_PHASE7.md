@@ -61,7 +61,7 @@ Mecanismo (ya implementado y probado, listo para cuando se puedan resolver): `em
 
 ## 7. Separación por área
 
-`can_manage_employee()` (Fase 3/5D, sin cambios) ya scopea PRODUCTION/INSTALLATION por rol; ADMINISTRATION queda reservada a `is_privileged_admin()`. Las tablas nuevas de Fase 7 (`early_departure_decisions`, etc.) reutilizan exactamente ese mismo patrón: SELECT amplio (`is_corporate_user()`, criterio ya establecido desde Fase 3), INSERT de decisión scoped por `can_manage_employee()`, override de decisión ya tomada restringido a `is_privileged_admin()`.
+En la Fase 7 original, `can_manage_employee()` componía sobre `is_privileged_admin()`. Las migraciones finales reemplazaron ese comportamiento: las decisiones laborales quedan acotadas a `ADMIN_RRHH` o al supervisor del área histórica vigente en la fecha; `SUPER_ADMIN` conserva lectura y auditoría, pero no decide ni reemplaza.
 
 **Aplicado a nivel de servicio, no solo RLS/UI**: `getDailyReview(supabase, callerRole, groupCode, date)` valida explícitamente que un `SUPERVISOR_PRODUCTION` nunca pueda pedir `INSTALLATION` (y viceversa) — lanza `DailyReviewAuthorizationError` antes de tocar la base de datos. Probado con pgTAP (INSERT cruzado de área denegado) y con tests TypeScript (el servicio deniega antes de consultar).
 
@@ -81,7 +81,7 @@ Mecanismo (ya implementado y probado, listo para cuando se puedan resolver): `em
 
 Plazo: 3 días hábiles desde la fecha de la decisión, vía `addBusinessDays()` (lunes-viernes, **sin calendario de feriados legales chilenos** — limitación documentada explícitamente, sección 18/74 del encargo. La tabla `holidays` ya existe desde Gate D; conectarla queda para una fase futura). Verificado: viernes + 3 días hábiles = miércoles.
 
-Responsable: `SUPERVISOR_PRODUCTION` para trabajadores PRODUCTION (vía `can_manage_employee`); RRHH/SUPER_ADMIN pueden administrar; `SUPERVISOR_INSTALLATION` no puede resolver casos médicos de Producción (probado con pgTAP: INSERT cruzado denegado).
+Responsable vigente: `SUPERVISOR_PRODUCTION` para trabajadores PRODUCTION (vía `can_manage_employee`) y `ADMIN_RRHH` como autoridad final; `SUPER_ADMIN` no toma decisiones laborales. `SUPERVISOR_INSTALLATION` no puede resolver casos médicos de Producción (probado con pgTAP: INSERT cruzado denegado).
 
 ## 11. Licencias
 
@@ -101,7 +101,7 @@ Matching **exacto** (normalizado: trim + espacios colapsados + mayúsculas) cont
 
 ## 13. Overtime
 
-`generateOvertimeCandidate` reutiliza el motor de aprobación/cap ya construido en Gate D (`overtime_records`/`overtime_policies`/clasificación HH50-HH100/selector binario Producción) — Fase 7 solo agrega la generación del **candidato** (`candidate_minutes`), que antes no existía automáticamente.
+`generateOvertimeCandidate` reutiliza `overtime_records`, políticas y clasificación HH50/HH100. La versión final reemplazó el selector binario histórico de Producción por minutos reales y aprobados exactos; Fase 7 agregó la generación del **candidato** (`candidate_minutes`), que antes no existía automáticamente.
 
 - **PRODUCTION**: política confirmada, genera candidato automático usando el horario efectivo del trabajador (individual o general) — verificado que Alejandro/María acumulan overtime desde SU propio `scheduled_end`, no 17:00 fijo.
 - **INSTALLATION**: genera minutos reales exactos, sin selector 1h/2h. El pagable queda limitado a 120 minutos de lunes a sábado y 360 en festivo; solo el domingo conserva HH100 sin tope fijo y requiere decisión del jefe/supervisor de Instalación. En días sin turno usa el tramo real entrada-salida.
@@ -143,10 +143,10 @@ Todas las tablas nuevas siguen el patrón ya establecido: inmutables tras insert
 
 Mismo hallazgo real de Fase 6A (`service_role` tiene `BYPASSRLS` pero cero GRANT de tabla por defecto): los motores de Fase 7 corren server-only bajo `service_role` (igual que el pipeline de sync) — se otorgó explícitamente solo lo necesario (`employee_groups`, `employee_time_control_policies`, `schedule_assignments`, `work_schedules`, `work_schedule_rules`, `late_arrival_policies`, `overtime_policies`, `overtime_types`, `attendance_records`, `late_arrival_records`, `overtime_records`). El mismo vacío sigue existiendo en el resto del esquema (documentado desde Fase 6A, fuera de alcance corregirlo integralmente aquí).
 
-## 20. Reglas de negocio NO resueltas (explícitamente pendientes)
+## 20. Pendientes históricos de Fase 7 y resolución posterior
 
-- Tratamiento exacto HH50/HH100 de viernes (más allá de lo ya confirmado en Gate D).
-- Comportamiento automático exacto de `R` (Recuperan horas) — código mantenido pero desactivado (`active=false`) desde Gate D, no se genera automáticamente.
+- ~~Tratamiento exacto HH50/HH100 de viernes~~ → resuelto: viernes sigue la regla lunes–viernes, HH50 y máximo 120 minutos para Producción e Instalación.
+- ~~Comportamiento automático exacto de `R`~~ → resuelto: `R` permanece inactivo solo por compatibilidad histórica, no se asigna, no compensa tiempo ni genera pagos; cualquier aparición histórica queda bloqueante para resolución de RR. HH.
 - Overtime/bono aplicable a futuros grupos u horarios especiales distintos de PRODUCTION e INSTALLATION.
 - Mantención del calendario de feriados legales para años posteriores a los ya cargados.
 - Horario de cron de producción (heredado de Fase 6B, sigue sin confirmar por el negocio).

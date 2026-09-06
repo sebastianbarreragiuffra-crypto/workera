@@ -62,27 +62,32 @@ Todos los mecanismos nuevos están diseñados para ser seguros ante:
 
 Evidencia completa (comandos, salidas de `pg_stat_activity`, timestamps de adquisición/liberación del lock) se generó en scripts temporales fuera del repositorio, ejecutados contra el contenedor Docker local (`supabase_db_Workera`), y se eliminaron al finalizar — no forman parte del repositorio.
 
-## 7. Selector binario histórico — reemplazado por minutos aprobados exactos
+## 7. Minutos reales y aprobados exactos — regla vigente
 
-El selector binario de la segunda pasada de Gate D ya no es la regla vigente.
-La versión final conserva los minutos reales y permite una decisión competente
-en minutos exactos, aplicando después el tope pagable correspondiente: 120
-minutos de lunes a sábado, 360 en festivo y sin tope fijo el domingo de
-Instalación. Producción en domingo queda bloqueada.
+El selector binario y cualquier redondeo de la segunda pasada histórica de
+Gate D quedaron eliminados. La versión final conserva íntegro
+`overtime_records.candidate_minutes` y registra `approved_minutes` en minutos
+exactos. No se puede aprobar más que el candidato real ni más que el máximo
+aprobable del día: 120 minutos de lunes a sábado, 360 en festivo no dominical y
+sin tope fijo únicamente el domingo de Instalación. Producción en domingo queda
+bloqueada y Administración no genera horas extra automáticamente.
 
-Matriz exacta (candidato real = `overtime_records.candidate_minutes`):
+Matriz vigente (candidato real = `overtime_records.candidate_minutes`):
 
-| Minutos extra reales | Propuesta automática (`system_proposed_minutes`) | Decisión permitida (`approved_minutes`) | Motivo obligatorio |
-|---|---:|---|---|
-| < 60 | `NULL` — no se inventa una hora aprobable | Vía genérica (minutos exactos, sin constraint binario) | No aplica |
-| 60–114 | 60 | 0 (rechazar) o 60 | Solo al rechazar |
-| 115–117 | 60, con `requires_manual_review = true` | 0, 60, o 120 (excepcional — "redondeo hacia arriba": se paga más de lo literalmente trabajado) | Al aprobar 120, o al rechazar |
-| 118–120 | 120 | 0, 60, o 120 | Al reducir a 60, o al rechazar |
-| > 120 | 120 (dato real se conserva íntegro en `candidate_minutes`) | 0, 60, o 120 (nunca más de 120) | Al reducir a 60, o al rechazar |
+| Minutos extra reales | Decisión competente | Resultado pagable | Bono diario |
+|---|---|---|---:|
+| 0 | 0 | 0 | $0 |
+| 1–59 | No puede aprobarse como pagable; queda en alerta roja | 0 | $0 |
+| 60–119 | 0 o cualquier cantidad exacta entre 60 y el candidato | Minutos exactos aprobados | $0 |
+| 120 o más, día con tope de 120 | 0 o cualquier cantidad exacta entre 60 y 120 | Máximo 120; el candidato real no se recorta | $1.000 solo si se aprueban al menos 120 |
+| Festivo no dominical | 0 o cualquier cantidad exacta entre 60 y `min(candidato, 360)` | Máximo 360; el candidato real no se recorta | $1.000 solo si se aprueban al menos 120 |
+| Domingo de Instalación | 0 o cualquier cantidad exacta entre 60 y el candidato | Sin tope fijo | $1.000 solo si se aprueban al menos 120 |
 
-Implementado como extensión de `validate_overtime_decision()`: fuerza `approved_minutes ∈ {0, 60, 120}` dentro del alcance exacto, y exige `reason` no vacío exactamente en los tres casos listados. Autorización: **la RLS de `overtime_decisions` ya existente (Fase 2A/3) es exactamente la autorización pedida** — `decided_by = auth.uid() AND can_manage_employee(employee)`, que resuelve a ADMIN_RRHH o al supervisor cuyo grupo coincide con el trabajador — no requirió ningún cambio de RLS.
-
-Instalación (`SUPERVISOR_INSTALLATION`) nunca queda sujeta al selector binario histórico: registra minutos exactos. El valor pagable se limita a 120 minutos de lunes a sábado, 360 en festivo y queda sin tope fijo únicamente el domingo.
+`validate_overtime_decision()` aplica estos límites, exige que aprobado más
+rechazado reconcilie exactamente con el candidato y conserva el motivo y el
+actor. La RLS final autoriza a `ADMIN_RRHH` o al supervisor del área histórica
+vigente en la fecha; `SUPER_ADMIN` conserva lectura y auditoría, pero no firma
+decisiones laborales.
 
 ## 8. Marcaciones faltantes y correcciones auditadas (segundo hardening)
 
@@ -112,9 +117,12 @@ Auditoría independiente confirmó 3 defectos reales en la migración `202608181
 
 Todos los scripts temporales de estas pruebas se eliminaron al finalizar — no forman parte del repositorio.
 
-## 11. Lo que Gate D (incluido el segundo hardening) NO hace
+## 11. Límites históricos de Gate D y estado final posterior
 
-- No implementa un motor de cálculo automático que genere `overtime_records`/`late_arrival_records` desde `attendance_records` corregidos — sigue siendo una fase futura no iniciada. Una corrección de marcación bloquea la aprobación de horas extra sobre el hecho afectado (o exige invalidar la decisión existente primero) en vez de recalcular candidatos automáticamente, porque ese motor de cálculo no existe todavía.
-- No resuelve el ciclo exacto de cierre mensual (`ReportingPeriod`) ni un trigger que bloquee el cierre con revisiones semanales pendientes — siguen pendientes (`docs/DECISIONS_PENDING.md`).
-- No construye ninguna UI ni Route Handler — exclusivamente base de datos. El contrato de datos para la futura UI (selector "Aprobar 1 hora"/"Aprobar 2 horas"/"Rechazar", etiqueta "Solo Producción · Autorizado para Jefe de Producción y RR. HH.", red flag de marcación faltante, formulario de corrección) queda descrito en las secciones 7 y 8 de este documento, sin construir ningún componente visual.
-- No valida cumplimiento legal — ver advertencia obligatoria al inicio de este documento.
+Gate D por sí solo no incluía el motor automático, el ciclo 16–15 ni la UI.
+Esos límites describen únicamente aquel hito histórico: el motor, la exportación,
+la importación y el cierre 16–15 existen en la versión final 2026 y usan minutos
+exactos. Siguen pendientes la propagación opcional a ficha/diseños futuros y el
+aislamiento multiempresa completo de `reporting_periods`, ambos documentados en
+`docs/DECISIONS_PENDING.md`. Ninguna fase valida cumplimiento legal; se mantiene
+la advertencia obligatoria al inicio de este documento.
