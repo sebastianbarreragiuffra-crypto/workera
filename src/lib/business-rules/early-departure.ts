@@ -47,44 +47,53 @@ function toWallClockTime(instant: Date): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`;
 }
 
-type CurrentEarlyDeparture = Pick<
-  Database["public"]["Tables"]["early_departure_records"]["Row"],
-  "id" | "attendance_record_id" | "scheduled_end" | "actual_end" | "detected_minutes" | "calculation_version"
->;
-
-async function loadCurrentEarlyDeparture(
-  supabase: SupabaseClient<Database>,
-  employeeId: string,
-  workDate: string
-): Promise<CurrentEarlyDeparture | null> {
-  const { data, error } = await supabase
-    .from("early_departure_records")
-    .select("id, attendance_record_id, scheduled_end, actual_end, detected_minutes, calculation_version")
-    .eq("employee_id", employeeId)
-    .eq("work_date", workDate)
-    .eq("is_current", true)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`generateEarlyDepartureCandidate: fallo consultando early_departure_records vigente: ${error.message}`);
-  }
-  return data;
+interface CandidateReconciliation {
+  record_id: string | null;
+  changed: boolean;
 }
 
-async function retireLoadedEarlyDeparture(
-  supabase: SupabaseClient<Database>,
-  current: CurrentEarlyDeparture | null
-): Promise<boolean> {
-  if (!current) return false;
-  const { error } = await supabase
-    .from("early_departure_records")
-    .update({ is_current: false })
-    .eq("id", current.id)
-    .eq("is_current", true);
-  if (error) {
-    throw new Error(`generateEarlyDepartureCandidate: fallo retirando early_departure_records vigente: ${error.message}`);
+function parseReconciliation(data: unknown): CandidateReconciliation {
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    typeof (data as { changed?: unknown }).changed !== "boolean" ||
+    !(
+      (data as { record_id?: unknown }).record_id === null ||
+      typeof (data as { record_id?: unknown }).record_id === "string"
+    )
+  ) {
+    throw new Error("generateEarlyDepartureCandidate: respuesta invalida del RPC atomico.");
   }
-  return true;
+  return data as unknown as CandidateReconciliation;
+}
+
+async function reconcileEarlyDeparture(
+  supabase: SupabaseClient<Database>,
+  employeeId: string,
+  workDate: string,
+  companyId: string | undefined,
+  ruleEngineRunId: string | undefined,
+  payload: {
+    attendanceRecordId: string;
+    scheduledEnd: string;
+    actualEnd: string;
+    detectedMinutes: number;
+  } | null
+): Promise<CandidateReconciliation> {
+  const { data, error } = await supabase.rpc("reconcile_early_departure_candidate", {
+    p_company_id: companyId ?? null,
+    p_rule_engine_run_id: ruleEngineRunId ?? null,
+    p_employee_id: employeeId,
+    p_work_date: workDate,
+    p_attendance_record_id: payload?.attendanceRecordId ?? null,
+    p_scheduled_end: payload?.scheduledEnd ?? null,
+    p_actual_end: payload?.actualEnd ?? null,
+    p_detected_minutes: payload?.detectedMinutes ?? null,
+  });
+  if (error) {
+    throw new Error(`generateEarlyDepartureCandidate: fallo reconciliando salida anticipada: ${error.message}`);
+  }
+  return parseReconciliation(data);
 }
 
 /**
@@ -95,13 +104,11 @@ async function retireLoadedEarlyDeparture(
 export async function retireCurrentEarlyDepartureCandidate(
   supabase: SupabaseClient<Database>,
   employeeId: string,
-  workDate: string
+  workDate: string,
+  companyId?: string,
+  ruleEngineRunId?: string
 ): Promise<boolean> {
-  return retireLoadedEarlyDeparture(supabase, await loadCurrentEarlyDeparture(supabase, employeeId, workDate));
-}
-
-function sameInstant(left: string, right: string): boolean {
-  return new Date(left).getTime() === new Date(right).getTime();
+  return (await reconcileEarlyDeparture(supabase, employeeId, workDate, companyId, ruleEngineRunId, null)).changed;
 }
 
 /**
@@ -118,24 +125,26 @@ export async function generateEarlyDepartureCandidate(
   workDate: string,
   attendanceRecordId: string,
   clockOut: string | null,
-  birthday: BirthdayContext | null = null
+  birthday: BirthdayContext | null = null,
+  companyId?: string,
+  ruleEngineRunId?: string
 ): Promise<GenerateEarlyDepartureResult> {
   const schedule = await resolveEffectiveSchedule(supabase, employeeId, workDate);
 
   if (schedule.kind === "EXEMPT") {
-    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate);
+    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate, companyId, ruleEngineRunId);
     return { status: "EXEMPT", earlyDepartureRecordId: null, detectedMinutes: null };
   }
   if (schedule.kind === "DAY_OFF") {
-    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate);
+    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate, companyId, ruleEngineRunId);
     return { status: "DAY_OFF", earlyDepartureRecordId: null, detectedMinutes: null };
   }
   if (schedule.kind === "NO_SCHEDULE_ASSIGNED") {
-    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate);
+    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate, companyId, ruleEngineRunId);
     return { status: "NO_SCHEDULE_ASSIGNED", earlyDepartureRecordId: null, detectedMinutes: null };
   }
   if (!clockOut) {
-    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate);
+    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate, companyId, ruleEngineRunId);
     return { status: "NO_CLOCK_OUT", earlyDepartureRecordId: null, detectedMinutes: null };
   }
 
@@ -144,7 +153,7 @@ export async function generateEarlyDepartureCandidate(
   if (birthday && isBirthdayWeekdayAuthorizationApplicable(birthday, workDate)) {
     const departureTime = toWallClockTime(clockOutDate);
     if (isAfterBirthdayAuthorizationThreshold(departureTime)) {
-      await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate);
+      await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate, companyId, ruleEngineRunId);
       return { status: "AUTHORIZED_BIRTHDAY_NO_CANDIDATE", earlyDepartureRecordId: null, detectedMinutes: 0 };
     }
     // Antes de las 12:00 en el propio cumpleaños: sigue el flujo normal de abajo.
@@ -154,43 +163,25 @@ export async function generateEarlyDepartureCandidate(
   const detectedMinutes = Math.max(0, rawMinutes);
 
   if (detectedMinutes === 0) {
-    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate);
+    await retireCurrentEarlyDepartureCandidate(supabase, employeeId, workDate, companyId, ruleEngineRunId);
     return { status: "NO_EARLY_DEPARTURE", earlyDepartureRecordId: null, detectedMinutes: 0 };
   }
 
-  const existing = await loadCurrentEarlyDeparture(supabase, employeeId, workDate);
-  if (
-    existing &&
-    existing.attendance_record_id === attendanceRecordId &&
-    scheduledTimeToMinutes(existing.scheduled_end) === scheduledTimeToMinutes(schedule.scheduledEnd) &&
-    sameInstant(existing.actual_end, clockOut) &&
-    existing.detected_minutes === detectedMinutes
-  ) {
-    return { status: "UNCHANGED", earlyDepartureRecordId: existing.id, detectedMinutes };
-  }
-  if (existing) {
-    await retireLoadedEarlyDeparture(supabase, existing);
+  const reconciled = await reconcileEarlyDeparture(supabase, employeeId, workDate, companyId, ruleEngineRunId, {
+    attendanceRecordId,
+    scheduledEnd: schedule.scheduledEnd,
+    actualEnd: clockOut,
+    detectedMinutes,
+  });
+  if (!reconciled.record_id) {
+    throw new Error("generateEarlyDepartureCandidate: el RPC atomico no devolvio el candidato vigente.");
   }
 
-  const { data: inserted, error: insertError } = await supabase
-    .from("early_departure_records")
-    .insert({
-      employee_id: employeeId,
-      work_date: workDate,
-      attendance_record_id: attendanceRecordId,
-      scheduled_end: schedule.scheduledEnd,
-      actual_end: clockOut,
-      detected_minutes: detectedMinutes,
-      calculation_version: (existing?.calculation_version ?? 0) + 1,
-    })
-    .select("id")
-    .single();
-
-  if (insertError || !inserted) {
-    throw new Error(`generateEarlyDepartureCandidate: fallo insertando early_departure_records: ${insertError?.message ?? "sin fila devuelta"}`);
-  }
-
-  return { status: "GENERATED", earlyDepartureRecordId: inserted.id, detectedMinutes };
+  return {
+    status: reconciled.changed ? "GENERATED" : "UNCHANGED",
+    earlyDepartureRecordId: reconciled.record_id,
+    detectedMinutes,
+  };
 }
 
 /**

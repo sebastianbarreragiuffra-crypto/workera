@@ -49,8 +49,8 @@ export const RPC_CONSUMER_SURFACES = [
   {
     source: "src/app/(app)/dashboard/import-asistencia/route.ts",
     domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "LEGACY_ARCOTEX",
-    literalRpcs: ["register_accepted_payroll_workbook"], dynamicRpcs: [],
-    authorization: "ADMIN_RRHH y MFA; RPC repite rol, membresía, período 16-15, versión base y lock.",
+    literalRpcs: ["get_payroll_source_revision"], dynamicRpcs: [],
+    authorization: "ADMIN_RRHH y MFA; compara una revisión estable y delega el commit de bytes verificados a la capability server-only.",
     auditControl: "BUSINESS_LEDGER", dataClass: "FINANCIAL", blockers: ["LABOR_MULTI_TENANCY", "EDGE_RATE_LIMIT"],
   },
   {
@@ -101,10 +101,38 @@ export const RPC_CONSUMER_SURFACES = [
   {
     source: "src/lib/business-rules/process-attendance-day.ts",
     domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "attendance-rule-engine",
-    tenantScope: "LEGACY_ARCOTEX", literalRpcs: ["reclaim_stale_rule_engine_runs"], dynamicRpcs: [],
-    authorization: "Solo wrapper del motor, invocado por cron o acción que autorizó previamente.",
+    tenantScope: "EXPLICIT_COMPANY", literalRpcs: ["begin_attendance_rule_engine_run", "finish_attendance_rule_engine_run", "reclaim_stale_rule_engine_runs", "replace_system_attendance_status"], dynamicRpcs: [],
+    authorization: "Solo wrapper del motor, invocado por cron o acción autorizada; cada escritura revalida company_id y el lease exacto de la corrida.",
     auditControl: "JOB_LEDGER", dataClass: "SENSITIVE_HR",
-    blockers: ["LABOR_MULTI_TENANCY", "HOSTED_OBSERVABILITY"],
+    blockers: ["HOSTED_OBSERVABILITY"],
+  },
+  {
+    source: "src/lib/business-rules/daily-attendance.ts",
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "attendance-rule-engine",
+    tenantScope: "EXPLICIT_COMPANY", literalRpcs: ["reconcile_workera_attendance_day"], dynamicRpcs: [],
+    authorization: "RPC contrasta tenant, trabajador, fecha y lease RUNNING antes de reemplazar el grafo diario.",
+    auditControl: "JOB_LEDGER", dataClass: "SENSITIVE_HR", blockers: ["HOSTED_OBSERVABILITY"],
+  },
+  {
+    source: "src/lib/business-rules/late-arrival.ts",
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "attendance-rule-engine",
+    tenantScope: "EXPLICIT_COMPANY", literalRpcs: ["reconcile_late_arrival_candidate"], dynamicRpcs: [],
+    authorization: "RPC valida tenant, lease, asistencia vigente y política del grupo histórico; reemplazo atómico.",
+    auditControl: "JOB_LEDGER", dataClass: "SENSITIVE_HR", blockers: ["HOSTED_OBSERVABILITY"],
+  },
+  {
+    source: "src/lib/business-rules/early-departure.ts",
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "attendance-rule-engine",
+    tenantScope: "EXPLICIT_COMPANY", literalRpcs: ["reconcile_early_departure_candidate"], dynamicRpcs: [],
+    authorization: "RPC valida tenant, lease y asistencia vigente; retiro/reemplazo atómico.",
+    auditControl: "JOB_LEDGER", dataClass: "SENSITIVE_HR", blockers: ["HOSTED_OBSERVABILITY"],
+  },
+  {
+    source: "src/lib/business-rules/overtime-confirmation.ts",
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "attendance-rule-engine",
+    tenantScope: "EXPLICIT_COMPANY", literalRpcs: ["reconcile_overtime_candidate"], dynamicRpcs: [],
+    authorization: "RPC valida tenant, lease, asistencia, tasa canónica y política del grupo histórico; reemplazo atómico.",
+    auditControl: "JOB_LEDGER", dataClass: "SENSITIVE_HR", blockers: ["HOSTED_OBSERVABILITY"],
   },
   {
     source: "src/lib/colaciones/discount-workbook-storage.ts",
@@ -113,6 +141,13 @@ export const RPC_CONSUMER_SURFACES = [
     authorization: "Acción RRHH privilegiada; RPC valida actor y activa una sola versión.",
     auditControl: "PARTIAL", dataClass: "FINANCIAL",
     blockers: ["LABOR_MULTI_TENANCY"],
+  },
+  {
+    source: "src/lib/decisions/attendance-corrections.ts",
+    domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "RESOURCE_COMPANY",
+    literalRpcs: ["replace_attendance_correction"], dynamicRpcs: [],
+    authorization: "RPC deriva actor y empresa del registro, valida autoridad histórica y reemplaza la versión vigente atómicamente.",
+    auditControl: "BUSINESS_LEDGER", dataClass: "SENSITIVE_HR", blockers: [],
   },
   {
     source: "src/lib/decisions/document-download.ts",
@@ -283,6 +318,54 @@ export const RPC_CONSUMER_SURFACES = [
     auditControl: "NOT_APPLICABLE", dataClass: "FINANCIAL", blockers: [],
   },
   {
+    source: "src/lib/payroll/payroll-period-close.ts",
+    domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "LEGACY_ARCOTEX",
+    literalRpcs: ["abort_payroll_period_close", "get_payroll_source_revision", "prepare_payroll_period_close"], dynamicRpcs: [],
+    authorization: "Solo ADMIN_RRHH; gate sin pendientes/conflictos y reserva MFA contra estado, base aceptada y revisión estable.",
+    auditControl: "BUSINESS_LEDGER", dataClass: "FINANCIAL",
+    blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
+  },
+  {
+    source: "src/lib/payroll/payroll-period-approval.ts",
+    domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "LEGACY_ARCOTEX",
+    literalRpcs: ["get_payroll_source_revision"], dynamicRpcs: [],
+    authorization: "Solo ADMIN_RRHH+MFA; recalcula pendientes y conflictos sobre la revisión/base aceptada antes del límite confiable.",
+    auditControl: "BUSINESS_LEDGER", dataClass: "FINANCIAL",
+    blockers: ["LABOR_MULTI_TENANCY"],
+  },
+  {
+    source: "src/lib/payroll/payroll-company-role.ts",
+    domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "EXPLICIT_COMPANY",
+    literalRpcs: ["has_company_app_role"], dynamicRpcs: [],
+    authorization: "Resuelve ADMIN_RRHH/SUPER_ADMIN desde rol y membresía activos de la misma empresa antes de exponer pre-nómina.",
+    auditControl: "NOT_APPLICABLE", dataClass: "SENSITIVE_HR",
+    blockers: ["LABOR_MULTI_TENANCY"],
+  },
+  {
+    source: "src/lib/payroll-close/approval-service.ts",
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "payroll-period-close",
+    tenantScope: "LEGACY_ARCOTEX", literalRpcs: ["approve_reporting_period_ready"], dynamicRpcs: [],
+    authorization: "Recibe digest, revisión y base desde el gate ADMIN_RRHH+MFA; RPC revalida actor/tenant y confirma bajo lock.",
+    auditControl: "BUSINESS_LEDGER", dataClass: "FINANCIAL",
+    blockers: ["LABOR_MULTI_TENANCY"],
+  },
+  {
+    source: "src/lib/payroll-close/service.ts",
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "payroll-period-close",
+    tenantScope: "LEGACY_ARCOTEX", literalRpcs: ["commit_payroll_period_close"], dynamicRpcs: [],
+    authorization: "Operación preparada por sesión ADMIN_RRHH+MFA; recalcula SHA-256 sobre los bytes reales antes del commit atómico.",
+    auditControl: "BUSINESS_LEDGER", dataClass: "FINANCIAL",
+    blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
+  },
+  {
+    source: "src/lib/payroll-workbook/service.ts",
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "payroll-workbook-acceptance",
+    tenantScope: "LEGACY_ARCOTEX", literalRpcs: ["get_payroll_workbook_object_identity", "register_accepted_payroll_workbook"], dynamicRpcs: [],
+    authorization: "Ruta ADMIN_RRHH+MFA y vista previa firmada; el RPC revalida actor/membresía y recibe solo hash/tamaño recalculados desde Storage.",
+    auditControl: "BUSINESS_LEDGER", dataClass: "FINANCIAL",
+    blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
+  },
+  {
     source: "src/lib/payroll/supplier-master.ts",
     domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "LEGACY_ARCOTEX",
     literalRpcs: ["apply_supplier_master_import"], dynamicRpcs: [],
@@ -310,6 +393,14 @@ export const RPC_CONSUMER_SURFACES = [
     literalRpcs: ["platform_company_organization", "platform_company_portfolio_page", "platform_portfolio_summary"], dynamicRpcs: [],
     authorization: "Membresía de plataforma y proyecciones agregadas/minimizadas.",
     auditControl: "NOT_APPLICABLE", dataClass: "INTERNAL", blockers: [],
+  },
+  {
+    source: "src/lib/business-rules/seed-known-schedules.ts",
+    domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "LEGACY_ARCOTEX",
+    literalRpcs: ["apply_schedule_assignment", "set_time_control_exemption", "upsert_work_schedule"], dynamicRpcs: [],
+    authorization: "Seed administrativo explícito: solo RR. HH.; los RPC revalidan empresa, rol, MFA y versionan sin DML directo.",
+    auditControl: "BUSINESS_LEDGER", dataClass: "SENSITIVE_HR",
+    blockers: ["LABOR_MULTI_TENANCY"],
   },
   {
     source: "src/lib/schedules/schedule-administration.ts",
@@ -351,6 +442,16 @@ export const RPC_CONSUMER_SURFACES = [
     auditControl: "JOB_LEDGER", dataClass: "SENSITIVE_HR",
     blockers: ["LABOR_MULTI_TENANCY", "HOSTED_OBSERVABILITY"],
   },
+  {
+    source: "src/lib/sync/workera-attendance-sync.ts",
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "workera-attendance-sync",
+    tenantScope: "SCOPE_DERIVED_COMPANY",
+    literalRpcs: ["begin_workera_sync_run", "finish_workera_sync_run", "upsert_workera_attendance_event"],
+    dynamicRpcs: [],
+    authorization: "Tenant explícito; los RPC revalidan empresa, lease RUNNING, rango e idempotencia transaccional.",
+    auditControl: "JOB_LEDGER", dataClass: "SENSITIVE_HR",
+    blockers: ["HOSTED_OBSERVABILITY"],
+  },
 ] as const satisfies readonly RpcConsumerSurface[];
 
 export type StorageOperation = "upload" | "download" | "remove" | "createSignedUrl";
@@ -369,6 +470,12 @@ export interface StorageConsumerSurface {
 }
 
 export const STORAGE_CONSUMER_SURFACES = [
+  {
+    source: "src/app/(app)/dashboard/export-asistencia/route.ts", bucket: "payroll-workbooks", operation: "download", occurrences: 1,
+    domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
+    authorization: "ADMIN_RRHH o SUPER_ADMIN del tenant; solo CLOSED descarga el snapshot exacto y verifica hash/tamaño antes de responder.",
+    securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
+  },
   {
     source: "src/app/(app)/dashboard/import-asistencia/route.ts", bucket: "payroll-workbooks", operation: "upload", occurrences: 1,
     domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
@@ -457,6 +564,36 @@ export const STORAGE_CONSUMER_SURFACES = [
     authorization: "Claim fenced entrega una unica ruta vencida y SQL excluye cualquier documento registrado.",
     securityState: "PRIVATE_UNSCANNED",
     blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY", "HOSTED_OBSERVABILITY"],
+  },
+  {
+    source: "src/lib/payroll/payroll-period-close.ts", bucket: "payroll-workbooks", operation: "upload", occurrences: 1,
+    domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
+    authorization: "Solo ADMIN_RRHH tras gate de conciliación; ruta privada nueva y RPC valida metadatos antes de referenciarla.",
+    securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
+  },
+  {
+    source: "src/lib/payroll/payroll-period-close.ts", bucket: "payroll-workbooks", operation: "remove", occurrences: 1,
+    domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
+    authorization: "Compensación acotada al objeto nuevo si falla el cierre; la policy impide borrar un snapshot ya referenciado.",
+    securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
+  },
+  {
+    source: "src/lib/payroll-close/service.ts", bucket: "payroll-workbooks", operation: "download", occurrences: 1,
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "LEGACY_ARCOTEX",
+    authorization: "Capability cerrado; solo verifica la ruta de una operación preparada y entrega al RPC el hash de los bytes reales.",
+    securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
+  },
+  {
+    source: "src/lib/payroll-workbook/service.ts", bucket: "payroll-workbooks", operation: "download", occurrences: 1,
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "LEGACY_ARCOTEX",
+    authorization: "Capability cerrado; fija identidad Storage antes/después y recalcula SHA-256/tamaño antes del RPC service_role-only.",
+    securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
+  },
+  {
+    source: "src/lib/payroll-workbook/service.ts", bucket: "payroll-workbooks", operation: "remove", occurrences: 1,
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "LEGACY_ARCOTEX",
+    authorization: "Compensación de una ruta exacta no registrada; el trigger DB impide borrar evidencia aceptada o preparada.",
+    securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
   },
   {
     source: "src/lib/payroll/supplier-master.ts", bucket: "supplier-master-files", operation: "upload", occurrences: 1,

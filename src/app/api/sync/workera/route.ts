@@ -51,6 +51,7 @@ export function isValidCronSecret(request: NextRequest): boolean {
 /** Peor status entre los resultados de una tanda de fechas, para el código HTTP de la respuesta. */
 export function worstHttpStatus(statuses: string[]): number {
   if (statuses.some((s) => s === "FAILED")) return 500;
+  if (statuses.some((s) => s === "PARTIAL")) return 500;
   if (statuses.some((s) => s === "ALREADY_RUNNING")) return 409;
   if (statuses.some((s) => s.startsWith("BLOCKED_"))) return 422;
   return 200;

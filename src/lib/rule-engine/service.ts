@@ -2,9 +2,7 @@ import "server-only";
 import { createAdminClient } from "../supabase/admin-client";
 import {
   runRuleEngineForDate,
-  processAttendanceDay,
   type RuleEngineRunOutcome,
-  type ProcessAttendanceDayOptions,
   type ProcessAttendanceDayResult,
 } from "../business-rules/process-attendance-day";
 
@@ -33,7 +31,6 @@ export async function runRuleEngineWithServiceRole(
     companyId: string;
     triggeredBy: "CRON" | "MANUAL";
     triggeredByProfile?: string | null;
-    options?: Omit<ProcessAttendanceDayOptions, "companyId">;
   }
 ): Promise<RuleEngineRunOutcome> {
   const supabase = createAdminClient("attendance-rule-engine");
@@ -41,27 +38,41 @@ export async function runRuleEngineWithServiceRole(
 }
 
 /**
- * Re-derivación acotada a UN trabajador y UN día (MB-3), tras corregir su
- * marcación.
+ * Re-derivación del DÍA COMPLETO tras corregir un trabajador (MB-3).
  *
- * Deliberadamente NO abre una fila en `rule_engine_runs`: esa bitácora
- * registra corridas de día completo, y su índice de concurrencia es por fecha.
- * Anotar ahí cada corrección individual ensuciaría el historial (con
- * `employees_processed = 1` junto a corridas de 44) y, peor, una corrección
- * hecha mientras el cron procesa esa misma fecha chocaría contra el índice y
- * se perdería en silencio.
+ * No se limita al trabajador editado: una corrida parcial de una sola persona
+ * no puede sobrescribir la señal de que otro trabajador del mismo día seguía
+ * fallando. Abre la misma bitácora/lease full. Así una caída entre
+ * la raíz diaria y cualquiera de sus candidatos queda FAILED/PARTIAL y el
+ * export no puede confundir un reproceso incompleto con la última corrida
+ * sana. La concurrencia se rechaza de forma visible, nunca se pierde.
  *
  * Igual que el resto de este módulo: no autoriza nada. Quien llame ya debe
  * haber validado, contra su sesión real, que puede gestionar a ese trabajador
- * -- lo cual la RLS de `attendance_corrections` ya hizo al aceptar la
- * corrección que motiva esta llamada. `companyId` sigue siendo obligatorio:
- * el cliente admin no puede inferir un tenant desde RLS ni desde una sesión.
+ * -- y el RPC atómico de corrección vuelve a comprobar actor, empresa y
+ * autoridad histórica. `companyId` sigue siendo obligatorio: el cliente admin
+ * no puede inferir un tenant desde RLS ni desde una sesión.
  */
 export async function reprocessEmployeeDay(
-  employeeId: string,
+  _employeeId: string,
   date: string,
-  companyId: string
+  companyId: string,
+  triggeredByProfile: string,
 ): Promise<ProcessAttendanceDayResult> {
   const supabase = createAdminClient("attendance-rule-engine");
-  return processAttendanceDay(supabase, date, { companyId, employeeIds: [employeeId] });
+  const outcome = await runRuleEngineForDate(supabase, date, {
+    companyId,
+    triggeredBy: "MANUAL",
+    triggeredByProfile,
+    // `employeeId` se conserva en la firma para trazabilidad del llamador,
+    // pero la corrida intencionalmente cubre todo el padrón del día.
+  });
+  if (!outcome.result || outcome.status === "FAILED" || outcome.status === "ALREADY_RUNNING") {
+    throw new Error(
+      outcome.status === "ALREADY_RUNNING"
+        ? "Ya existe un recálculo en curso para esta fecha. Reintenta al finalizar."
+        : `No fue posible completar el recálculo: ${outcome.errorSummary ?? "sin resultado"}`
+    );
+  }
+  return outcome.result;
 }

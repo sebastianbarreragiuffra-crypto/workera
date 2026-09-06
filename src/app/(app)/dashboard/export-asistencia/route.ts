@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { createHash } from "node:crypto";
 import { createClient } from "../../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../../lib/auth/session";
 import {
@@ -16,6 +17,8 @@ import {
 import { privateAttachmentHeaders } from "../../../../lib/shared/private-download";
 import { isCalendarDate } from "../../../../lib/view-models/date-utils";
 import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../../lib/tenant/legacy-workforce";
+import { loadAcceptedPayrollWorkbookAdjustments } from "../../../../lib/payroll/payroll-workbook-adjustments";
+import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
 
 /**
  * Descarga del Excel de asistencia, siempre generado en el momento de la
@@ -44,16 +47,26 @@ export function canDownloadPayrollWorkbook(role: string): boolean {
   return role === "SUPER_ADMIN" || role === "ADMIN_RRHH";
 }
 
+interface LatestPayrollWorkbookQuery {
+  select(columns: string): LatestPayrollWorkbookQuery;
+  eq(column: string, value: string): LatestPayrollWorkbookQuery;
+  order(column: string, options: { ascending: boolean }): LatestPayrollWorkbookQuery;
+  limit(count: number): LatestPayrollWorkbookQuery;
+  maybeSingle(): Promise<{ data: { id?: unknown } | null; error: { message: string } | null }>;
+}
+
+interface ClosedPayrollQuery {
+  select(columns: string): ClosedPayrollQuery;
+  eq(column: string, value: unknown): ClosedPayrollQuery;
+  order(column: string, options: { ascending: boolean }): ClosedPayrollQuery;
+  limit(count: number): ClosedPayrollQuery;
+  maybeSingle(): Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
+}
+
 export async function GET(request: NextRequest) {
   const profile = await getCurrentProfile();
-  if (!profile?.role) {
+  if (!profile) {
     return NextResponse.json({ error: "No autorizado." }, { status: 401 });
-  }
-  // El libro 2026 contiene RUT, ajustes y variables de pre-nómina. La vista
-  // diaria de supervisión sigue disponible en la aplicación, pero descargar
-  // este artefacto financiero queda reservado a RR. HH. y al owner.
-  if (!canDownloadPayrollWorkbook(profile.role)) {
-    return NextResponse.json({ error: "No tienes permisos para descargar la pre-nómina." }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -83,6 +96,16 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = await createClient();
+  // El libro contiene RUT y variables financieras: se exige el rol exacto de
+  // la membresía ARCOTEX, nunca solo la etiqueta global de profiles.role.
+  const payrollRole = await resolvePayrollCompanyRole(
+    supabase as unknown as Parameters<typeof resolvePayrollCompanyRole>[0],
+    ARCOTEX_WORKFORCE_COMPANY_ID,
+    ["ADMIN_RRHH", "SUPER_ADMIN"],
+  );
+  if (!payrollRole) {
+    return NextResponse.json({ error: "No tienes permisos para descargar la pre-nómina." }, { status: 403 });
+  }
   const access = await authorizeWorkforceDataAccess(supabase, {
     scope: "attendance.export",
     period,
@@ -91,9 +114,76 @@ export async function GET(request: NextRequest) {
     return workforceDataAccessFailureResponse(access)!;
   }
 
+  // Un período CLOSED se descarga desde el snapshot exacto que fue verificado
+  // al cerrar. Regenerarlo desde tablas vivas podría producir bytes distintos
+  // y, peor aún, rotularlos falsamente como cerrados.
+  if (period.type === "PAGO") {
+    const loose = supabase as unknown as { from(name: string): ClosedPayrollQuery };
+    const periodResult = await loose.from("reporting_periods")
+      .select("id, status")
+      .eq("period_start", period.startDate)
+      .eq("period_end", period.endDate)
+      .maybeSingle();
+    if (periodResult.error) {
+      return NextResponse.json({ error: "No pudimos comprobar el estado del período." }, { status: 500 });
+    }
+    if (periodResult.data?.status === "CLOSED") {
+      const snapshot = await loose.from("payroll_workbook_versions")
+        .select("storage_path, content_sha256, file_size")
+        .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
+        .eq("reporting_period_id", periodResult.data.id)
+        .eq("status", "CLOSED_SNAPSHOT")
+        .order("version_number", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (snapshot.error || !snapshot.data || typeof snapshot.data.storage_path !== "string") {
+        return NextResponse.json({ error: "El período cerrado no tiene un snapshot verificable." }, { status: 500 });
+      }
+      const stored = await supabase.storage.from("payroll-workbooks").download(snapshot.data.storage_path);
+      if (stored.error || !stored.data) {
+        return NextResponse.json({ error: "No pudimos recuperar el snapshot cerrado." }, { status: 500 });
+      }
+      const bytes = Buffer.from(await stored.data.arrayBuffer());
+      const actualHash = createHash("sha256").update(bytes).digest("hex");
+      if (actualHash !== snapshot.data.content_sha256 || bytes.byteLength !== Number(snapshot.data.file_size)) {
+        console.error("[attendance-export] el snapshot CLOSED no superó la verificación de integridad");
+        return NextResponse.json({ error: "El snapshot cerrado no superó la verificación de integridad." }, { status: 500 });
+      }
+      const filename = `pre-nomina-${period.startDate}-al-${period.endDate}-cierre.xlsx`;
+      return new NextResponse(bytes, {
+        headers: privateAttachmentHeaders(filename, bytes.byteLength, {
+          limit: access.requestLimit,
+          remaining: access.remaining,
+        }),
+      });
+    }
+  }
+
   let data;
   try {
-    data = await buildAttendanceExportData(supabase, profile.role, period, ARCOTEX_WORKFORCE_COMPANY_ID);
+    data = await buildAttendanceExportData(supabase, payrollRole, period, ARCOTEX_WORKFORCE_COMPANY_ID);
+    if (period.type === "PAGO") {
+      const [latest, adjustments] = await Promise.all([
+        (supabase as unknown as { from(name: string): LatestPayrollWorkbookQuery })
+          .from("payroll_workbook_versions")
+          .select("id")
+          .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
+          .eq("period_start", period.startDate)
+          .eq("period_end", period.endDate)
+          .eq("status", "ACCEPTED")
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        loadAcceptedPayrollWorkbookAdjustments(supabase, {
+          companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+          periodStart: period.startDate,
+          periodEnd: period.endDate,
+        }),
+      ]);
+      if (latest.error) throw new Error(latest.error.message);
+      data.workbookBaseVersionId = typeof latest.data?.id === "string" ? latest.data.id : null;
+      data.workbookAdjustments = adjustments;
+    }
   } catch (err) {
     // El mensaje interno lleva el error crudo de PostgREST (nombres de tabla,
     // detalle de la consulta). Se registra en el servidor y al cliente le

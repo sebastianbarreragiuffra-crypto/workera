@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 import { getCurrentProfile } from "../../../lib/auth/session";
-import { isPrivilegedAdmin } from "../../../lib/supabase/authorize";
 import { createClient } from "../../../lib/supabase/server";
 import { PageHeader } from "../../../components/shell/PageHeader";
 import { getReportingPeriodsBoard } from "../../../lib/periods/reporting-periods";
 import { PeriodsClient } from "./PeriodsClient";
+import { resolvePayrollCompanyRole } from "../../../lib/payroll/payroll-company-role";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../lib/tenant/legacy-workforce";
 
 /**
  * Períodos de pago (MB-7). El ciclo de la empresa es 16-al-15 (confirmado
@@ -15,9 +16,13 @@ import { PeriodsClient } from "./PeriodsClient";
 export default async function ReportingPeriodsPage() {
   const profile = await getCurrentProfile();
   if (!profile?.role) redirect("/login");
-  if (!isPrivilegedAdmin(profile.role)) redirect("/dashboard");
-
   const supabase = await createClient();
+  const payrollRole = await resolvePayrollCompanyRole(
+    supabase,
+    ARCOTEX_WORKFORCE_COMPANY_ID,
+    ["ADMIN_RRHH", "SUPER_ADMIN"],
+  );
+  if (!payrollRole) redirect("/dashboard");
   const board = await getReportingPeriodsBoard(supabase);
 
   return (
@@ -26,7 +31,11 @@ export default async function ReportingPeriodsPage() {
         title="Períodos de pago"
         subtitle="Crea el ciclo del 16 al 15, síguelo hasta cerrarlo, y reábrelo con motivo si hace falta."
       />
-      <PeriodsClient periods={board.periods} suggestedNext={board.suggestedNext} />
+      <PeriodsClient
+        periods={board.periods}
+        suggestedNext={board.suggestedNext}
+        canManage={payrollRole === "ADMIN_RRHH"}
+      />
     </div>
   );
 }

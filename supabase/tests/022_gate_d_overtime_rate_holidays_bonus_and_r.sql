@@ -175,7 +175,7 @@ select is(
   'overtime_records.candidate_minutes se conserva íntegro (130) aunque exceda el máximo aprobable'
 );
 
--- 2026-08-22 sábado: candidato 360, aprobar 360 -> permitido
+-- 2026-08-22 sábado: candidato real 360, solo 120 pagables -> decisión parcial
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -198,12 +198,12 @@ select lives_ok(
   format(
     $$ insert into public.overtime_decisions
          (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by)
-       values (%L, 360, 0, 'FULLY_APPROVED', %L) $$,
+       values (%L, 120, 240, 'PARTIALLY_APPROVED', %L) $$,
     (select id from public.overtime_records where employee_id =
        (select id from public.employees where external_workera_id = 'GATED-PROD-001') and work_date = date '2026-08-22'),
     '40000000-0000-0000-0000-000000000002'
   ),
-  'PRODUCTION sábado: 360 min aprobados es permitido'
+  'PRODUCTION sábado: conserva 360 reales y limita lo pagable a 120'
 );
 
 -- 2026-08-29 sábado: candidato 400, intentar aprobar 361 -> rechazado
@@ -236,10 +236,10 @@ select throws_ok(
   ),
   'P0001',
   null,
-  'PRODUCTION sábado: aprobar 361 min es rechazado (excede el máximo de 360)'
+  'PRODUCTION sábado: aprobar 361 min es rechazado (excede el máximo de 120)'
 );
 
--- 2026-08-16 domingo: candidato 360, aprobar 360 -> permitido
+-- 2026-08-16 domingo: candidato real 360, Producción bloqueada
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -258,7 +258,7 @@ values (
   (select op.id from public.overtime_policies op join public.employee_groups eg on eg.id = op.employee_group_id
      where eg.code = 'PRODUCTION' and op.day_of_week = 0)
 );
-select lives_ok(
+select throws_ok(
   format(
     $$ insert into public.overtime_decisions
          (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by)
@@ -267,7 +267,9 @@ select lives_ok(
        (select id from public.employees where external_workera_id = 'GATED-PROD-001') and work_date = date '2026-08-16'),
     '40000000-0000-0000-0000-000000000002'
   ),
-  'PRODUCTION domingo: 360 min aprobados es permitido'
+  'P0001',
+  null,
+  'PRODUCTION domingo: ninguna hora extra es aprobable'
 );
 
 -- 2026-08-30 domingo: candidato 400, intentar aprobar 361 -> rechazado
@@ -300,7 +302,7 @@ select throws_ok(
   ),
   'P0001',
   null,
-  'PRODUCTION domingo: aprobar 361 min es rechazado (excede el máximo de 360)'
+  'PRODUCTION domingo: aprobar 361 min es rechazado porque el día está bloqueado'
 );
 
 -- Feriado (2026-09-07, lunes): candidato 360, aprobar 360 -> permitido (360, no 120)
@@ -354,9 +356,7 @@ values (
   (select id from public.attendance_records where source_hash = 'hash-gated-install-mon120'),
   (select id from public.overtime_types where code = 'OVERTIME_50'),
   120,
-  -- Fila técnica de INSTALLATION (max_overtime_minutes=1440, techo de
-  -- generación de candidatos, no la autoridad de aprobación real — ver
-  -- comentario en la migración 20260818160000).
+  -- La política semanal indica 120; el candidato real nunca se recorta.
   (select op.id from public.overtime_policies op join public.employee_groups eg on eg.id = op.employee_group_id
      where eg.code = 'INSTALLATION' and op.day_of_week = 1)
 );
@@ -372,7 +372,7 @@ select lives_ok(
   'INSTALLATION lunes: 120 min aprobados es permitido'
 );
 
--- 2026-08-18 martes: candidato 200, aprobar 200 -> permitido (sin tope fijo)
+-- 2026-08-18 martes: candidato 200, aprobar 120 -> parcial por tope L-S
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -395,12 +395,12 @@ select lives_ok(
   format(
     $$ insert into public.overtime_decisions
          (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by)
-       values (%L, 200, 0, 'FULLY_APPROVED', %L) $$,
+       values (%L, 120, 80, 'PARTIALLY_APPROVED', %L) $$,
     (select id from public.overtime_records where employee_id =
        (select id from public.employees where external_workera_id = 'GATED-INSTALL-001') and work_date = date '2026-08-18'),
     '40000000-0000-0000-0000-000000000003'
   ),
-  'INSTALLATION martes: 200 min aprobados (> 120) es permitido — sin límite fijo automático'
+  'INSTALLATION martes: conserva 200 reales y limita lo pagable a 120'
 );
 
 -- Cantidad exacta conservada.
@@ -409,11 +409,11 @@ select is(
      join public.overtime_records ovr on ovr.id = od.overtime_record_id
      where ovr.employee_id = (select id from public.employees where external_workera_id = 'GATED-INSTALL-001')
        and ovr.work_date = date '2026-08-18' and od.is_current),
-  200,
-  'INSTALLATION: approved_minutes conserva la cantidad exacta decidida por el supervisor (200)'
+  120,
+  'INSTALLATION: approved_minutes respeta el tope y candidate_minutes conserva el dato real'
 );
 
--- 2026-08-22 sábado (fin de semana): candidato 250, aprobar 250 -> permitido
+-- 2026-08-22 sábado: candidato 250, aprobar 120 -> parcial
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -436,12 +436,12 @@ select lives_ok(
   format(
     $$ insert into public.overtime_decisions
          (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by)
-       values (%L, 250, 0, 'FULLY_APPROVED', %L) $$,
+       values (%L, 120, 130, 'PARTIALLY_APPROVED', %L) $$,
     (select id from public.overtime_records where employee_id =
        (select id from public.employees where external_workera_id = 'GATED-INSTALL-001') and work_date = date '2026-08-22'),
     '40000000-0000-0000-0000-000000000003'
   ),
-  'INSTALLATION fin de semana: 250 min aprobados es permitido'
+  'INSTALLATION sábado: conserva 250 reales y limita lo pagable a 120'
 );
 
 -- Supervisor NO asignado (SUPERVISOR_PRODUCTION) no puede aprobar horas de INSTALLATION.
@@ -535,8 +535,7 @@ values (
   (select op.id from public.overtime_policies op join public.employee_groups eg on eg.id = op.employee_group_id
      where eg.code = 'PRODUCTION' and op.day_of_week = 1)
 );
--- Gate D (segundo hardening): rechazar dentro del selector binario de
--- Producción lunes-viernes HH50 exige motivo obligatorio.
+-- Un rechazo conserva los 60 minutos reales como rechazados y no genera bono.
 insert into public.overtime_decisions
   (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by, reason)
 values (
@@ -553,7 +552,7 @@ select is(
   'bono: rechazo total (0 min aprobados) no genera ningún bono'
 );
 
--- 1 min aprobado -> $0.
+-- 1 min real no es pagable: se conserva y rechaza -> $0.
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -577,22 +576,17 @@ insert into public.overtime_decisions
 values (
   (select id from public.overtime_records where employee_id =
      (select id from public.employees where external_workera_id = 'GATED-PROD-001') and work_date = date '2026-08-25'),
-  1, 0, 'FULLY_APPROVED', '40000000-0000-0000-0000-000000000002'
+  0, 1, 'REJECTED', '40000000-0000-0000-0000-000000000002'
 );
 select is(
   (select count(*)::int from public.employee_daily_bonuses
      where employee_id = (select id from public.employees where external_workera_id = 'GATED-PROD-001')
        and work_date = date '2026-08-25'),
   0,
-  'bono: 1 min aprobado no alcanza el umbral -> $0'
+  'bono: 1 min real no es pagable y no genera bono'
 );
 
--- 60 min aprobado (candidato 60, dentro de la ventana 60-114 del selector
--- binario) -> $0. Reemplaza el fixture original de 119 min: Gate D (segundo
--- hardening) restringe approved_minutes a {0,60,120} para Producción
--- lunes-viernes HH50, así que 119 ya no es un valor de decisión válido — se
--- usa 60 (coincide exactamente con la propuesta automática, sin motivo
--- obligatorio) preservando el mismo objetivo: por debajo de 120 no hay bono.
+-- 60 min exactos son aprobables y no alcanzan el umbral del bono.
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -635,7 +629,7 @@ select is(
   'bono: 120 min aprobados -> $1.000 (automático)'
 );
 
--- 121 min aprobado -> $1.000.
+-- 121 min reales, 120 pagables por tope de sábado -> $1.000.
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -659,17 +653,17 @@ insert into public.overtime_decisions
 values (
   (select id from public.overtime_records where employee_id =
      (select id from public.employees where external_workera_id = 'GATED-PROD-001') and work_date = date '2026-09-05'),
-  121, 0, 'FULLY_APPROVED', '40000000-0000-0000-0000-000000000002'
+  120, 1, 'PARTIALLY_APPROVED', '40000000-0000-0000-0000-000000000002'
 );
 select is(
   (select amount from public.employee_daily_bonuses
      where employee_id = (select id from public.employees where external_workera_id = 'GATED-PROD-001')
        and work_date = date '2026-09-05'),
   1000::bigint,
-  'bono: 121 min aprobados -> $1.000 (nunca $1.000 por hora)'
+  'bono: 121 reales / 120 pagables -> $1.000 diario'
 );
 
--- 180 min aprobado -> $1.000.
+-- Domingo de Producción bloqueado: 180 reales se rechazan y no generan bono.
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -693,23 +687,23 @@ insert into public.overtime_decisions
 values (
   (select id from public.overtime_records where employee_id =
      (select id from public.employees where external_workera_id = 'GATED-PROD-001') and work_date = date '2026-09-06'),
-  180, 0, 'FULLY_APPROVED', '40000000-0000-0000-0000-000000000002'
+  0, 180, 'REJECTED', '40000000-0000-0000-0000-000000000002'
 );
 select is(
-  (select amount from public.employee_daily_bonuses
+  (select count(*)::int from public.employee_daily_bonuses
      where employee_id = (select id from public.employees where external_workera_id = 'GATED-PROD-001')
        and work_date = date '2026-09-06'),
-  1000::bigint,
-  'bono: 180 min aprobados -> $1.000'
+  0,
+  'bono: Producción domingo está bloqueada y no genera bono'
 );
 
--- 360 min ya aprobado en 2026-08-22 (sábado, test de límite) -> $1.000.
+-- 120 min pagables sobre 360 reales del sábado -> $1.000.
 select is(
   (select amount from public.employee_daily_bonuses
      where employee_id = (select id from public.employees where external_workera_id = 'GATED-PROD-001')
        and work_date = date '2026-08-22'),
   1000::bigint,
-  'bono: 360 min aprobados -> $1.000 (monto fijo, no proporcional a las horas)'
+  'bono: 120 pagables sobre 360 reales -> $1.000 fijo diario'
 );
 
 -- Múltiples registros (versionado) que suman/alcanzan 120 -> un solo bono.
@@ -735,20 +729,14 @@ values (
      where eg.code = 'PRODUCTION' and op.day_of_week = 1),
   1, true
 );
--- Gate D (segundo hardening): 2026-08-31 es lunes, PRODUCTION, HH50 (el
--- overtime_type_id propuesto arriba como OVERTIME_100 es sobrescrito por el
--- trigger overtime_records_classify_rate según la fecha real) -> selector
--- binario {0,60,120}. 80 min ya no es aprobable directamente; se usa 60
--- aprobado / 20 rechazado (PARTIALLY_APPROVED, suma = candidato 80),
--- coincide con la propuesta automática de la ventana 60-114 (sin motivo
--- obligatorio) y preserva el mismo objetivo: v1 no alcanza el umbral de
--- bono, v2 (recálculo a 120) sí.
+-- El tipo propuesto HH100 se sobrescribe a HH50 por la fecha. Los 80 minutos
+-- se aprueban exactos: ya no existe selector binario ni redondeo.
 insert into public.overtime_decisions
   (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by)
 values (
   (select id from public.overtime_records where employee_id =
      (select id from public.employees where external_workera_id = 'GATED-PROD-001') and work_date = date '2026-08-31' and is_current),
-  60, 20, 'PARTIALLY_APPROVED', '40000000-0000-0000-0000-000000000002'
+  80, 0, 'FULLY_APPROVED', '40000000-0000-0000-0000-000000000002'
 );
 -- Recálculo: v1 deja de ser vigente, v2 la reemplaza (mismo patrón ya
 -- establecido en Fase 2A — un recálculo crea una fila nueva).
@@ -792,8 +780,7 @@ update public.overtime_decisions set is_current = false
     select id from public.overtime_records where employee_id =
       (select id from public.employees where external_workera_id = 'GATED-PROD-001') and work_date = date '2026-08-17'
   );
--- Gate D (segundo hardening): reducir una propuesta de 120 (candidato=120,
--- ventana 118-120) a 60 aprobados exige motivo obligatorio.
+-- RR. HH. reduce la aprobación a 60 con motivo y conserva 60 rechazados.
 insert into public.overtime_decisions
   (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by, reason)
 values (
@@ -840,8 +827,7 @@ select is(
   'bono: INSTALLATION también recibe el bono automático de $1.000 con 120 min aprobados'
 );
 
--- ADMINISTRATION no recibe bono (sin regla explícita) aunque exista una
--- decisión con minutos altos referenciando una overtime_policy técnica.
+-- ADMINISTRATION no es pagable: el candidato técnico se conserva y rechaza.
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -865,13 +851,13 @@ insert into public.overtime_decisions
 values (
   (select id from public.overtime_records where employee_id =
      (select id from public.employees where external_workera_id = 'GATED-ADMIN-001') and work_date = date '2026-08-17'),
-  120, 0, 'FULLY_APPROVED', '40000000-0000-0000-0000-000000000001'
+  0, 120, 'REJECTED', '40000000-0000-0000-0000-000000000001'
 );
 select is(
   (select count(*)::int from public.employee_daily_bonuses
      where employee_id = (select id from public.employees where external_workera_id = 'GATED-ADMIN-001')),
   0,
-  'bono: ADMINISTRATION no recibe bono automático (sin regla explícita confirmada)'
+  'bono: ADMINISTRATION está bloqueada y no recibe bono'
 );
 
 -- ===========================================================================

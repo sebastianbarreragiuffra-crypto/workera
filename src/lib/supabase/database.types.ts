@@ -4656,6 +4656,74 @@ export type Database = {
           },
         ]
       }
+      reporting_period_approvals: {
+        Row: {
+          accepted_workbook_version_id: string
+          approved_at: string
+          approved_by: string
+          company_id: string
+          id: string
+          invalidated_at: string | null
+          invalidation_reason: string | null
+          readiness_sha256: string
+          reporting_period_id: string
+          source_revision: number
+        }
+        Insert: {
+          accepted_workbook_version_id: string
+          approved_at?: string
+          approved_by: string
+          company_id: string
+          id?: string
+          invalidated_at?: string | null
+          invalidation_reason?: string | null
+          readiness_sha256: string
+          reporting_period_id: string
+          source_revision: number
+        }
+        Update: {
+          accepted_workbook_version_id?: string
+          approved_at?: string
+          approved_by?: string
+          company_id?: string
+          id?: string
+          invalidated_at?: string | null
+          invalidation_reason?: string | null
+          readiness_sha256?: string
+          reporting_period_id?: string
+          source_revision?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reporting_period_approvals_accepted_workbook_version_id_fkey"
+            columns: ["accepted_workbook_version_id"]
+            isOneToOne: false
+            referencedRelation: "payroll_workbook_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reporting_period_approvals_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reporting_period_approvals_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reporting_period_approvals_reporting_period_id_fkey"
+            columns: ["reporting_period_id"]
+            isOneToOne: false
+            referencedRelation: "reporting_periods"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reporting_periods: {
         Row: {
           closed_at: string | null
@@ -4787,30 +4855,56 @@ export type Database = {
       }
       schedule_assignments: {
         Row: {
+          company_id: string
+          confirmation_reason: string | null
           created_at: string
           effective_from: string
           effective_to: string | null
           employee_id: string
           id: string
+          rrhh_confirmed_at: string | null
+          rrhh_confirmed_by: string | null
           work_schedule_id: string
         }
         Insert: {
+          company_id?: string
+          confirmation_reason?: string | null
           created_at?: string
           effective_from: string
           effective_to?: string | null
           employee_id: string
           id?: string
+          rrhh_confirmed_at?: string | null
+          rrhh_confirmed_by?: string | null
           work_schedule_id: string
         }
         Update: {
+          company_id?: string
+          confirmation_reason?: string | null
           created_at?: string
           effective_from?: string
           effective_to?: string | null
           employee_id?: string
           id?: string
+          rrhh_confirmed_at?: string | null
+          rrhh_confirmed_by?: string | null
           work_schedule_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "schedule_assignments_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_assignments_company_schedule_fkey"
+            columns: ["company_id", "work_schedule_id"]
+            isOneToOne: false
+            referencedRelation: "work_schedules"
+            referencedColumns: ["company_id", "id"]
+          },
           {
             foreignKeyName: "schedule_assignments_employee_id_fkey"
             columns: ["employee_id"]
@@ -4819,10 +4913,10 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "schedule_assignments_work_schedule_id_fkey"
-            columns: ["work_schedule_id"]
+            foreignKeyName: "schedule_assignments_rrhh_confirmed_by_fkey"
+            columns: ["rrhh_confirmed_by"]
             isOneToOne: false
-            referencedRelation: "work_schedules"
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -5277,6 +5371,7 @@ export type Database = {
       }
       work_schedule_rules: {
         Row: {
+          company_id: string
           created_at: string
           day_of_week: number
           id: string
@@ -5285,6 +5380,7 @@ export type Database = {
           work_schedule_id: string
         }
         Insert: {
+          company_id?: string
           created_at?: string
           day_of_week: number
           id?: string
@@ -5293,6 +5389,7 @@ export type Database = {
           work_schedule_id: string
         }
         Update: {
+          company_id?: string
           created_at?: string
           day_of_week?: number
           id?: string
@@ -5302,34 +5399,88 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "work_schedule_rules_work_schedule_id_fkey"
-            columns: ["work_schedule_id"]
+            foreignKeyName: "work_schedule_rules_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_schedule_rules_company_schedule_fkey"
+            columns: ["company_id", "work_schedule_id"]
             isOneToOne: false
             referencedRelation: "work_schedules"
-            referencedColumns: ["id"]
+            referencedColumns: ["company_id", "id"]
           },
         ]
       }
       work_schedules: {
         Row: {
           active: boolean
+          company_id: string
           created_at: string
+          created_by: string | null
+          definition_version: number
           id: string
           name: string
+          retired_at: string | null
+          retired_by: string | null
+          supersedes_schedule_id: string | null
         }
         Insert: {
           active?: boolean
+          company_id?: string
           created_at?: string
+          created_by?: string | null
+          definition_version?: number
           id?: string
           name: string
+          retired_at?: string | null
+          retired_by?: string | null
+          supersedes_schedule_id?: string | null
         }
         Update: {
           active?: boolean
+          company_id?: string
           created_at?: string
+          created_by?: string | null
+          definition_version?: number
           id?: string
           name?: string
+          retired_at?: string | null
+          retired_by?: string | null
+          supersedes_schedule_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "work_schedules_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_schedules_company_supersedes_fkey"
+            columns: ["company_id", "supersedes_schedule_id"]
+            isOneToOne: false
+            referencedRelation: "work_schedules"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "work_schedules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_schedules_retired_by_fkey"
+            columns: ["retired_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       workera_attendance_events: {
         Row: {
@@ -5550,6 +5701,18 @@ export type Database = {
       account_requires_mfa: {
         Args: { p_user: string }
         Returns: boolean
+      }
+      approve_reporting_period_ready: {
+        Args: {
+          p_actor_id: string
+          p_company_id: string
+          p_expected_accepted_version_id: string
+          p_expected_source_revision: number
+          p_expected_status: Database["public"]["Enums"]["reporting_period_status"]
+          p_readiness_sha256: string
+          p_reporting_period_id: string
+        }
+        Returns: string
       }
       activate_colaciones_discount_workbook: {
         Args: {
@@ -6087,6 +6250,26 @@ export type Database = {
         Args: { p_company_id: string; p_window_days?: number }
         Returns: Json
       }
+      begin_attendance_rule_engine_run: {
+        Args: {
+          p_company_id: string
+          p_triggered_by: string
+          p_triggered_by_profile: string | null
+          p_work_date: string
+        }
+        Returns: string | null
+      }
+      begin_workera_sync_run: {
+        Args: {
+          p_attempt: number
+          p_company_id: string
+          p_period_end: string
+          p_period_start: string
+          p_retry_of: string | null
+          p_triggered_by: string
+        }
+        Returns: string | null
+      }
       get_supporting_document_cleanup_health: {
         Args: { p_stale_after_seconds?: number }
         Returns: {
@@ -6376,8 +6559,38 @@ export type Database = {
         Returns: number
       }
       reclaim_stale_workera_sync_runs: {
-        Args: { p_stale_after_seconds?: number }
+        Args: { p_company_id: string; p_stale_after_seconds?: number }
         Returns: number
+      }
+      finish_attendance_rule_engine_run: {
+        Args: {
+          p_attendance_derived: number
+          p_company_id: string
+          p_early_departure_candidates: number
+          p_employees_processed: number
+          p_error_summary: string | null
+          p_failure_count: number
+          p_late_candidates: number
+          p_overtime_candidates: number
+          p_rule_engine_run_id: string
+          p_status: string
+          p_without_schedule: number
+        }
+        Returns: string
+      }
+      finish_workera_sync_run: {
+        Args: {
+          p_company_id: string
+          p_error_category: string | null
+          p_error_summary: Json | null
+          p_records_created: number
+          p_records_read: number
+          p_records_unchanged: number
+          p_records_updated: number
+          p_status: Database["public"]["Enums"]["sync_run_status"]
+          p_sync_run_id: string
+        }
+        Returns: boolean
       }
       recompute_employee_daily_bonus: {
         Args: { p_employee_id: string; p_work_date: string }
@@ -6467,6 +6680,98 @@ export type Database = {
       reject_medical_license: {
         Args: { p_approval_id: string; p_reason: string }
         Returns: undefined
+      }
+      reconcile_early_departure_candidate: {
+        Args: {
+          p_actual_end: string | null
+          p_attendance_record_id: string | null
+          p_company_id: string | null
+          p_detected_minutes: number | null
+          p_employee_id: string
+          p_rule_engine_run_id: string | null
+          p_scheduled_end: string | null
+          p_work_date: string
+        }
+        Returns: Json
+      }
+      reconcile_late_arrival_candidate: {
+        Args: {
+          p_actual_start: string | null
+          p_attendance_record_id: string | null
+          p_company_id: string | null
+          p_detected_minutes: number | null
+          p_employee_id: string
+          p_late_arrival_policy_id: string | null
+          p_rule_engine_run_id: string | null
+          p_scheduled_start: string | null
+          p_work_date: string
+        }
+        Returns: Json
+      }
+      reconcile_overtime_candidate: {
+        Args: {
+          p_attendance_record_id: string | null
+          p_candidate_minutes: number | null
+          p_company_id: string | null
+          p_employee_id: string
+          p_overtime_policy_id: string | null
+          p_rule_engine_run_id: string | null
+          p_work_date: string
+        }
+        Returns: Json
+      }
+      reconcile_workera_attendance_day: {
+        Args: {
+          p_actual_clock_in: string | null
+          p_actual_clock_out: string | null
+          p_company_id: string
+          p_employee_id: string
+          p_rule_engine_run_id: string | null
+          p_source_hash: string | null
+          p_work_date: string
+        }
+        Returns: string | null
+      }
+      replace_attendance_correction: {
+        Args: {
+          p_attendance_record_id: string
+          p_corrected_clock_in: string | null
+          p_corrected_clock_out: string | null
+          p_employee_id: string
+          p_reason: string
+          p_work_date: string
+        }
+        Returns: string
+      }
+      replace_system_attendance_status: {
+        Args: {
+          p_attendance_status_id: string
+          p_company_id: string
+          p_employee_id: string
+          p_rule_engine_run_id: string
+          p_source_hash: string
+          p_work_date: string
+        }
+        Returns: boolean
+      }
+      replace_workera_attendance_record: {
+        Args: {
+          p_actual_clock_in: string | null
+          p_actual_clock_out: string | null
+          p_company_id: string
+          p_employee_id: string
+          p_source_hash: string | null
+          p_work_date: string
+        }
+        Returns: string | null
+      }
+      retire_system_attendance_status: {
+        Args: {
+          p_company_id: string
+          p_employee_id: string
+          p_work_date: string
+        }
+        Returns: boolean
       }
       request_is_aal2: { Args: never; Returns: boolean }
       release_expense_receipt_email_event: {
@@ -6592,7 +6897,30 @@ export type Database = {
         Returns: undefined
       }
       upsert_work_schedule: {
-        Args: { p_name: string; p_rules: Json; p_schedule_id: string }
+        Args: {
+          p_company_id: string
+          p_name: string
+          p_rules: Json
+          p_schedule_id: string
+        }
+        Returns: string
+      }
+      upsert_workera_attendance_event: {
+        Args: {
+          p_attendance_status: string
+          p_attendance_timestamp_raw: string
+          p_attendance_type_code: number
+          p_attendance_type_label: string
+          p_checksum: string | null
+          p_company_id: string
+          p_device_name: string | null
+          p_employee_id: string
+          p_external_attendance_status: string
+          p_external_employee_code: string
+          p_origin: string | null
+          p_origin_code: string | null
+          p_sync_run_id: string
+        }
         Returns: string
       }
       withdraw_expense_report: {

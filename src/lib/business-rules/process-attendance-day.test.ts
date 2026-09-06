@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   processAttendanceDay,
   runRuleEngineForDate,
@@ -36,10 +38,13 @@ const overtimeResult = (status: GenerateOvertimeCandidateStatus): GenerateOverti
 
 const DATE = "2026-09-01";
 const COMPANY_ID = "10000000-0000-4000-8000-000000000001";
+const RUN_ID = "30000000-0000-4000-8000-000000000003";
 const OTHER_COMPANY_ID = "20000000-0000-4000-8000-000000000002";
 
-function scoped(options: Omit<ProcessAttendanceDayOptions, "companyId"> = {}): ProcessAttendanceDayOptions {
-  return { ...options, companyId: COMPANY_ID };
+function scoped(
+  options: Omit<ProcessAttendanceDayOptions, "companyId" | "ruleEngineRunId"> = {}
+): ProcessAttendanceDayOptions {
+  return { ...options, companyId: COMPANY_ID, ruleEngineRunId: RUN_ID };
 }
 
 interface EffectivePunchRow {
@@ -60,6 +65,7 @@ interface StatusRecordRow {
 interface StatusWrites {
   inserted: { employee_id: string; attendance_status_id: string; source: string }[];
   superseded: string[];
+  rpcCalls: Array<{ name: string; args: Record<string, unknown> }>;
 }
 
 interface EmployeeScopeRow {
@@ -68,6 +74,7 @@ interface EmployeeScopeRow {
   active: boolean;
   hire_date?: string | null;
   employee_groups?: { code: string } | null;
+  has_fact?: boolean;
 }
 
 /**
@@ -82,10 +89,12 @@ function supabaseStub(
   holidayDates: string[] = [],
   effectivePunchesError: { message: string } | null = null,
   employees: EmployeeScopeRow[] | null = null,
-  birthdaysError: { message: string } | null = null
+  birthdaysError: { message: string } | null = null,
+  statusRpcError: { message: string } | null = null,
 ): { client: never; writes: StatusWrites; employeeFilters: Array<{ method: "eq" | "in"; column: string; value: unknown }> } {
-  const writes: StatusWrites = { inserted: [], superseded: [] };
+  const writes: StatusWrites = { inserted: [], superseded: [], rpcCalls: [] };
   const employeeFilters: Array<{ method: "eq" | "in"; column: string; value: unknown }> = [];
+  const currentStatusByEmployee = new Map(existingStatuses.map((row) => [row.employee_id, row]));
 
   const dataFor = (table: string): unknown[] => {
     if (table === "attendance_statuses") {
@@ -100,10 +109,34 @@ function supabaseStub(
     if (table === "employee_birthdays") return birthdays;
     if (table === "holidays") return holidayDates.map((d) => ({ holiday_date: d }));
     if (table === "employees") return employees ?? [];
+    if (table === "workera_attendance_events" || table === "attendance_records") {
+      return (employees ?? []).filter((employee) => employee.has_fact).map((employee) => ({ employee_id: employee.id }));
+    }
     return [];
   };
 
   const client = {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      writes.rpcCalls.push({ name, args });
+      if (name !== "replace_system_attendance_status") throw new Error(`RPC inesperado: ${name}`);
+      if (statusRpcError) return { data: null, error: statusRpcError };
+
+      const employeeId = String(args.p_employee_id);
+      const statusId = String(args.p_attendance_status_id);
+      const current = currentStatusByEmployee.get(employeeId);
+      if (current && current.source !== "system") return { data: false, error: null };
+      if (current && current.attendance_status_id === statusId) return { data: false, error: null };
+      if (current) writes.superseded.push(current.id);
+      writes.inserted.push({ employee_id: employeeId, attendance_status_id: statusId, source: "system" });
+      currentStatusByEmployee.set(employeeId, {
+        id: `status-write-${writes.inserted.length}`,
+        employee_id: employeeId,
+        attendance_status_id: statusId,
+        source: "system",
+        source_version: (current?.source_version ?? 0) + 1,
+      });
+      return { data: true, error: null };
+    },
     from: (table: string) => {
       // Builder encadenable y "thenable": cualquier combinación de
       // select/eq/gte/lte/in/order resuelve a los datos de esa tabla.
@@ -232,7 +265,7 @@ test("processAttendanceDay: agrega los candidatos generados por los tres motores
     "emp-3": { attendance: derived(), early: "GENERATED", late: "GENERATED" },
   });
 
-  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1", "emp-2", "emp-3"] }, deps);
+  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1", "emp-2", "emp-3"] }, deps);
 
   assert.equal(result.employeesProcessed, 3);
   assert.equal(result.attendanceDerived, 3);
@@ -264,7 +297,7 @@ test("processAttendanceDay: sin attendance_record no invoca ningún generador (e
     }) as ProcessAttendanceDayDeps["generateOvertimeCandidate"],
   };
 
-  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, employeeIds: ["exento", "libre", "sin-horario"] }, deps);
+  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["exento", "libre", "sin-horario"] }, deps);
 
   assert.equal(generatorsCalled, 0);
   assert.equal(result.exempt, 1);
@@ -280,7 +313,7 @@ test("processAttendanceDay: `withoutSchedule` es la señal de cobertura incomple
     "emp-3": { attendance: noRecord("NO_SCHEDULE_ASSIGNED") },
   });
 
-  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1", "emp-2", "emp-3"] }, deps);
+  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1", "emp-2", "emp-3"] }, deps);
   assert.equal(result.withoutSchedule, 2);
 });
 
@@ -291,7 +324,7 @@ test("processAttendanceDay: el fallo de un trabajador no cancela a los demás", 
     "emp-3": { attendance: derived(), overtime: "GENERATED" },
   });
 
-  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1", "emp-roto", "emp-3"] }, deps);
+  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1", "emp-roto", "emp-3"] }, deps);
 
   assert.equal(result.employeesProcessed, 3);
   assert.equal(result.failures.length, 1);
@@ -306,7 +339,7 @@ test("processAttendanceDay: un trabajador que falla no se cuenta como derivado n
     "emp-roto": { attendance: derived(), throwOn: "derive" },
   });
 
-  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, employeeIds: ["emp-roto"] }, deps);
+  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-roto"] }, deps);
 
   assert.equal(result.attendanceDerived, 0);
   assert.equal(result.withoutSchedule, 0);
@@ -319,7 +352,7 @@ test("processAttendanceDay: un fallo dentro de un generador también queda aisla
     "emp-roto": { attendance: derived(), throwOn: "late" },
   });
 
-  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1", "emp-roto"] }, deps);
+  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1", "emp-roto"] }, deps);
   assert.equal(result.failures.length, 1);
   assert.match(result.failures[0].message, /falla atraso/);
 });
@@ -333,7 +366,7 @@ test("processAttendanceDay: un fallo de generador no publica P/? para una jornad
   const result = await processAttendanceDay(
     client,
     DATE,
-    { companyId: COMPANY_ID, employeeIds: ["emp-roto"] },
+    { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-roto"] },
     deps
   );
 
@@ -347,7 +380,7 @@ test("processAttendanceDay: UNCHANGED se cuenta aparte de DERIVED (reprocesar no
     "emp-2": { attendance: derived() },
   });
 
-  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1", "emp-2"] }, deps);
+  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1", "emp-2"] }, deps);
 
   assert.equal(result.attendanceUnchanged, 1);
   assert.equal(result.attendanceDerived, 1);
@@ -361,7 +394,7 @@ test("processAttendanceDay: UNCHANGED igual corre los generadores (una correcci�
     },
   });
 
-  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1"] }, deps);
+  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
   assert.equal(result.lateCandidates, 1);
 });
 
@@ -371,7 +404,7 @@ test("processAttendanceDay: conserva el contador para una política futura aún 
     "produccion-1": { attendance: derived(), overtime: "GENERATED" },
   });
 
-  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, employeeIds: ["instalacion-1", "produccion-1"] }, deps);
+  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["instalacion-1", "produccion-1"] }, deps);
 
   assert.equal(result.overtimeCandidates, 1);
   assert.equal(result.overtimeRequiresConfirmation, 1);
@@ -397,7 +430,7 @@ test("processAttendanceDay: el cumpleaños del trabajador llega al generador de 
   await processAttendanceDay(
     stub([{ employee_id: "emp-1", birth_month: 9, birth_day: 1 }]),
     DATE,
-    { companyId: COMPANY_ID, employeeIds: ["emp-1"] },
+    { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] },
     deps
   );
 
@@ -421,12 +454,12 @@ test("processAttendanceDay: sin cumpleaños cargado pasa null, nunca un objeto i
     }) as ProcessAttendanceDayDeps["generateEarlyDepartureCandidate"],
   };
 
-  await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1"] }, deps);
+  await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
   assert.equal(received, null);
 });
 
 test("processAttendanceDay: lista vacía es una corrida válida, no un error", async () => {
-  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, employeeIds: [] }, scriptedDeps({}));
+  const result = await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: [] }, scriptedDeps({}));
   assert.equal(result.employeesProcessed, 0);
   assert.equal(result.failures.length, 0);
 });
@@ -460,7 +493,7 @@ test("processAttendanceDay: usa la marcación EFECTIVA cuando existe una correcc
   const result = await processAttendanceDay(
     stub([], [{ attendance_record_id: "ar-1", effective_clock_in: "2026-09-01T11:30:00Z", effective_clock_out: "2026-09-01T22:30:00Z" }]),
     DATE,
-    { companyId: COMPANY_ID, employeeIds: ["emp-1"] },
+    { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] },
     depsSinSalida
   );
 
@@ -478,7 +511,7 @@ test("processAttendanceDay: sin corrección, la marcación efectiva es exactamen
     }) as ProcessAttendanceDayDeps["generateOvertimeCandidate"],
   };
 
-  await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1"] }, deps);
+  await processAttendanceDay(stub(), DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
   assert.equal(recibido[0], "2026-09-01T21:00:00Z");
 });
 
@@ -495,7 +528,7 @@ test("processAttendanceDay: una corrección de OTRO attendance_record no contami
   await processAttendanceDay(
     stub([], [{ attendance_record_id: "ar-OTRO", effective_clock_in: null, effective_clock_out: "2026-09-01T23:59:00Z" }]),
     DATE,
-    { companyId: COMPANY_ID, employeeIds: ["emp-1"] },
+    { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] },
     deps
   );
 
@@ -507,7 +540,7 @@ test("processAttendanceDay: si falla la vista de marcaciones efectivas aborta, n
   const deps = scriptedDeps({ "emp-1": { attendance: derived("ar-1") } });
 
   await assert.rejects(
-    () => processAttendanceDay(client, DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1"] }, deps),
+    () => processAttendanceDay(client, DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps),
     /loadEffectivePunches: fallo leyendo attendance_effective_punches: vista temporalmente no disponible/
   );
 });
@@ -519,7 +552,7 @@ test("processAttendanceDay: marca P cuando hubo marcación de entrada", async ()
   const { client, writes } = supabaseStub();
   const deps = scriptedDeps({ "emp-1": { attendance: derived() } });
 
-  const result = await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1"] }, deps);
+  const result = await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
 
   assert.deepEqual(writes.inserted, [{ employee_id: "emp-1", attendance_status_id: "status-P", source: "system" }]);
   assert.equal(result.statusesWritten, 1);
@@ -533,7 +566,7 @@ test("processAttendanceDay: marca '?' cuando era día laboral y no hubo ninguna 
     deriveDailyAttendanceRecord: (async () => sinMarcacion) as ProcessAttendanceDayDeps["deriveDailyAttendanceRecord"],
   };
 
-  await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1"] }, deps);
+  await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
 
   assert.equal(writes.inserted[0].attendance_status_id, "status-?");
 });
@@ -548,7 +581,7 @@ test("processAttendanceDay: exento / día libre / sin horario no reciben código
       )) as ProcessAttendanceDayDeps["deriveDailyAttendanceRecord"],
   };
 
-  const result = await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, employeeIds: ["exento", "libre", "sin-horario"] }, deps);
+  const result = await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["exento", "libre", "sin-horario"] }, deps);
 
   assert.deepEqual(writes.inserted, [], "no hay nada que afirmar sobre un día que no debía tener marcación");
   assert.equal(result.statusesWritten, 0);
@@ -567,7 +600,7 @@ test("processAttendanceDay: NUNCA pisa un código que puso una persona", async (
     deriveDailyAttendanceRecord: (async () => sinMarcacion) as ProcessAttendanceDayDeps["deriveDailyAttendanceRecord"],
   };
 
-  const result = await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1"] }, deps);
+  const result = await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
 
   assert.deepEqual(writes.inserted, [], "la fila manual es intocable");
   assert.deepEqual(writes.superseded, []);
@@ -582,7 +615,7 @@ test("processAttendanceDay: tampoco pisa un código que vino de Workera", async 
   );
   const deps = scriptedDeps({ "emp-1": { attendance: derived() } });
 
-  await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1"] }, deps);
+  await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
   assert.deepEqual(writes.inserted, []);
 });
 
@@ -594,7 +627,7 @@ test("processAttendanceDay: reprocesar sin cambios no versiona el código diario
   );
   const deps = scriptedDeps({ "emp-1": { attendance: derived() } });
 
-  const result = await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1"] }, deps);
+  const result = await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
 
   assert.deepEqual(writes.inserted, [], "ya decía P: no hay nada que actualizar");
   assert.equal(result.statusesWritten, 0);
@@ -608,10 +641,62 @@ test("processAttendanceDay: sí actualiza su propia marca cuando el código camb
   );
   const deps = scriptedDeps({ "emp-1": { attendance: derived() } });
 
-  await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, employeeIds: ["emp-1"] }, deps);
+  await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
 
   assert.deepEqual(writes.superseded, ["asr-1"], "la versión anterior se cierra");
   assert.equal(writes.inserted[0].attendance_status_id, "status-P");
+});
+
+test("processAttendanceDay: publica cada código con un único RPC atómico y tenant-scoped", async () => {
+  const { client, writes } = supabaseStub();
+  const deps = scriptedDeps({ "emp-1": { attendance: derived() } });
+
+  await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
+
+  assert.equal(writes.rpcCalls.length, 1);
+  assert.deepEqual(writes.rpcCalls[0].args, {
+    p_company_id: COMPANY_ID,
+    p_rule_engine_run_id: RUN_ID,
+    p_employee_id: "emp-1",
+    p_work_date: DATE,
+    p_attendance_status_id: "status-P",
+    p_source_hash: writes.rpcCalls[0].args.p_source_hash,
+  });
+  assert.match(String(writes.rpcCalls[0].args.p_source_hash), /^[a-f0-9]{64}$/);
+});
+
+test("processAttendanceDay: un fallo del RPC no ejecuta un UPDATE previo ni deja versión local a medias", async () => {
+  const { client, writes } = supabaseStub(
+    [], [],
+    [{ id: "asr-1", employee_id: "emp-1", attendance_status_id: "status-?", source: "system", source_version: 7 }],
+    [], null, null, null,
+    { message: "fallo transaccional" },
+  );
+  const deps = scriptedDeps({ "emp-1": { attendance: derived() } });
+
+  const result = await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
+
+  assert.deepEqual(writes.superseded, []);
+  assert.deepEqual(writes.inserted, []);
+  assert.equal(result.statusesWritten, 0);
+  assert.match(result.failures.at(-1)?.message ?? "", /fallo transaccional/);
+});
+
+test("código diario del motor: la base versiona en una transacción idempotente y cierra DML service_role", () => {
+  const sql = readFileSync(path.resolve(
+    import.meta.dirname,
+    "../../../supabase/migrations/20260906210000_payroll_revision_state_integrity.sql",
+  ), "utf8");
+  const rpc = sql.slice(
+    sql.indexOf("create or replace function public.replace_system_attendance_status"),
+    sql.indexOf("-- El guard heredado cubria solo INSERT"),
+  );
+
+  assert.match(rpc, /security definer[\s\S]*?payroll-source-mutation-v1[\s\S]*?for update/);
+  assert.match(rpc, /max\(asr\.source_version\)[\s\S]*?set is_current = false[\s\S]*?insert into public\.attendance_status_records/);
+  assert.match(rpc, /ats\.code in \('P', '\?'\)/);
+  assert.match(sql, /revoke insert, update, delete on public\.attendance_status_records\s+from service_role/);
+  assert.match(sql, /grant execute on function public\.replace_system_attendance_status[\s\S]*?to service_role/);
 });
 
 // ---------------------------------------------------------------------------
@@ -619,9 +704,11 @@ test("processAttendanceDay: sí actualiza su propia marca cuando el código camb
 
 test("processAttendanceDay: en un feriado le pasa isHoliday=true a deriveDailyAttendanceRecord", async () => {
   let received: boolean | undefined;
+  let receivedCompany: string | undefined;
   const deps: ProcessAttendanceDayDeps = {
     ...scriptedDeps({ "emp-1": { attendance: derived() } }),
-    deriveDailyAttendanceRecord: (async (_s: unknown, _e: string, _d: string, isHoliday?: boolean) => {
+    deriveDailyAttendanceRecord: (async (_s: unknown, _e: string, _d: string, companyId: string, isHoliday?: boolean) => {
+      receivedCompany = companyId;
       received = isHoliday;
       return derived();
     }) as ProcessAttendanceDayDeps["deriveDailyAttendanceRecord"],
@@ -629,7 +716,8 @@ test("processAttendanceDay: en un feriado le pasa isHoliday=true a deriveDailyAt
 
   // El stub declara 2026-09-18 como feriado.
   const { client } = supabaseStub([], [], [], ["2026-09-18"]);
-  await processAttendanceDay(client, "2026-09-18", { companyId: COMPANY_ID, employeeIds: ["emp-1"] }, deps);
+  await processAttendanceDay(client, "2026-09-18", { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
+  assert.equal(receivedCompany, COMPANY_ID);
   assert.equal(received, true);
 });
 
@@ -637,14 +725,14 @@ test("processAttendanceDay: un día normal pasa isHoliday=false", async () => {
   let received: boolean | undefined;
   const deps: ProcessAttendanceDayDeps = {
     ...scriptedDeps({ "emp-1": { attendance: derived() } }),
-    deriveDailyAttendanceRecord: (async (_s: unknown, _e: string, _d: string, isHoliday?: boolean) => {
+    deriveDailyAttendanceRecord: (async (_s: unknown, _e: string, _d: string, _companyId: string, isHoliday?: boolean) => {
       received = isHoliday;
       return derived();
     }) as ProcessAttendanceDayDeps["deriveDailyAttendanceRecord"],
   };
 
   const { client } = supabaseStub([], [], [], ["2026-09-18"]);
-  await processAttendanceDay(client, "2026-09-22", { companyId: COMPANY_ID, employeeIds: ["emp-1"] }, deps);
+  await processAttendanceDay(client, "2026-09-22", { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
   assert.equal(received, false);
 });
 
@@ -655,7 +743,7 @@ test("processAttendanceDay: feriado sin marcación -> HOLIDAY, sin código diari
     deriveDailyAttendanceRecord: (async () => noRecord("HOLIDAY")) as ProcessAttendanceDayDeps["deriveDailyAttendanceRecord"],
   };
 
-  const result = await processAttendanceDay(client, "2026-09-18", { companyId: COMPANY_ID, employeeIds: ["emp-1", "emp-2"] }, deps);
+  const result = await processAttendanceDay(client, "2026-09-18", { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1", "emp-2"] }, deps);
 
   assert.equal(result.holiday, 2);
   assert.deepEqual(writes.inserted, [], "un feriado sin marcación no genera '?' ni P");
@@ -703,7 +791,7 @@ test("processAttendanceDay: feriado trabajado genera solo HH100, nunca atraso ni
     }) as ProcessAttendanceDayDeps["generateOvertimeCandidate"],
   };
 
-  const result = await processAttendanceDay(client, "2026-09-18", { companyId: COMPANY_ID, employeeIds: ["emp-1"] }, deps);
+  const result = await processAttendanceDay(client, "2026-09-18", { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, deps);
   assert.equal(lateCalls, 0);
   assert.equal(earlyCalls, 0);
   assert.equal(retiredLateCalls, 1, "un feriado retira el atraso que pudiera haber quedado vigente");
@@ -757,7 +845,7 @@ test("processAttendanceDay: rechaza companyId vacío antes de consultar datos", 
   const { client, employeeFilters } = supabaseStub();
 
   await assert.rejects(
-    () => processAttendanceDay(client, DATE, { companyId: "   ", employeeIds: ["emp-1"] }, scriptedDeps({})),
+    () => processAttendanceDay(client, DATE, { companyId: "   ", ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] }, scriptedDeps({})),
     /companyId es obligatorio/
   );
   assert.deepEqual(employeeFilters, []);
@@ -770,11 +858,30 @@ test("processAttendanceDay: un reproceso explícito incluye a una persona hoy in
   const result = await processAttendanceDay(
     client,
     DATE,
-    { companyId: COMPANY_ID, employeeIds: ["emp-inactive"] },
+    { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-inactive"] },
     scriptedDeps({ "emp-inactive": { attendance: derived() } })
   );
 
   assert.equal(result.employeesProcessed, 1, "una corrección histórica no depende del estado activo actual");
+});
+
+test("processAttendanceDay: la corrida completa incluye inactivos con hechos del día y omite inactivos sin hechos", async () => {
+  const { client } = supabaseStub([], [], [], [], null, [
+    { id: "emp-active", company_id: COMPANY_ID, active: true },
+    { id: "emp-inactive-fact", company_id: COMPANY_ID, active: false, has_fact: true },
+    { id: "emp-inactive-empty", company_id: COMPANY_ID, active: false },
+  ]);
+  const result = await processAttendanceDay(
+    client,
+    DATE,
+    { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID },
+    scriptedDeps({
+      "emp-active": { attendance: noRecord("EXEMPT") },
+      "emp-inactive-fact": { attendance: noRecord("EXEMPT") },
+    })
+  );
+
+  assert.deepEqual(result.outcomes.map((outcome) => outcome.employeeId), ["emp-active", "emp-inactive-fact"]);
 });
 
 test("processAttendanceDay: nunca deriva una fecha anterior al ingreso", async () => {
@@ -784,7 +891,7 @@ test("processAttendanceDay: nunca deriva una fecha anterior al ingreso", async (
   const result = await processAttendanceDay(
     client,
     DATE,
-    { companyId: COMPANY_ID, employeeIds: ["emp-future"] },
+    { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-future"] },
     scriptedDeps({ "emp-future": { attendance: derived() } })
   );
 
@@ -811,7 +918,7 @@ test("processAttendanceDay: pagina más de 1.000 empleados sin truncar el tenant
       overtimeResult("NO_OVERTIME")) as ProcessAttendanceDayDeps["generateOvertimeCandidate"],
   };
 
-  const result = await processAttendanceDay(client, DATE, { companyId: COMPANY_ID }, deps);
+  const result = await processAttendanceDay(client, DATE, { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID }, deps);
 
   assert.equal(result.employeesProcessed, 1_001);
   assert.equal(result.failures.length, 0);
@@ -824,7 +931,7 @@ test("processAttendanceDay: falla cerrado si no puede comprobar cumpleaños", as
     processAttendanceDay(
       client,
       DATE,
-      { companyId: COMPANY_ID, employeeIds: ["emp-1"] },
+      { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID, employeeIds: ["emp-1"] },
       scriptedDeps({ "emp-1": { attendance: derived() } })
     ),
     /loadBirthdays: fallo leyendo employee_birthdays/
@@ -833,60 +940,31 @@ test("processAttendanceDay: falla cerrado si no puede comprobar cumpleaños", as
 
 function ruleEngineRunStub(options: { updateMatches?: boolean } = {}) {
   const base = supabaseStub().client as unknown as { from(table: string): unknown };
-  const insertedRuns: Record<string, unknown>[] = [];
-  const updateFilters: Array<Array<{ column: string; value: unknown }>> = [];
   const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
 
   const client = {
     rpc: async (name: string, args: Record<string, unknown>) => {
       rpcCalls.push({ name, args });
+      if (name === "begin_attendance_rule_engine_run") return { data: "run-1", error: null };
+      if (name === "finish_attendance_rule_engine_run") {
+        return { data: options.updateMatches === false ? "LEASE_LOST" : "FINISHED", error: null };
+      }
       return { data: 0, error: null };
     },
     from(table: string) {
-      if (table !== "rule_engine_runs") return base.from(table);
-      return {
-        insert(row: Record<string, unknown>) {
-          insertedRuns.push(row);
-          const insertChain = {
-            select() {
-              return insertChain;
-            },
-            single: async () => ({ data: { id: "run-1" }, error: null }),
-          };
-          return insertChain;
-        },
-        update() {
-          const filters: Array<{ column: string; value: unknown }> = [];
-          updateFilters.push(filters);
-          const updateChain = {
-            eq(column: string, value: unknown) {
-              filters.push({ column, value });
-              return updateChain;
-            },
-            select() {
-              return updateChain;
-            },
-            maybeSingle: async () => ({
-              data: options.updateMatches === false ? null : { id: "run-1" },
-              error: null,
-            }),
-          };
-          return updateChain;
-        },
-      };
+      return base.from(table);
     },
   };
 
-  return { client, insertedRuns, updateFilters, rpcCalls };
+  return { client, rpcCalls };
 }
 
 test("runRuleEngineForDate: persiste y cierra la corrida con el company_id explícito", async () => {
-  const { client, insertedRuns, updateFilters, rpcCalls } = ruleEngineRunStub();
+  const { client, rpcCalls } = ruleEngineRunStub();
 
   const outcome = await runRuleEngineForDate(client as never, DATE, {
     companyId: COMPANY_ID,
     triggeredBy: "CRON",
-    options: { employeeIds: [] },
     deps: scriptedDeps({}),
   });
 
@@ -895,32 +973,56 @@ test("runRuleEngineForDate: persiste y cierra la corrida con el company_id expl�
     name: "reclaim_stale_rule_engine_runs",
     args: { p_company_id: COMPANY_ID, p_stale_after_seconds: 900 },
   });
-  assert.equal(insertedRuns[0].company_id, COMPANY_ID);
-  assert.ok(
-    updateFilters[0].some((filter) => filter.column === "company_id" && filter.value === COMPANY_ID),
-    "el cierre de la corrida también debe permanecer acotado al tenant"
-  );
-  assert.ok(
-    updateFilters[0].some((filter) => filter.column === "status" && filter.value === "RUNNING"),
-    "el cierre debe ser compare-and-set para no pisar una corrida ya recuperada"
-  );
+  assert.deepEqual(rpcCalls[1], {
+    name: "begin_attendance_rule_engine_run",
+    args: {
+      p_company_id: COMPANY_ID,
+      p_work_date: DATE,
+      p_triggered_by: "CRON",
+      p_triggered_by_profile: null,
+    },
+  });
+  assert.equal(rpcCalls[2].name, "finish_attendance_rule_engine_run");
+  assert.equal(rpcCalls[2].args.p_company_id, COMPANY_ID);
+  assert.equal(rpcCalls[2].args.p_rule_engine_run_id, "run-1");
+  assert.equal(rpcCalls[2].args.p_status, "SUCCEEDED");
 });
 
 test("runRuleEngineForDate: no sobrescribe una corrida cuyo lease fue recuperado", async () => {
-  const { client, updateFilters } = ruleEngineRunStub({ updateMatches: false });
+  const { client, rpcCalls } = ruleEngineRunStub({ updateMatches: false });
 
   await assert.rejects(
     runRuleEngineForDate(client as never, DATE, {
       companyId: COMPANY_ID,
       triggeredBy: "CRON",
-      options: { employeeIds: [] },
       deps: scriptedDeps({}),
     }),
     /perdió su lease/
   );
 
-  assert.equal(updateFilters.length, 2, "intenta cerrar SUCCEEDED y luego registrar FAILED sin pisar otro estado");
-  assert.ok(
-    updateFilters.every((filters) => filters.some((filter) => filter.column === "status" && filter.value === "RUNNING"))
+  assert.equal(
+    rpcCalls.filter((call) => call.name === "finish_attendance_rule_engine_run").length,
+    2,
+    "intenta cerrar SUCCEEDED y luego registrar FAILED sin pisar otro estado"
   );
+});
+
+test("runRuleEngineForDate: un alcance parcial nunca abre una corrida autoritativa", async () => {
+  const { client, rpcCalls } = ruleEngineRunStub();
+
+  await assert.rejects(
+    runRuleEngineForDate(
+      client as never,
+      DATE,
+      {
+        companyId: COMPANY_ID,
+        triggeredBy: "MANUAL",
+        options: { employeeIds: [] },
+        deps: scriptedDeps({}),
+      } as never
+    ),
+    /debe procesar el día completo/
+  );
+
+  assert.equal(rpcCalls.length, 0, "el intento parcial no recupera ni abre un lease");
 });

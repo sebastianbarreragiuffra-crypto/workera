@@ -29,6 +29,10 @@ test("statusLabel: traduce todos los estados", () => {
   for (const s of all) assert.ok(statusLabel(s).length > 0);
 });
 
+test("statusLabel: READY_TO_CLOSE se presenta como aprobación explícita de RR. HH.", () => {
+  assert.equal(statusLabel("READY_TO_CLOSE"), "Aprobado por RR. HH.");
+});
+
 // --- transitionReportingPeriod ---
 
 function mockUpdate(rowsReturned: { id: string }[] = [{ id: "p-1" }]) {
@@ -63,12 +67,27 @@ test("transitionReportingPeriod: rechaza una transición no permitida antes de t
   assert.equal(captured.patch, undefined, "no debe haber intentado escribir");
 });
 
-test("transitionReportingPeriod: al cerrar setea closed_by y closed_at en el mismo update (lo exige la policy)", async () => {
+test("transitionReportingPeriod: un cierre válido tampoco usa el update genérico; exige snapshot", async () => {
   const { supabase, captured } = mockUpdate();
-  await transitionReportingPeriod(supabase, { periodId: "p-1", from: "READY_TO_CLOSE", to: "CLOSED", actorId: "u-1" });
-  assert.equal(captured.patch?.status, "CLOSED");
-  assert.equal(captured.patch?.closed_by, "u-1");
-  assert.ok(captured.patch?.closed_at);
+  await assert.rejects(
+    () => transitionReportingPeriod(supabase, { periodId: "p-1", from: "READY_TO_CLOSE", to: "CLOSED", actorId: "u-1" }),
+    /snapshot Excel exacto/i
+  );
+  assert.equal(captured.patch, undefined, "el cierre nunca debe intentar un UPDATE directo");
+});
+
+test("transitionReportingPeriod: la aprobación tampoco usa el update genérico; exige readiness", async () => {
+  const { supabase, captured } = mockUpdate();
+  await assert.rejects(
+    () => transitionReportingPeriod(supabase, {
+      periodId: "p-1",
+      from: "IN_REVIEW",
+      to: "READY_TO_CLOSE",
+      actorId: "u-1",
+    }),
+    /recalcular pendientes/i,
+  );
+  assert.equal(captured.patch, undefined, "la aprobación nunca debe intentar un UPDATE directo");
 });
 
 test("transitionReportingPeriod: reabrir sin motivo falla", async () => {

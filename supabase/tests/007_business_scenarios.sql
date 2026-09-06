@@ -23,8 +23,8 @@ values (
 );
 
 -- ---------------------------------------------------------------------------
--- Caso 1: Producción, salida 19:00 lunes -> candidato 120 (tope de la política)
--- raw = 19:00 - 17:00 = 120; candidate = MAX(0, MIN(120, 120)) = 120
+-- Caso 1: Producción, salida 19:00 lunes -> candidato real 120.
+-- El candidato nunca se recorta; el tope se aplica solo al aprobar lo pagable.
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -48,13 +48,12 @@ select is(
      where employee_id = (select id from public.employees where external_workera_id = 'TEST-SCN-PROD-001')
        and work_date = date '2026-08-10'),
   120,
-  'Producción: salida 19:00 -> candidato 120 (tope de política) se representa correctamente'
+  'Producción: salida 19:00 -> candidato real 120 se representa correctamente'
 );
 
 -- ---------------------------------------------------------------------------
--- Caso 2: Producción, salida 19:45 (real, conservada) -> candidato sigue siendo
--- 120, no 165 (docs/BUSINESS_RULES_PRE_PHASE2.md sección 7 — clock-out tardío
--- por permanecer en instalaciones no se traduce 1:1 en horas extra).
+-- Caso 2: Producción, salida 19:45 -> candidato real 165, conservado sin
+-- truncarlo al tope pagable de 120.
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -69,7 +68,7 @@ values (
   date '2026-08-11',
   (select id from public.attendance_records where source_hash = 'hash-scn-prod-1945'),
   (select id from public.overtime_types where code = 'OVERTIME_50'),
-  120,
+  165,
   (select op.id from public.overtime_policies op join public.employee_groups eg on eg.id = op.employee_group_id
      where eg.code = 'PRODUCTION' and op.day_of_week = 2)
 );
@@ -82,8 +81,8 @@ select is(
   (select candidate_minutes from public.overtime_records
      where employee_id = (select id from public.employees where external_workera_id = 'TEST-SCN-PROD-001')
        and work_date = date '2026-08-11'),
-  120,
-  'overtime_records: candidato queda topado en 120 aunque clock_out real sea 19:45'
+  165,
+  'overtime_records: candidato conserva los 165 minutos reales aunque solo 120 puedan pagarse'
 );
 
 -- ---------------------------------------------------------------------------

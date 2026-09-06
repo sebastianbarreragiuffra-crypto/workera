@@ -6,6 +6,9 @@ import { areasVisibleToRole, type AreaCode, type CallerRole } from "../access/sc
 import { applyXlsxPresentation } from "../excel/xlsx-postprocess";
 import type { AttendanceExportPeriod } from "./attendance-export-periods";
 import { loadHolidaySet } from "./holidays";
+import type { AcceptedPayrollWorkbookAdjustment, PayrollAdjustmentField } from "../payroll/payroll-workbook-adjustments";
+
+type PayrollSummaryAdjustmentField = Exclude<PayrollAdjustmentField, "Código asistencia">;
 
 /**
  * Exportador de pre-nómina de asistencia, estándar 2026.
@@ -18,8 +21,8 @@ import { loadHolidaySet } from "./holidays";
  *
  * El libro se genera desde datos vivos para incluir el padrón completo. Nunca
  * inventa un estado: un día exigible sin dato definitivo sale `?`, nunca P/F
- * supuesto. El cierre inmutable debe persistirse como snapshot en una fase
- * posterior; este archivo editable es el artefacto operativo de pre-nómina.
+ * supuesto. El cierre persiste este mismo archivo como snapshot privado e
+ * inmutable; antes de cerrar sigue siendo el artefacto operativo editable.
  */
 
 const MISSING_STATUS_CODE = "?";
@@ -103,7 +106,15 @@ interface LateRow {
   employee_id: string;
   work_date: string;
   detected_minutes: number;
-  late_arrival_decisions: { payroll_minutes: number; payroll_effect: string; is_current: boolean }[] | null;
+  late_arrival_decisions: {
+    payroll_minutes: number;
+    payroll_effect: string;
+    justified: boolean;
+    reason: string | null;
+    decided_at: string;
+    is_current: boolean;
+    decided_by_profile: { display_name: string } | { display_name: string }[] | null;
+  }[] | null;
 }
 
 interface EarlyDepartureRow {
@@ -114,7 +125,11 @@ interface EarlyDepartureRow {
     | {
         payroll_minutes: number;
         payroll_effect: string;
+        reason_category: string;
+        reason: string | null;
+        decided_at: string;
         is_current: boolean;
+        decided_by_profile: { display_name: string } | { display_name: string }[] | null;
       }[]
     | null;
 }
@@ -151,6 +166,16 @@ interface OrganizationAssignmentRow {
   organization_units:
     | { code: string; name: string }
     | { code: string; name: string }[]
+    | null;
+}
+
+interface EmployeeGroupAssignmentRow {
+  employee_id: string;
+  effective_from: string;
+  effective_to: string | null;
+  employee_groups:
+    | { code: AreaCode; company_id: string }
+    | { code: AreaCode; company_id: string }[]
     | null;
 }
 
@@ -191,7 +216,11 @@ interface OvertimeRow {
   overtime_decisions:
     | {
         approved_minutes: number;
+        rejected_minutes: number;
         decision_status: Database["public"]["Enums"]["overtime_decision_status"];
+        reason: string | null;
+        decided_at: string;
+        decided_by_profile: { display_name: string } | { display_name: string }[] | null;
         is_current: boolean;
         employee_daily_bonuses:
           | { amount: number; currency: string }
@@ -201,10 +230,25 @@ interface OvertimeRow {
     | null;
 }
 
+interface AttendancePunchRow {
+  employee_id: string;
+  work_date: string;
+  actual_clock_in: string | null;
+  actual_clock_out: string | null;
+  attendance_corrections:
+    | {
+        corrected_clock_in: string | null;
+        corrected_clock_out: string | null;
+        is_current: boolean;
+      }[]
+    | null;
+}
+
 interface ScheduleAssignmentRow {
   employee_id: string;
   effective_from: string;
   effective_to: string | null;
+  rrhh_confirmed_at: string | null;
   work_schedules:
     | {
         work_schedule_rules: {
@@ -305,6 +349,8 @@ export function describeSchedule(
 
 export interface AttendanceExportDay {
   statusCode: string;
+  /** Minutos entre las marcas efectivas; no descuenta una colación inventada. */
+  recordedMinutes: number;
   /** Minutos observados por el motor; nunca se usan directamente para descontar. */
   lateDetectedMinutes: number;
   lateMinutes: number;
@@ -321,8 +367,29 @@ export interface AttendanceExportDay {
   earlyDepartureDecisionPending: boolean;
   overtime50DecisionPending: boolean;
   overtime100DecisionPending: boolean;
+  overtimeDecisionAudits?: {
+    typeCode: string;
+    candidateMinutes: number;
+    approvedMinutes: number;
+    decisionStatus: Database["public"]["Enums"]["overtime_decision_status"];
+    reason: string;
+    responsible: string;
+    decidedAt: string;
+  }[];
   missingPunchPending: boolean;
   absenceDecisionPending: boolean;
+  lateDecisionAudit?: {
+    decision: string;
+    reason: string;
+    responsible: string;
+    decidedAt: string;
+  };
+  earlyDepartureDecisionAudit?: {
+    decision: string;
+    reason: string;
+    responsible: string;
+    decidedAt: string;
+  };
 }
 
 export interface AttendanceExportWorker {
@@ -362,6 +429,10 @@ export interface AttendanceExportWorker {
   exemptDates: Set<string>;
   /** Texto del horario que la planilla escribe bajo el nombre. */
   scheduleLabel: string | null;
+  /** Grupo operacional que regía en cada fecha del corte. */
+  areaByDate?: Map<string, AreaCode>;
+  /** Una jornada distinta de término 17:00 aún no fue confirmada por RR. HH. */
+  scheduleConfirmationPending?: boolean;
 }
 
 export interface AttendanceExportData {
@@ -374,11 +445,18 @@ export interface AttendanceExportData {
   reportingPeriodStatus: Database["public"]["Enums"]["reporting_period_status"] | null;
   /** Fechas cuya última corrida no terminó correctamente; no pueden presentarse como listas para pagar. */
   ruleEngineProblemDates: ReadonlySet<string>;
+  /** Identidad técnica del tenant; se valida al reimportar el libro. */
+  companyId?: string;
+  /** Versión aceptada que sirvió como base de esta descarga, si existe. */
+  workbookBaseVersionId?: string | null;
+  /** Última decisión aceptada por trabajador/campo, reaplicada sin alterar Workera. */
+  workbookAdjustments?: readonly AcceptedPayrollWorkbookAdjustment[];
 }
 
 function emptyDay(): AttendanceExportDay {
   return {
     statusCode: MISSING_STATUS_CODE,
+    recordedMinutes: 0,
     lateDetectedMinutes: 0,
     lateMinutes: 0,
     earlyDepartureDetectedMinutes: 0,
@@ -392,6 +470,7 @@ function emptyDay(): AttendanceExportDay {
     earlyDepartureDecisionPending: false,
     overtime50DecisionPending: false,
     overtime100DecisionPending: false,
+    overtimeDecisionAudits: [],
     missingPunchPending: false,
     absenceDecisionPending: false,
   };
@@ -487,6 +566,8 @@ export async function buildAttendanceExportData(
     scheduledDates: new Set<string>(),
     exemptDates: new Set<string>(),
     scheduleLabel: null,
+    areaByDate: new Map(),
+    scheduleConfirmationPending: false,
   }));
   const byId = new Map(workers.map((w) => [w.employeeId, w]));
 
@@ -510,19 +591,40 @@ export async function buildAttendanceExportData(
       holidays,
       reportingPeriodStatus,
       ruleEngineProblemDates: new Set(days),
+      companyId,
+      workbookBaseVersionId: null,
     };
   }
 
   const employeeIdBatches = chunksOf(employeeIds, EMPLOYEE_ID_BATCH_SIZE);
   const [
+    attendancePunchPages,
     statusPages,
     latePages,
     earlyDeparturePages,
     overtimePages,
     missingPunchPages,
     absencePages,
+    employeeGroupAssignmentPages,
     organizationAssignmentPages,
   ] = await Promise.all([
+    Promise.all(
+      employeeIdBatches.map((ids) =>
+        fetchAllPages<AttendancePunchRow>("buildAttendanceExportData: fallo leyendo marcas efectivas", (from, to) =>
+          supabase
+            .from("attendance_records")
+            .select("employee_id, work_date, actual_clock_in, actual_clock_out, attendance_corrections(corrected_clock_in, corrected_clock_out, is_current)")
+            .in("employee_id", ids)
+            .gte("work_date", period.startDate)
+            .lte("work_date", period.endDate)
+            .eq("is_current", true)
+            .order("employee_id")
+            .order("work_date")
+            .order("id")
+            .range(from, to) as unknown as PromiseLike<PageResponse<AttendancePunchRow>>
+        )
+      )
+    ),
     Promise.all(
       employeeIdBatches.map((ids) =>
         fetchAllPages<StatusRow>("buildAttendanceExportData: fallo leyendo estados", (from, to) =>
@@ -546,7 +648,7 @@ export async function buildAttendanceExportData(
           supabase
             .from("late_arrival_records")
             .select(
-              "employee_id, work_date, detected_minutes, attendance_records!inner(is_current), late_arrival_decisions(payroll_minutes, payroll_effect, is_current)"
+              "employee_id, work_date, detected_minutes, attendance_records!inner(is_current), late_arrival_decisions(payroll_minutes, payroll_effect, justified, reason, decided_at, is_current, decided_by_profile:profiles!late_arrival_decisions_decided_by_fkey(display_name))"
             )
             .in("employee_id", ids)
             .gte("work_date", period.startDate)
@@ -566,7 +668,7 @@ export async function buildAttendanceExportData(
           supabase
             .from("early_departure_records")
             .select(
-              "employee_id, work_date, detected_minutes, attendance_records!inner(is_current), early_departure_decisions(payroll_minutes, payroll_effect, is_current)"
+              "employee_id, work_date, detected_minutes, attendance_records!inner(is_current), early_departure_decisions(payroll_minutes, payroll_effect, reason_category, reason, decided_at, is_current, decided_by_profile:profiles!early_departure_decisions_decided_by_fkey(display_name))"
             )
             .in("employee_id", ids)
             .gte("work_date", period.startDate)
@@ -586,7 +688,7 @@ export async function buildAttendanceExportData(
           supabase
             .from("overtime_records")
             .select(
-              "employee_id, work_date, candidate_minutes, attendance_records!inner(is_current), overtime_types(code), overtime_decisions(approved_minutes, decision_status, is_current, employee_daily_bonuses(amount, currency))"
+              "employee_id, work_date, candidate_minutes, attendance_records!inner(is_current), overtime_types(code), overtime_decisions(approved_minutes, rejected_minutes, decision_status, reason, decided_at, is_current, decided_by_profile:profiles!overtime_decisions_decided_by_fkey(display_name), employee_daily_bonuses(amount, currency))"
             )
             .in("employee_id", ids)
             .gte("work_date", period.startDate)
@@ -610,7 +712,7 @@ export async function buildAttendanceExportData(
             .gte("work_date", period.startDate)
             .lte("work_date", period.endDate)
             .eq("attendance_records.is_current", true)
-            .in("status", ["PENDING_CONTACT", "CONTACTED"])
+            .in("status", ["PENDING_CONTACT", "CONTACTED", "UNRESOLVED"])
             .order("employee_id")
             .order("work_date")
             .order("id")
@@ -637,6 +739,24 @@ export async function buildAttendanceExportData(
     ),
     Promise.all(
       employeeIdBatches.map((ids) =>
+        fetchAllPages<EmployeeGroupAssignmentRow>(
+          "buildAttendanceExportData: fallo leyendo grupos históricos",
+          (from, to) =>
+            supabase
+              .from("employee_group_assignments")
+              .select("employee_id, effective_from, effective_to, employee_groups!inner(code, company_id)")
+              .in("employee_id", ids)
+              .eq("employee_groups.company_id", companyId)
+              .lte("effective_from", period.endDate)
+              .order("employee_id")
+              .order("effective_from")
+              .order("id")
+              .range(from, to) as unknown as PromiseLike<PageResponse<EmployeeGroupAssignmentRow>>
+        )
+      )
+    ),
+    Promise.all(
+      employeeIdBatches.map((ids) =>
         fetchAllPages<OrganizationAssignmentRow>(
           "buildAttendanceExportData: fallo leyendo centros de costo",
           (from, to) =>
@@ -658,12 +778,54 @@ export async function buildAttendanceExportData(
     ),
   ]);
 
+  const attendancePunchRows = attendancePunchPages.flat();
   const statusRows = statusPages.flat();
   const lateRows = latePages.flat();
   const earlyDepartureRows = earlyDeparturePages.flat();
   const overtimeRows = overtimePages.flat();
   const missingPunchRows = missingPunchPages.flat();
   const absenceRows = absencePages.flat();
+
+  // El grupo actual de la ficha no puede reinterpretar un día histórico. Se
+  // materializa la vigencia por fecha y se rechazan huecos/solapamientos: los
+  // topes de HE y el rótulo del período deben usar la clasificación que regía
+  // al producirse cada marcación.
+  for (const row of employeeGroupAssignmentPages.flat()) {
+    const worker = byId.get(row.employee_id);
+    const relation = unwrap(row.employee_groups);
+    if (!worker || !relation || relation.company_id !== companyId) continue;
+    for (const date of days) {
+      if (date < row.effective_from || (row.effective_to !== null && date > row.effective_to)) continue;
+      const existing = worker.areaByDate?.get(date);
+      if (existing && existing !== relation.code) {
+        throw new Error(`buildAttendanceExportData: grupos históricos superpuestos (${row.employee_id}, ${date}).`);
+      }
+      worker.areaByDate?.set(date, relation.code);
+    }
+  }
+  for (const worker of workers) {
+    for (const date of days) {
+      if (beforeHire(worker, date)) continue;
+      if (!worker.areaByDate?.has(date)) {
+        throw new Error(`buildAttendanceExportData: falta grupo histórico (${worker.employeeId}, ${date}).`);
+      }
+    }
+    worker.area = worker.areaByDate?.get(period.endDate) ?? worker.area;
+  }
+
+  // Las horas registradas salen de las marcas efectivas (corrección vigente
+  // cuando existe; en caso contrario, el dato crudo inmutable de Workera).
+  // No se inventa ni se descuenta una colación porque no existe una regla de
+  // colación acordada para este artefacto.
+  for (const row of attendancePunchRows) {
+    const correction = (row.attendance_corrections ?? []).find((item) => item.is_current);
+    const clockIn = correction?.corrected_clock_in ?? row.actual_clock_in;
+    const clockOut = correction?.corrected_clock_out ?? row.actual_clock_out;
+    if (!clockIn || !clockOut) continue;
+    const elapsed = Math.floor((Date.parse(clockOut) - Date.parse(clockIn)) / 60_000);
+    const day = cell(row.employee_id, row.work_date);
+    if (day && Number.isFinite(elapsed) && elapsed >= 0) day.recordedMinutes = elapsed;
+  }
 
   // Centro de costo al último día del corte. El grupo PRODUCTION/INSTALLATION
   // clasifica reglas de asistencia, pero no es un maestro contable y por eso
@@ -698,6 +860,15 @@ export async function buildAttendanceExportData(
       day.lateDetectedMinutes = row.detected_minutes;
       day.lateDecisionPending = requiresReview;
       day.lateMinutes = !requiresReview && current?.payroll_effect === "DEDUCT" ? current.payroll_minutes : 0;
+      if (!requiresReview && current) {
+        const actor = unwrap(current.decided_by_profile)?.display_name;
+        day.lateDecisionAudit = {
+          decision: current.justified ? "JUSTIFICADO" : "DESCONTAR",
+          reason: current.reason ?? "",
+          responsible: actor ?? "Responsable registrado",
+          decidedAt: current.decided_at,
+        };
+      }
     }
   }
 
@@ -717,6 +888,15 @@ export async function buildAttendanceExportData(
     day.earlyDepartureDetectedMinutes = row.detected_minutes;
     day.earlyDepartureDecisionPending = requiresReview;
     day.earlyDepartureMinutes = !requiresReview && current?.payroll_effect === "DEDUCT" ? current.payroll_minutes : 0;
+    if (!requiresReview && current) {
+      const actor = unwrap(current.decided_by_profile)?.display_name;
+      day.earlyDepartureDecisionAudit = {
+        decision: current.payroll_effect === "DEDUCT" ? "DESCONTAR" : "JUSTIFICADO",
+        reason: current.reason ?? "",
+        responsible: actor ?? "Responsable registrado",
+        decidedAt: current.decided_at,
+      };
+    }
   }
 
   for (const row of missingPunchRows) {
@@ -743,9 +923,8 @@ export async function buildAttendanceExportData(
     }
   }
 
-  // Horas extra: SOLO las aprobadas. Un candidato sin decisión todavía no es
-  // hora extra pagable, y esta planilla es la que se compara contra la de
-  // remuneraciones -- mostrar candidatos ahí inflaría el número.
+  // Horas extra: el candidato conserva siempre el tiempo real observado y la
+  // decisión vigente aporta, por separado, únicamente el tiempo pagable.
   for (const row of overtimeRows) {
     const typeCode = unwrap(row.overtime_types)?.code;
     if (typeCode !== OVERTIME_50_CODE && typeCode !== OVERTIME_100_CODE) {
@@ -756,16 +935,25 @@ export async function buildAttendanceExportData(
 
     const day = cell(row.employee_id, row.work_date);
     if (!day) continue;
+    if (typeCode === OVERTIME_100_CODE) day.overtime100CandidateMinutes += row.candidate_minutes;
+    else day.overtime50CandidateMinutes += row.candidate_minutes;
     if (!current) {
       if (typeCode === OVERTIME_100_CODE) {
         day.overtime100DecisionPending = true;
-        day.overtime100CandidateMinutes += row.candidate_minutes;
       } else {
         day.overtime50DecisionPending = true;
-        day.overtime50CandidateMinutes += row.candidate_minutes;
       }
       continue;
     }
+    (day.overtimeDecisionAudits ??= []).push({
+      typeCode,
+      candidateMinutes: row.candidate_minutes,
+      approvedMinutes: current.approved_minutes,
+      decisionStatus: current.decision_status,
+      reason: current.reason ?? "",
+      responsible: unwrap(current.decided_by_profile)?.display_name ?? "Responsable no disponible",
+      decidedAt: current.decided_at,
+    });
     if (current.approved_minutes <= 0) continue;
     if (typeCode === OVERTIME_100_CODE) day.overtime100Minutes += current.approved_minutes;
     else day.overtime50Minutes += current.approved_minutes;
@@ -793,7 +981,7 @@ export async function buildAttendanceExportData(
         supabase
           .from("schedule_assignments")
           .select(
-            "employee_id, effective_from, effective_to, work_schedules(work_schedule_rules(day_of_week, scheduled_start, scheduled_end))"
+            "employee_id, effective_from, effective_to, rrhh_confirmed_at, work_schedules(work_schedule_rules(day_of_week, scheduled_start, scheduled_end))"
           )
           .in("employee_id", ids)
           .lte("effective_from", period.endDate)
@@ -826,6 +1014,10 @@ export async function buildAttendanceExportData(
         start: rule.scheduled_start,
         end: rule.scheduled_end,
       }));
+
+    if (row.rrhh_confirmed_at == null && workingRules.some((rule) => rule.end.slice(0, 5) !== "17:00")) {
+      worker.scheduleConfirmationPending = true;
+    }
 
     for (const date of days) {
       if (date < row.effective_from || (row.effective_to !== null && date > row.effective_to)) continue;
@@ -894,7 +1086,16 @@ export async function buildAttendanceExportData(
     if (!final || final.status !== "SUCCEEDED" || changedDuringExport) ruleEngineProblemDates.add(date);
   }
 
-  return { period, days, workers: includedWorkers, holidays, reportingPeriodStatus, ruleEngineProblemDates };
+  return {
+    period,
+    days,
+    workers: includedWorkers,
+    holidays,
+    reportingPeriodStatus,
+    ruleEngineProblemDates,
+    companyId,
+    workbookBaseVersionId: null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -947,6 +1148,7 @@ function beforeHire(worker: AttendanceExportWorker, date: string): boolean {
  */
 function dayHasAttendanceFact(day: AttendanceExportDay): boolean {
   return day.statusCode !== MISSING_STATUS_CODE ||
+    day.recordedMinutes > 0 ||
     day.lateDetectedMinutes > 0 ||
     day.lateMinutes > 0 ||
     day.earlyDepartureDetectedMinutes > 0 ||
@@ -1007,21 +1209,61 @@ function expectedWorkDate(
   return !worker.exemptDates.has(date) && scheduledWorkDate(worker, date, holidays);
 }
 
+function overtimePayableCap(worker: AttendanceExportWorker, date: string, holidays: ReadonlySet<string>): number | null {
+  const effectiveArea = worker.areaByDate?.get(date) ?? worker.area;
+  if (effectiveArea === "ADMINISTRATION") return 0;
+  const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
+  if (dayOfWeek === 0) return effectiveArea === "INSTALLATION" ? null : 0;
+  return holidays.has(date) ? 360 : 120;
+}
+
 interface WorkerExportSummary {
+  ordinaryRecordedMinutes: number;
   lateMinutes: number;
   earlyDepartureMinutes: number;
+  overtime50RealMinutes: number;
+  overtime100RealMinutes: number;
   overtime50Minutes: number;
   overtime100Minutes: number;
   bonusDays: number;
   bonusAmount: number;
   bonusDates: string[];
   reviewDates: string[];
+  lateWeeklyBreakdown: string;
+  earlyDepartureWeeklyBreakdown: string;
   observations: string;
 }
 
+interface WeeklyMinutes {
+  detected: number;
+  final: number;
+}
+
+function calendarWeekStart(date: string): string {
+  const value = new Date(`${date}T00:00:00Z`);
+  const daysFromMonday = (value.getUTCDay() + 6) % 7;
+  value.setUTCDate(value.getUTCDate() - daysFromMonday);
+  return value.toISOString().slice(0, 10);
+}
+
+function weeklyMinutesLabel(values: ReadonlyMap<string, WeeklyMinutes>): string {
+  return [...values.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([start, minutes]) => {
+      const end = new Date(`${start}T00:00:00Z`);
+      end.setUTCDate(end.getUTCDate() + 6);
+      const range = `${start.slice(8, 10)}/${start.slice(5, 7)}–${end.toISOString().slice(8, 10)}/${end.toISOString().slice(5, 7)}`;
+      return `${range}: original ${minutes.detected} min · descontable ${minutes.final} min`;
+    })
+    .join(" | ");
+}
+
 function summarizeWorker(worker: AttendanceExportWorker, data: AttendanceExportData): WorkerExportSummary {
+  let ordinaryRecordedMinutes = 0;
   let lateMinutes = 0;
   let earlyDepartureMinutes = 0;
+  let overtime50RealMinutes = 0;
+  let overtime100RealMinutes = 0;
   let overtime50Minutes = 0;
   let overtime100Minutes = 0;
   let bonusAmount = 0;
@@ -1036,6 +1278,9 @@ function summarizeWorker(worker: AttendanceExportWorker, data: AttendanceExportD
   let preHireFactDays = 0;
   const reviewDates = new Set<string>();
   const bonusDates = new Set<string>();
+  const lateByWeek = new Map<string, WeeklyMinutes>();
+  const earlyDepartureByWeek = new Map<string, WeeklyMinutes>();
+  const overtimeCapAlerts: string[] = [];
 
   for (const date of data.days) {
     const day = worker.days.get(date) ?? emptyDay();
@@ -1049,8 +1294,33 @@ function summarizeWorker(worker: AttendanceExportWorker, data: AttendanceExportD
     }
     lateMinutes += day.lateMinutes;
     earlyDepartureMinutes += day.earlyDepartureMinutes;
+    const weekStart = calendarWeekStart(date);
+    if (day.lateDetectedMinutes > 0 || day.lateMinutes > 0) {
+      const accumulated = lateByWeek.get(weekStart) ?? { detected: 0, final: 0 };
+      accumulated.detected += day.lateDetectedMinutes;
+      accumulated.final += day.lateMinutes;
+      lateByWeek.set(weekStart, accumulated);
+    }
+    if (day.earlyDepartureDetectedMinutes > 0 || day.earlyDepartureMinutes > 0) {
+      const accumulated = earlyDepartureByWeek.get(weekStart) ?? { detected: 0, final: 0 };
+      accumulated.detected += day.earlyDepartureDetectedMinutes;
+      accumulated.final += day.earlyDepartureMinutes;
+      earlyDepartureByWeek.set(weekStart, accumulated);
+    }
+    overtime50RealMinutes += day.overtime50CandidateMinutes;
+    overtime100RealMinutes += day.overtime100CandidateMinutes;
+    ordinaryRecordedMinutes += Math.max(
+      0,
+      day.recordedMinutes - day.overtime50CandidateMinutes - day.overtime100CandidateMinutes
+    );
     overtime50Minutes += day.overtime50Minutes;
     overtime100Minutes += day.overtime100Minutes;
+    const realOvertime = day.overtime50CandidateMinutes + day.overtime100CandidateMinutes;
+    const payableOvertime = day.overtime50Minutes + day.overtime100Minutes;
+    const payableCap = overtimePayableCap(worker, date, data.holidays);
+    if (payableCap !== null && realOvertime > payableCap && !day.overtime50DecisionPending && !day.overtime100DecisionPending) {
+      overtimeCapAlerts.push(`${date}: real ${realOvertime} min · pagable ${payableOvertime} min · tope ${payableCap} min`);
+    }
     bonusAmount += day.bonusAmount;
     if (day.bonusAmount > 0) bonusDates.add(date);
     if (statusRequiresPayrollReview(day.statusCode)) {
@@ -1102,6 +1372,7 @@ function summarizeWorker(worker: AttendanceExportWorker, data: AttendanceExportD
   const informationNotes: string[] = [];
   const reviewNotes: string[] = [];
   if (worker.exemptDates.size > 0) informationNotes.push("Exento de marcación durante el período indicado");
+  if (worker.scheduleConfirmationPending) reviewNotes.push("Jornada distinta de 17:00 pendiente de confirmación de RR. HH.");
   if (!worker.currentlyActive) reviewNotes.push("Persona inactiva: revisar fecha de salida");
   if (missingScheduleDays > 0) reviewNotes.push(`Sin horario vigente: ${missingScheduleDays} día(s)`);
   if (missingStatuses > 0) reviewNotes.push(`Marcación/estado pendiente: ${missingStatuses} día(s)`);
@@ -1112,16 +1383,22 @@ function summarizeWorker(worker: AttendanceExportWorker, data: AttendanceExportD
   if (pendingLate > 0) reviewNotes.push(`Atrasos por decidir: ${pendingLate}`);
   if (pendingEarlyDeparture > 0) reviewNotes.push(`Salidas anticipadas por decidir: ${pendingEarlyDeparture}`);
   if (pendingOvertime > 0) reviewNotes.push(`Horas extra por decidir: ${pendingOvertime}`);
+  if (overtimeCapAlerts.length > 0) informationNotes.push(`Alerta por exceso sobre tope HE: ${overtimeCapAlerts.join(" | ")}`);
 
   return {
+    ordinaryRecordedMinutes,
     lateMinutes,
     earlyDepartureMinutes,
+    overtime50RealMinutes,
+    overtime100RealMinutes,
     overtime50Minutes,
     overtime100Minutes,
     bonusDays: bonusDates.size,
     bonusAmount,
     bonusDates: [...bonusDates].sort(),
     reviewDates: [...reviewDates].sort(),
+    lateWeeklyBreakdown: weeklyMinutesLabel(lateByWeek),
+    earlyDepartureWeeklyBreakdown: weeklyMinutesLabel(earlyDepartureByWeek),
     observations: [...informationNotes, ...reviewNotes].join(" · "),
   };
 }
@@ -1138,7 +1415,7 @@ function exportStatusLabel(data: AttendanceExportData, pendingItems: PendingExpo
     ? `; procesamiento incompleto en ${engineProblemDates.length} fecha(s)`
     : "";
   if (data.period.type === "PAGO" && data.reportingPeriodStatus !== "CLOSED") {
-    return `BORRADOR — el período 16-15 no está cerrado${engineNote}${pendingWorkers > 0 ? ` y ${pendingWorkers} persona(s) requieren revisión` : ""}`;
+    return `REVISAR — el período 16-15 no está cerrado${engineNote}${pendingWorkers > 0 ? ` y ${pendingWorkers} persona(s) requieren revisión` : ""}`;
   }
   if (engineProblemDates.length > 0) {
     return `REVISAR — procesamiento incompleto en ${engineProblemDates.length} fecha(s)${pendingWorkers > 0 ? ` y ${pendingWorkers} persona(s) con pendientes propios` : ""}`;
@@ -1169,16 +1446,102 @@ function shortReviewDates(dates: string[]): string {
 
 interface PendingExportRow {
   scope: "GLOBAL" | "PERSONA";
+  priority: "CRÍTICA" | "ALTA" | "INFORMATIVA";
+  state: "PENDIENTE" | "RESUELTO";
   employeeId: string;
   employeeCode: string;
   employeeRut: string;
   workerName: string;
+  area: string;
   costCenter: string;
   date: string;
   issue: string;
   quantity: number | null;
   unit: string;
+  responsible: string;
+  decision: string;
+  reason: string;
+  resolvedAt: string;
   action: string;
+}
+
+function resolvedControlRows(data: AttendanceExportData): PendingExportRow[] {
+  const rows: PendingExportRow[] = [];
+  for (const worker of data.workers) {
+    const area = worker.area === "PRODUCTION"
+      ? "Producción"
+      : worker.area === "INSTALLATION"
+        ? "Instalación"
+        : "Administración";
+    for (const date of data.days) {
+      const day = worker.days.get(date);
+      if (!day) continue;
+      for (const incident of [
+        day.lateDecisionAudit
+          ? { issue: `Atraso: original ${day.lateDetectedMinutes} min · final ${day.lateMinutes} min`, quantity: day.lateMinutes, audit: day.lateDecisionAudit }
+          : null,
+        day.earlyDepartureDecisionAudit
+          ? { issue: `Salida anticipada: original ${day.earlyDepartureDetectedMinutes} min · final ${day.earlyDepartureMinutes} min`, quantity: day.earlyDepartureMinutes, audit: day.earlyDepartureDecisionAudit }
+          : null,
+      ]) {
+        if (!incident) continue;
+        rows.push({
+          scope: "PERSONA",
+          priority: "INFORMATIVA",
+          state: "RESUELTO",
+          employeeId: worker.employeeId,
+          employeeCode: worker.employeeCode,
+          employeeRut: worker.employeeRut ?? "",
+          workerName: worker.workerName,
+          area,
+          costCenter: worker.costCenter ?? "",
+          date,
+          issue: incident.issue,
+          quantity: incident.quantity,
+          unit: "min descontables",
+          responsible: incident.audit.responsible,
+          decision: incident.audit.decision,
+          reason: incident.audit.reason,
+          resolvedAt: incident.audit.decidedAt,
+          action: "Sin acción pendiente; RR. HH. conserva el veredicto final.",
+        });
+      }
+      for (const audit of day.overtimeDecisionAudits ?? []) {
+        const cap = overtimePayableCap(worker, date, data.holidays);
+        const rateLabel = audit.typeCode === OVERTIME_100_CODE ? "HH100" : "HH50";
+        const capDetail = cap !== null && audit.candidateMinutes > cap
+          ? ` · tope ${cap} min`
+          : "";
+        rows.push({
+          scope: "PERSONA",
+          priority: "INFORMATIVA",
+          state: "RESUELTO",
+          employeeId: worker.employeeId,
+          employeeCode: worker.employeeCode,
+          employeeRut: worker.employeeRut ?? "",
+          workerName: worker.workerName,
+          area,
+          costCenter: worker.costCenter ?? "",
+          date,
+          issue: `${rateLabel}: real ${audit.candidateMinutes} min · aprobado ${audit.approvedMinutes} min${capDetail}`,
+          quantity: audit.approvedMinutes,
+          unit: "min pagables",
+          responsible: audit.responsible,
+          decision: audit.decisionStatus === "FULLY_APPROVED"
+            ? "APROBADA"
+            : audit.decisionStatus === "PARTIALLY_APPROVED"
+              ? "APROBADA PARCIALMENTE"
+              : "RECHAZADA",
+          reason: audit.reason || "Sin motivo específico registrado.",
+          resolvedAt: audit.decidedAt,
+          action: cap !== null && audit.approvedMinutes > cap
+            ? "Inconsistencia: RR. HH. debe corregir una aprobación superior al tope."
+            : "Sin acción pendiente; se conserva la decisión competente y los minutos reales.",
+        });
+      }
+    }
+  }
+  return rows;
 }
 
 function ruleEngineProblemDatesAffectingPayroll(data: AttendanceExportData): string[] {
@@ -1189,20 +1552,150 @@ function ruleEngineProblemDatesAffectingPayroll(data: AttendanceExportData): str
     .sort();
 }
 
+function workbookAdjustmentMap(
+  data: AttendanceExportData,
+  employeeId: string
+): Map<PayrollSummaryAdjustmentField, AcceptedPayrollWorkbookAdjustment> {
+  return new Map(
+    (data.workbookAdjustments ?? [])
+      .filter((adjustment) => adjustment.employeeId === employeeId && (adjustment.workDate ?? null) === null && adjustment.field !== "Código asistencia")
+      .map((adjustment) => [adjustment.field as PayrollSummaryAdjustmentField, adjustment])
+  );
+}
+
+function workbookDailyAdjustment(
+  data: AttendanceExportData,
+  employeeId: string,
+  workDate: string,
+): AcceptedPayrollWorkbookAdjustment | undefined {
+  return (data.workbookAdjustments ?? []).find(
+    (adjustment) => adjustment.employeeId === employeeId
+      && adjustment.workDate === workDate
+      && adjustment.field === "Código asistencia",
+  );
+}
+
+export interface PayrollWorkbookConflictPreview {
+  stableKey: string;
+  employeeId: string;
+  employeeName: string;
+  workDate: string | null;
+  fieldCode: PayrollAdjustmentField;
+  valueKind: "MINUTES" | "CLP" | "CODE";
+  sourceAtAcceptance: string | number;
+  currentWorkeraValue: string | number;
+  rrhhFinalValue: string | number;
+}
+
+/** Conflictos de tres vías calculados desde la fuente vigente y la decisión aceptada. */
+export function payrollWorkbookConflicts(data: AttendanceExportData): PayrollWorkbookConflictPreview[] {
+  const conflicts: PayrollWorkbookConflictPreview[] = [];
+  for (const worker of data.workers) {
+    const summary = summarizeWorker(worker, data);
+    const adjustments = workbookAdjustmentMap(data, worker.employeeId);
+    for (const rule of [
+      { field: "Ajuste HH50 (minutos)", current: summary.overtime50Minutes, scale: 1_440, kind: "MINUTES" },
+      { field: "Ajuste HH100 (minutos)", current: summary.overtime100Minutes, scale: 1_440, kind: "MINUTES" },
+      { field: "Ajuste bono (CLP)", current: summary.bonusAmount, scale: 1, kind: "CLP" },
+    ] as const) {
+      const entry = adjustments.get(rule.field);
+      if (
+        typeof entry?.value !== "number"
+        || entry.value === 0
+        || typeof entry.sourceValueAtAcceptance !== "number"
+      ) continue;
+      const sourceAtAcceptance = entry.sourceValueAtAcceptance * rule.scale;
+      if (Math.abs(sourceAtAcceptance - rule.current) <= 1e-9) continue;
+      conflicts.push({
+        stableKey: `${worker.employeeId}|${rule.field}`,
+        employeeId: worker.employeeId,
+        employeeName: worker.workerName,
+        workDate: null,
+        fieldCode: rule.field,
+        valueKind: rule.kind,
+        sourceAtAcceptance,
+        currentWorkeraValue: rule.current,
+        rrhhFinalValue: sourceAtAcceptance + entry.value,
+      });
+    }
+    for (const entry of (data.workbookAdjustments ?? []).filter(
+      (adjustment) => adjustment.employeeId === worker.employeeId
+        && adjustment.field === "Código asistencia"
+        && adjustment.workDate,
+    )) {
+      if (typeof entry.value !== "string" || typeof entry.sourceValueAtAcceptance !== "string") continue;
+      const workDate = entry.workDate!;
+      const current = dailyMatrixCode(worker, workDate, worker.days.get(workDate) ?? emptyDay(), data);
+      if (current === entry.sourceValueAtAcceptance || current === entry.value) continue;
+      conflicts.push({
+        stableKey: `${worker.employeeId}|${workDate}|Código asistencia`,
+        employeeId: worker.employeeId,
+        employeeName: worker.workerName,
+        workDate,
+        fieldCode: "Código asistencia",
+        valueKind: "CODE",
+        sourceAtAcceptance: entry.sourceValueAtAcceptance,
+        currentWorkeraValue: current,
+        rrhhFinalValue: entry.value,
+      });
+    }
+  }
+  return conflicts.sort((left, right) => left.employeeName.localeCompare(right.employeeName, "es") || left.stableKey.localeCompare(right.stableKey));
+}
+
+function numericWorkbookAdjustment(
+  adjustments: Map<PayrollSummaryAdjustmentField, AcceptedPayrollWorkbookAdjustment>,
+  field: PayrollSummaryAdjustmentField,
+  currentAutomatic?: number,
+  sourceToAdjustmentScale = 1,
+): number {
+  const entry = adjustments.get(field);
+  const value = entry?.value;
+  const sourceValueAtAcceptance = entry?.sourceValueAtAcceptance;
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  if (
+    value !== 0
+    && currentAutomatic !== undefined
+    && typeof sourceValueAtAcceptance === "number"
+    && Number.isFinite(sourceValueAtAcceptance)
+  ) {
+    // RR. HH. decidió un valor final, no un delta perpetuo. Si la fuente se
+    // mueve después, recalculamos el ajuste visible para conservar ese final
+    // hasta que RR. HH. elija Workera u otro valor de forma explícita.
+    return sourceValueAtAcceptance * sourceToAdjustmentScale + value - currentAutomatic;
+  }
+  return value;
+}
+
+function textWorkbookAdjustment(
+  adjustments: Map<PayrollSummaryAdjustmentField, AcceptedPayrollWorkbookAdjustment>,
+  field: PayrollSummaryAdjustmentField
+): string {
+  const value = adjustments.get(field)?.value;
+  return typeof value === "string" ? value : "";
+}
+
 function buildPendingExportRows(data: AttendanceExportData): PendingExportRow[] {
   const rows: PendingExportRow[] = [];
   const global = (date: string, issue: string, action: string): void => {
     rows.push({
       scope: "GLOBAL",
+      priority: "CRÍTICA",
+      state: "PENDIENTE",
       employeeId: "",
       employeeCode: "",
       employeeRut: "",
       workerName: "",
+      area: "Todas",
       costCenter: "",
       date,
       issue,
       quantity: null,
       unit: "",
+      responsible: "RR. HH.",
+      decision: "POR RESOLVER",
+      reason: "",
+      resolvedAt: "",
       action,
     });
   };
@@ -1242,20 +1735,107 @@ function buildPendingExportRows(data: AttendanceExportData): PendingExportRow[] 
   ): void => {
     rows.push({
       scope: "PERSONA",
+      priority: /Conflicto|negativo|Sin horario|Marcación incompleta|Ausencia o licencia/i.test(issue)
+        ? "CRÍTICA"
+        : "ALTA",
+      state: "PENDIENTE",
       employeeId: worker.employeeId,
       employeeCode: worker.employeeCode,
       employeeRut: worker.employeeRut ?? "",
       workerName: worker.workerName,
+      area: worker.area === "PRODUCTION"
+        ? "Producción"
+        : worker.area === "INSTALLATION"
+          ? "Instalación"
+          : "Administración",
       costCenter: worker.costCenter ?? "",
       date,
       issue,
       quantity,
       unit,
+      responsible: /Atraso|Salida anticipada|HH 50%|HH 100%|Marcación incompleta|Ausencia o licencia/i.test(issue)
+        ? "Supervisor de área"
+        : "RR. HH.",
+      decision: "POR RESOLVER",
+      reason: "",
+      resolvedAt: "",
       action,
     });
   };
 
   for (const worker of data.workers) {
+    const acceptedAdjustments = workbookAdjustmentMap(data, worker.employeeId);
+    const workerSummary = summarizeWorker(worker, data);
+    for (const rule of [
+      { adjustment: "Ajuste HH50 (minutos)", reason: "Motivo ajuste HH50", automatic: workerSummary.overtime50Minutes, label: "HH50", sourceScale: 1 / 1_440 },
+      { adjustment: "Ajuste HH100 (minutos)", reason: "Motivo ajuste HH100", automatic: workerSummary.overtime100Minutes, label: "HH100", sourceScale: 1 / 1_440 },
+      { adjustment: "Ajuste bono (CLP)", reason: "Motivo ajuste bono", automatic: workerSummary.bonusAmount, label: "bono", sourceScale: 1 },
+    ] as const) {
+      const adjustmentEntry = acceptedAdjustments.get(rule.adjustment);
+      if (!adjustmentEntry) continue;
+      const adjustment = numericWorkbookAdjustment(
+        acceptedAdjustments,
+        rule.adjustment,
+        rule.automatic,
+        rule.label === "bono" ? 1 : 1_440,
+      );
+      const reason = textWorkbookAdjustment(acceptedAdjustments, rule.reason);
+      if (adjustment !== 0 && reason.trim() === "") {
+        addPerson(worker, "", `Ajuste ${rule.label} sin motivo`, adjustment, rule.label === "bono" ? "CLP" : "min", "Completar el motivo antes de liquidar.");
+      }
+      if (rule.automatic + adjustment < 0) {
+        addPerson(worker, "", `Resultado final ${rule.label} negativo`, rule.automatic + adjustment, rule.label === "bono" ? "CLP" : "min", "Corregir el ajuste; un resultado final nunca puede ser negativo.");
+      }
+      const sourceAtAcceptance = adjustmentEntry.sourceValueAtAcceptance;
+      const currentSource = rule.automatic * rule.sourceScale;
+      if (
+        adjustment !== 0
+        && typeof sourceAtAcceptance === "number"
+        && Math.abs(sourceAtAcceptance - currentSource) > 1e-9
+      ) {
+        addPerson(
+          worker,
+          "",
+          `Conflicto Workera/RR. HH. en ${rule.label}`,
+          adjustment,
+          rule.label === "bono" ? "CLP" : "min",
+          "Mantener provisionalmente el valor final de RR. HH. y resolver en el ajuste: conservar el total final y actualizar su motivo mantiene RR. HH.; dejar el ajuste en 0 acepta Workera; otro total registra una tercera decisión. Siempre indicar motivo."
+        );
+      }
+    }
+    for (const adjustmentEntry of (data.workbookAdjustments ?? []).filter(
+      (adjustment) => adjustment.employeeId === worker.employeeId
+        && adjustment.field === "Código asistencia"
+        && adjustment.workDate !== null,
+    )) {
+      const date = adjustmentEntry.workDate!;
+      const currentSource = dailyMatrixCode(worker, date, worker.days.get(date) ?? emptyDay(), data);
+      const adjustedCode = typeof adjustmentEntry.value === "string" ? adjustmentEntry.value : "?";
+      if (
+        typeof adjustmentEntry.sourceValueAtAcceptance === "string"
+        && adjustmentEntry.sourceValueAtAcceptance !== currentSource
+        && adjustedCode !== currentSource
+      ) {
+        addPerson(
+          worker,
+          date,
+          "Conflicto Workera/RR. HH. en código diario",
+          null,
+          "",
+          `Se conserva provisionalmente ${adjustedCode}; Workera ahora informa ${currentSource || "vacío"}. Resolver al comparar la próxima subida: mantener RR. HH., aceptar Workera o ingresar un tercer código oficial, siempre con motivo.`,
+        );
+      }
+    }
+    if (worker.scheduleConfirmationPending) {
+      addPerson(
+        worker,
+        "",
+        "Jornada distinta de 17:00 sin confirmar",
+        null,
+        "",
+        "RR. HH. debe confirmar expresamente el horario efectivo antes de liquidar."
+      );
+    }
     if (data.period.type === "PAGO" && !worker.employeeRut) {
       addPerson(worker, "", "RUT ausente", null, "", "Completar el identificador legal antes de liquidar.");
     }
@@ -1278,6 +1858,8 @@ function buildPendingExportRows(data: AttendanceExportData): PendingExportRow[] 
 
     for (const date of data.days) {
       const day = worker.days.get(date) ?? emptyDay();
+      const acceptedDaily = workbookDailyAdjustment(data, worker.employeeId, date);
+      const effectiveStatusCode = typeof acceptedDaily?.value === "string" ? acceptedDaily.value : day.statusCode;
       if (beforeHire(worker, date)) {
         if (dayHasAttendanceFact(day)) {
           addPerson(
@@ -1301,7 +1883,7 @@ function buildPendingExportRows(data: AttendanceExportData): PendingExportRow[] 
         addPerson(worker, date, "Sin horario vigente", null, "", "Asignar horario y volver a procesar la fecha.");
       } else if (
         expectedWorkDate(worker, date, data.holidays) &&
-        day.statusCode === MISSING_STATUS_CODE &&
+        effectiveStatusCode === MISSING_STATUS_CODE &&
         !day.missingPunchPending
       ) {
         addPerson(worker, date, "Estado de asistencia sin resolver", null, "", "Revisar la jornada y volver a procesarla.");
@@ -1313,11 +1895,11 @@ function buildPendingExportRows(data: AttendanceExportData): PendingExportRow[] 
       if (day.absenceDecisionPending) {
         addPerson(worker, date, "Ausencia o licencia pendiente", null, "", "Resolver la ausencia y adjuntar respaldo si corresponde.");
       }
-      if (statusRequiresPayrollReview(day.statusCode)) {
+      if (statusRequiresPayrollReview(effectiveStatusCode)) {
         addPerson(
           worker,
           date,
-          `Código diario ${day.statusCode} sin efecto de nómina definido`,
+          `Código diario ${effectiveStatusCode} sin efecto de nómina definido`,
           null,
           "",
           "Definir su efecto remuneracional y volver a generar el archivo."
@@ -1353,6 +1935,41 @@ function buildPendingExportRows(data: AttendanceExportData): PendingExportRow[] 
       left.issue.localeCompare(right.issue, "es")
     );
   });
+}
+
+export interface AttendanceExportCloseReadiness {
+  ready: boolean;
+  pendingCount: number;
+  issues: string[];
+}
+
+/**
+ * Gate puro usado inmediatamente antes del snapshot final. Un estado
+ * APROBADO POR RR. HH. (READY_TO_CLOSE internamente) por sí solo no prueba que
+ * Workera siga conciliado: se vuelve
+ * a calcular la misma cola que verá RR. HH. en el Excel y se falla cerrado.
+ */
+export function getAttendanceExportCloseReadiness(
+  data: AttendanceExportData
+): AttendanceExportCloseReadiness {
+  const pending = buildPendingExportRows(data);
+  const issues = pending.slice(0, 25).map((item) =>
+    [item.date, item.workerName || item.employeeCode, item.issue]
+      .filter(Boolean)
+      .join(" · ")
+  );
+  if (pending.length > issues.length) {
+    issues.push(`… y ${pending.length - issues.length} incidencia(s) adicional(es).`);
+  }
+  if (data.period.type !== "PAGO") issues.unshift("El cierre final exige un período de pago 16-15.");
+  if (data.reportingPeriodStatus !== "READY_TO_CLOSE") {
+    issues.unshift("El período debe permanecer Aprobado por RR. HH. durante la comprobación final.");
+  }
+  return {
+    ready: data.period.type === "PAGO" && data.reportingPeriodStatus === "READY_TO_CLOSE" && pending.length === 0,
+    pendingCount: pending.length,
+    issues,
+  };
 }
 
 type Cell = string | number | Date | null;
@@ -1392,18 +2009,29 @@ const SUMMARY_HEADERS_2026 = [
   "Fechas pendientes",
   "Código Workera",
   "Identificador técnico",
+  "HH50 aprobado automático",
+  "HH100 aprobado automático",
+  "Atrasos por semana (original · descontable)",
+  "Salidas por semana (original · descontable)",
 ] as const;
 
 const PENDING_HEADERS_2026 = [
   "Alcance",
+  "Prioridad",
+  "Estado",
   "Código Workera",
   "RUT",
   "Nombre completo",
+  "Área",
   "Centro de costo",
   "Fecha",
   "Incidencia",
   "Cantidad",
   "Unidad",
+  "Responsable",
+  "Decisión",
+  "Motivo",
+  "Fecha resolución",
   "Acción requerida",
 ] as const;
 
@@ -1434,10 +2062,13 @@ function safeSummaryStatus(
   data: AttendanceExportData,
   pendingCount: number,
   globalPendingCount: number
-): "LISTO PARA REVISIÓN RR. HH." | "BLOQUEADO" | "REVISAR" | "CERRADO" {
+): "LISTO PARA REVISIÓN RR. HH." | "APROBADO POR RR. HH." | "BLOQUEADO" | "REVISAR" | "CERRADO" {
   if (data.period.type !== "PAGO") return "REVISAR";
   if (pendingCount > 0 || globalPendingCount > 0) return "BLOQUEADO";
-  return data.reportingPeriodStatus === "CLOSED" ? "CERRADO" : "LISTO PARA REVISIÓN RR. HH.";
+  if (data.reportingPeriodStatus === "CLOSED") return "CERRADO";
+  return data.reportingPeriodStatus === "READY_TO_CLOSE"
+    ? "APROBADO POR RR. HH."
+    : "LISTO PARA REVISIÓN RR. HH.";
 }
 
 /**
@@ -1449,11 +2080,18 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
   const { workers, days, period } = data;
   const summaries = workers.map((worker) => summarizeWorker(worker, data));
   const pendingItems = buildPendingExportRows(data);
+  const controlItems = [...pendingItems, ...resolvedControlRows(data)].sort((left, right) =>
+    left.state.localeCompare(right.state) || left.date.localeCompare(right.date) || left.workerName.localeCompare(right.workerName, "es")
+  );
   const pendingCountsByEmployee = pendingCountByEmployee(pendingItems);
   const globalPendingCount = pendingItems.filter((item) => item.scope === "GLOBAL").length;
   const overallStatus = exportStatusLabel(data, pendingItems);
   const matrixCodesByWorker = workers.map((worker) =>
-    days.map((date) => dailyMatrixCode(worker, date, worker.days.get(date) ?? emptyDay(), data))
+    days.map((date) => {
+      const source = dailyMatrixCode(worker, date, worker.days.get(date) ?? emptyDay(), data);
+      const accepted = workbookDailyAdjustment(data, worker.employeeId, date);
+      return typeof accepted?.value === "string" ? accepted.value : source;
+    })
   );
   const periodScopeLabel = period.type === "PAGO"
     ? `Período de novedades: ${period.label} (corte estricto 16-15)`
@@ -1469,7 +2107,7 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
     [periodScopeLabel],
     [overallStatus],
     [
-      "Las horas y bonos automáticos provienen solo de decisiones definitivas. Los días P son códigos de presencia, no días pagables. Centro_Costo corresponde a la unidad organizacional primaria vigente al día 15. Ajuste_50/100 se ingresa en minutos enteros (+/-); bonos se ajustan en CLP. Todo ajuste exige motivo. 'Sin pendientes' no reemplaza el cierre formal ni un snapshot inmutable.",
+      "Las horas y bonos automáticos provienen solo de decisiones definitivas. Los días P son códigos de presencia, no días pagables. Centro_Costo corresponde a la unidad organizacional primaria vigente al día 15. En las columnas Q:Y se ven las horas reales, los ajustes de RR. HH. y sus motivos; Ajuste HH50/HH100 se ingresa en minutos enteros (+/-) y el bono en CLP. Todo ajuste exige motivo. 'Sin pendientes' no reemplaza el cierre formal ni un snapshot inmutable.",
     ],
     [...SUMMARY_HEADERS_2026],
   ];
@@ -1479,6 +2117,10 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
   for (let index = 0; index < workers.length; index += 1) {
     const worker = workers[index];
     const summary = summaries[index];
+    const acceptedAdjustments = workbookAdjustmentMap(data, worker.employeeId);
+    const adjustment50 = numericWorkbookAdjustment(acceptedAdjustments, "Ajuste HH50 (minutos)", summary.overtime50Minutes, 1_440);
+    const adjustment100 = numericWorkbookAdjustment(acceptedAdjustments, "Ajuste HH100 (minutos)", summary.overtime100Minutes, 1_440);
+    const adjustmentBonus = numericWorkbookAdjustment(acceptedAdjustments, "Ajuste bono (CLP)", summary.bonusAmount, 1);
     const presentDays = countMatrixCode(index, ["P"]);
     const pendingCount = pendingCountsByEmployee.get(worker.employeeId) ?? 0;
     const status = safeSummaryStatus(data, pendingCount, globalPendingCount);
@@ -1492,45 +2134,57 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
       worker.costCenter ?? "",
       scheduleText(worker, data),
       presentDays,
-      0,
-      minutesToExcelDuration(summary.overtime50Minutes),
-      minutesToExcelDuration(summary.overtime100Minutes),
+      minutesToExcelDuration(summary.ordinaryRecordedMinutes),
+      minutesToExcelDuration(summary.overtime50Minutes + adjustment50),
+      minutesToExcelDuration(summary.overtime100Minutes + adjustment100),
       minutesToExcelDuration(summary.lateMinutes),
       minutesToExcelDuration(summary.earlyDepartureMinutes),
       summary.bonusDays,
-      summary.bonusAmount,
+      summary.bonusAmount + adjustmentBonus,
       pendingCount,
       summary.observations,
-      minutesToExcelDuration(summary.overtime50Minutes),
-      0,
-      "",
-      minutesToExcelDuration(summary.overtime100Minutes),
-      0,
-      "",
+      minutesToExcelDuration(summary.overtime50RealMinutes),
+      adjustment50,
+      textWorkbookAdjustment(acceptedAdjustments, "Motivo ajuste HH50"),
+      minutesToExcelDuration(summary.overtime100RealMinutes),
+      adjustment100,
+      textWorkbookAdjustment(acceptedAdjustments, "Motivo ajuste HH100"),
       summary.bonusAmount,
-      0,
-      "",
+      adjustmentBonus,
+      textWorkbookAdjustment(acceptedAdjustments, "Motivo ajuste bono"),
       shortReviewDates(summary.bonusDates),
       shortReviewDates(summary.reviewDates),
       worker.employeeCode,
       worker.employeeId,
+      minutesToExcelDuration(summary.overtime50Minutes),
+      minutesToExcelDuration(summary.overtime100Minutes),
+      summary.lateWeeklyBreakdown,
+      summary.earlyDepartureWeeklyBreakdown,
     ]);
   }
 
   const summaryTotalRowIndex = summaryRows.length;
-  summaryRows.push(["", "", "TOTAL EMPRESA", ...Array<Cell>(26).fill("")]);
+  summaryRows.push(["", "", "TOTAL EMPRESA", ...Array<Cell>(SUMMARY_HEADERS_2026.length - 3).fill("")]);
   const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
   applyWhiteCanvas(summarySheet, summaryRows.length, SUMMARY_HEADERS_2026.length);
   summarySheet["!cols"] = [
     { wch: 27 }, { wch: 15 }, { wch: 29 }, { wch: 16 }, { wch: 20 },
     { wch: 27 }, { wch: 16 }, { wch: 17 }, { wch: 15 }, { wch: 16 },
     { wch: 20 }, { wch: 25 }, { wch: 15 }, { wch: 16 }, { wch: 13 }, { wch: 42 },
-    ...Array.from({ length: 13 }, (_, index) => ({ wch: index === 12 ? 38 : 22, hidden: true, level: 1 })),
+    { wch: 17 }, { wch: 22 }, { wch: 34 },
+    { wch: 17 }, { wch: 22 }, { wch: 34 },
+    { wch: 19 }, { wch: 21 }, { wch: 34 },
+    { wch: 19 }, { wch: 21 }, { wch: 20 },
+    { wch: 38, hidden: true, level: 1 },
+    { wch: 22, hidden: true, level: 1 },
+    { wch: 22, hidden: true, level: 1 },
+    { wch: 48 },
+    { wch: 48 },
   ];
   summarySheet["!rows"] = [{ hpt: 26 }, { hpt: 20 }, { hpt: 22 }, { hpt: 48 }, { hpt: 42 }];
   summarySheet["!merges"] = [0, 1, 2, 3].map((row) => ({ s: { r: row, c: 0 }, e: { r: row, c: 15 } }));
   const summaryDataLastExcelRow = workers.length > 0 ? 5 + workers.length : 5;
-  summarySheet["!autofilter"] = { ref: `A5:AC${summaryDataLastExcelRow}` };
+  summarySheet["!autofilter"] = { ref: `A5:${XLSX.utils.encode_col(SUMMARY_HEADERS_2026.length - 1)}${summaryDataLastExcelRow}` };
 
   const summaryTitle = summarySheet.A1;
   if (summaryTitle) summaryTitle.s = { ...solidFill("FFFFFF"), font: { bold: true, sz: 16, color: { rgb: "17365D" } } };
@@ -1545,7 +2199,7 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
   };
   styleHeaderRow(summarySheet, 4, SUMMARY_HEADERS_2026.length);
 
-  const durationColumns = new Set([7, 8, 9, 10, 11, 16, 19]);
+  const durationColumns = new Set([7, 8, 9, 10, 11, 16, 19, 29, 30]);
   const moneyColumns = new Set([13, 22, 23]);
   const integerColumns = new Set([6, 12, 14, 17, 20, 23]);
   for (let index = 0; index < workers.length; index += 1) {
@@ -1553,11 +2207,15 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
     const excelRow = row + 1;
     const range = formulaRangeForMatrixRow(days, workers.length, excelRow);
     const summary = summaries[index];
+    const acceptedAdjustments = workbookAdjustmentMap(data, workers[index].employeeId);
+    const adjustment50 = numericWorkbookAdjustment(acceptedAdjustments, "Ajuste HH50 (minutos)", summary.overtime50Minutes, 1_440);
+    const adjustment100 = numericWorkbookAdjustment(acceptedAdjustments, "Ajuste HH100 (minutos)", summary.overtime100Minutes, 1_440);
+    const adjustmentBonus = numericWorkbookAdjustment(acceptedAdjustments, "Ajuste bono (CLP)", summary.bonusAmount, 1);
     const formulas: Array<[number, string, number | string]> = [
       [6, `COUNTIF(${range},"P")`, countMatrixCode(index, ["P"])],
-      [8, `Q${excelRow}+R${excelRow}/1440`, minutesToExcelDuration(summary.overtime50Minutes)],
-      [9, `T${excelRow}+U${excelRow}/1440`, minutesToExcelDuration(summary.overtime100Minutes)],
-      [13, `W${excelRow}+X${excelRow}`, summary.bonusAmount],
+      [8, `AD${excelRow}+R${excelRow}/1440`, minutesToExcelDuration(summary.overtime50Minutes + adjustment50)],
+      [9, `AE${excelRow}+U${excelRow}/1440`, minutesToExcelDuration(summary.overtime100Minutes + adjustment100)],
+      [13, `W${excelRow}+X${excelRow}`, summary.bonusAmount + adjustmentBonus],
     ];
     for (const [column, formula, value] of formulas) {
       const cell = summarySheet[XLSX.utils.encode_cell({ r: row, c: column })];
@@ -1568,7 +2226,11 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
       }
     }
 
-    const readyLabel = data.reportingPeriodStatus === "CLOSED" ? "CERRADO" : "LISTO PARA REVISIÓN RR. HH.";
+    const readyLabel = data.reportingPeriodStatus === "CLOSED"
+      ? "CERRADO"
+      : data.reportingPeriodStatus === "READY_TO_CLOSE"
+        ? "APROBADO POR RR. HH."
+        : "LISTO PARA REVISIÓN RR. HH.";
     const statusFormula = period.type !== "PAGO"
       ? '"REVISAR"'
       : `IF(OR($O${excelRow}>0,COUNTIF('CONTROL_PENDIENTES'!$A$5:$A$${Math.max(5, 4 + pendingItems.length)},"GLOBAL")>0,COUNTIF(${range},"~?")>0,AND($R${excelRow}<>0,LEN(TRIM($S${excelRow}))=0),AND($U${excelRow}<>0,LEN(TRIM($V${excelRow}))=0),AND($X${excelRow}<>0,LEN(TRIM($Y${excelRow}))=0),$I${excelRow}<0,$J${excelRow}<0,$N${excelRow}<0),"BLOQUEADO","${readyLabel}")`;
@@ -1585,7 +2247,7 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
       const input = [17, 18, 20, 21, 23, 24].includes(column);
       cell.s = {
         ...(input ? INPUT_STYLE : solidFill(row % 2 === 0 ? "F7F9FC" : "FFFFFF")),
-        alignment: { vertical: "center", horizontal: [0, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14].includes(column) ? "center" : "left", wrapText: [0, 2, 5, 15, 18, 21, 24, 25, 26].includes(column) },
+        alignment: { vertical: "center", horizontal: [0, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14].includes(column) ? "center" : "left", wrapText: [0, 2, 5, 15, 18, 21, 24, 25, 26, 31, 32].includes(column) },
         border: THIN_BOTTOM_BORDER,
       };
       if (durationColumns.has(column) && typeof cell.v === "number") cell.z = DURATION_TOTAL_FORMAT;
@@ -1596,7 +2258,7 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
 
   const summaryTotalExcelRow = summaryTotalRowIndex + 1;
   const firstDataExcelRow = DATA_FIRST_ROW + 1;
-  const numericTotalColumns = [6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 20, 22, 23];
+  const numericTotalColumns = [6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 20, 22, 23, 29, 30];
   for (let column = 0; column < SUMMARY_HEADERS_2026.length; column += 1) {
     const ref = XLSX.utils.encode_cell({ r: summaryTotalRowIndex, c: column });
     const cell = summarySheet[ref] ?? (summarySheet[ref] = { v: "", t: "s" });
@@ -1605,13 +2267,26 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
       const letter = XLSX.utils.encode_col(column);
       cell.f = `SUM(${letter}${firstDataExcelRow}:${letter}${summaryDataLastExcelRow})`;
       cell.v = summaries.reduce((total, summary, workerIndex) => {
+        const accepted = workbookAdjustmentMap(data, workers[workerIndex].employeeId);
+        const adjustment50 = numericWorkbookAdjustment(accepted, "Ajuste HH50 (minutos)", summary.overtime50Minutes, 1_440);
+        const adjustment100 = numericWorkbookAdjustment(accepted, "Ajuste HH100 (minutos)", summary.overtime100Minutes, 1_440);
+        const adjustmentBonus = numericWorkbookAdjustment(accepted, "Ajuste bono (CLP)", summary.bonusAmount, 1);
         if (column === 6) return total + countMatrixCode(workerIndex, ["P"]);
-        if ([8, 16].includes(column)) return total + minutesToExcelDuration(summary.overtime50Minutes);
-        if ([9, 19].includes(column)) return total + minutesToExcelDuration(summary.overtime100Minutes);
+        if (column === 7) return total + minutesToExcelDuration(summary.ordinaryRecordedMinutes);
+        if (column === 8) return total + minutesToExcelDuration(summary.overtime50Minutes + adjustment50);
+        if (column === 9) return total + minutesToExcelDuration(summary.overtime100Minutes + adjustment100);
+        if (column === 16) return total + minutesToExcelDuration(summary.overtime50RealMinutes);
+        if (column === 19) return total + minutesToExcelDuration(summary.overtime100RealMinutes);
+        if (column === 29) return total + minutesToExcelDuration(summary.overtime50Minutes);
+        if (column === 30) return total + minutesToExcelDuration(summary.overtime100Minutes);
         if (column === 10) return total + minutesToExcelDuration(summary.lateMinutes);
         if (column === 11) return total + minutesToExcelDuration(summary.earlyDepartureMinutes);
         if (column === 12) return total + summary.bonusDays;
-        if ([13, 22].includes(column)) return total + summary.bonusAmount;
+        if (column === 13) return total + summary.bonusAmount + adjustmentBonus;
+        if (column === 17) return total + adjustment50;
+        if (column === 20) return total + adjustment100;
+        if (column === 22) return total + summary.bonusAmount;
+        if (column === 23) return total + adjustmentBonus;
         if (column === 14) return total + pendingCounts[workerIndex];
         return total;
       }, 0);
@@ -1624,7 +2299,11 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
   const totalStatus = cachedStatuses.some((status) => status === "BLOQUEADO")
     ? "BLOQUEADO"
     : period.type === "PAGO" && workers.length > 0
-      ? (data.reportingPeriodStatus === "CLOSED" ? "CERRADO" : "LISTO PARA REVISIÓN RR. HH.")
+      ? (data.reportingPeriodStatus === "CLOSED"
+          ? "CERRADO"
+          : data.reportingPeriodStatus === "READY_TO_CLOSE"
+            ? "APROBADO POR RR. HH."
+            : "LISTO PARA REVISIÓN RR. HH.")
       : "REVISAR";
   const totalStatusCell = summarySheet[`A${summaryTotalExcelRow}`];
   if (totalStatusCell) {
@@ -1640,24 +2319,31 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
     ["CONTROL DE PENDIENTES DE PRE-CIERRE"],
     [periodScopeLabel],
     [pendingItems.length > 0
-      ? `${pendingItems.length} incidencia(s) detectada(s). Deben resolverse en GESTORA y luego regenerar el libro.`
-      : "Sin bloqueos detectados por las reglas configuradas. Esto no sustituye el cierre del período ni el snapshot histórico."],
+      ? `${pendingItems.length} incidencia(s) pendiente(s). Deben resolverse en GESTORA y luego regenerar el libro. Se incluyen también ${controlItems.length - pendingItems.length} incidencia(s) resuelta(s) como auditoría.`
+      : `Sin bloqueos detectados por las reglas configuradas. ${controlItems.length} incidencia(s) resuelta(s) permanecen como auditoría. Esto no sustituye el cierre del período ni el snapshot histórico.`],
     [...PENDING_HEADERS_2026],
   ];
-  if (pendingItems.length === 0) {
-    pendingRows.push(["", "", "", "", "", "", "Sin bloqueos detectados", "", "", "Confirmar cierre formal y conservar snapshot."]);
+  if (controlItems.length === 0) {
+    pendingRows.push(["", "", "", "", "", "", "", "", "", "Sin bloqueos detectados", "", "", "", "", "", "", "Confirmar cierre formal y conservar snapshot."]);
   } else {
-    for (const item of pendingItems) {
+    for (const item of controlItems) {
       pendingRows.push([
         item.scope,
+        item.priority,
+        item.state,
         item.employeeCode,
         item.employeeRut,
         item.workerName,
+        item.area,
         item.costCenter,
         item.date ? calendarDateToExcelSerial(item.date) : "",
         item.issue,
         item.quantity,
         item.unit,
+        item.responsible,
+        item.decision,
+        item.reason,
+        item.resolvedAt,
         item.action,
       ]);
     }
@@ -1665,12 +2351,14 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
   const pendingSheet = XLSX.utils.aoa_to_sheet(pendingRows);
   applyWhiteCanvas(pendingSheet, pendingRows.length, PENDING_HEADERS_2026.length);
   pendingSheet["!cols"] = [
-    { wch: 12 }, { wch: 17 }, { wch: 15 }, { wch: 30 }, { wch: 18 },
-    { wch: 13 }, { wch: 38 }, { wch: 12 }, { wch: 10 }, { wch: 52 },
+    { wch: 12 }, { wch: 11 }, { wch: 13 }, { wch: 17 }, { wch: 15 },
+    { wch: 30 }, { wch: 16 }, { wch: 18 }, { wch: 13 }, { wch: 38 },
+    { wch: 12 }, { wch: 10 }, { wch: 20 }, { wch: 18 }, { wch: 28 },
+    { wch: 18 }, { wch: 52 },
   ];
   pendingSheet["!rows"] = [{ hpt: 26 }, { hpt: 20 }, { hpt: 34 }, { hpt: 34 }];
   pendingSheet["!merges"] = [0, 1, 2].map((row) => ({ s: { r: row, c: 0 }, e: { r: row, c: PENDING_HEADERS_2026.length - 1 } }));
-  pendingSheet["!autofilter"] = { ref: `A4:J${Math.max(4, pendingRows.length)}` };
+  pendingSheet["!autofilter"] = { ref: `A4:Q${Math.max(4, pendingRows.length)}` };
   if (pendingSheet.A1) pendingSheet.A1.s = { ...solidFill("FFFFFF"), font: { bold: true, sz: 16, color: { rgb: "17365D" } } };
   for (const ref of ["A2", "A3"]) {
     const cell = pendingSheet[ref];
@@ -1679,14 +2367,17 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
   styleHeaderRow(pendingSheet, 3, PENDING_HEADERS_2026.length);
   for (let row = 4; row < pendingRows.length; row += 1) {
     const isGlobal = pendingRows[row][0] === "GLOBAL";
+    const isResolved = pendingRows[row][2] === "RESUELTO";
     for (let column = 0; column < PENDING_HEADERS_2026.length; column += 1) {
       const ref = XLSX.utils.encode_cell({ r: row, c: column });
       const cell = pendingSheet[ref] ?? (pendingSheet[ref] = { v: "", t: "s" });
-      cell.s = { ...solidFill(isGlobal ? "FFF2CC" : row % 2 === 0 ? "F7F9FC" : "FFFFFF"), alignment: { vertical: "center", horizontal: column === 7 ? "right" : "left", wrapText: column === 6 || column === 9 }, border: THIN_BOTTOM_BORDER };
+      cell.s = { ...solidFill(isResolved ? "E2F0D9" : isGlobal ? "FFF2CC" : row % 2 === 0 ? "F7F9FC" : "FFFFFF"), alignment: { vertical: "center", horizontal: column === 10 ? "right" : "left", wrapText: column === 9 || column === 14 || column === 16 }, border: THIN_BOTTOM_BORDER };
     }
-    const dateCell = pendingSheet[XLSX.utils.encode_cell({ r: row, c: 5 })];
+    const dateCell = pendingSheet[XLSX.utils.encode_cell({ r: row, c: 8 })];
     if (dateCell && typeof dateCell.v === "number") dateCell.z = "dd/mm/yyyy";
-    const quantityCell = pendingSheet[XLSX.utils.encode_cell({ r: row, c: 7 })];
+    const resolvedDateCell = pendingSheet[XLSX.utils.encode_cell({ r: row, c: 15 })];
+    if (resolvedDateCell && typeof resolvedDateCell.v === "number") resolvedDateCell.z = "dd/mm/yyyy";
+    const quantityCell = pendingSheet[XLSX.utils.encode_cell({ r: row, c: 10 })];
     if (quantityCell && typeof quantityCell.v === "number") quantityCell.z = INTEGER_FORMAT;
   }
 
@@ -1764,11 +2455,12 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
   XLSX.utils.book_append_sheet(workbook, matrixSheet, "MATRIZ_DIARIA_SABANA");
   const metadataSheet = XLSX.utils.aoa_to_sheet([
     ["Esquema", "GESTORA_PRENOMINA_2026_V2"],
+    ["Empresa", data.companyId ?? ""],
     ["Tipo de período", period.type],
     ["Inicio", period.startDate],
     ["Fin", period.endDate],
     ["Mes de remuneración", period.type === "PAGO" ? period.endDate.slice(0, 7) : ""],
-    ["Versión base", "2"],
+    ["Versión base", data.workbookBaseVersionId ?? "ORIGEN_ACTUAL"],
   ]);
   metadataSheet["!protect"] = { password: "GESTORA", selectLockedCells: true, selectUnlockedCells: true };
   XLSX.utils.book_append_sheet(workbook, metadataSheet, "_GESTORA_TECNICA");
@@ -1801,6 +2493,7 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
         { sqref: `N6:N${lastWorkerExcelRow}`, formula: "N6<0", fillRgb: "F4CCCC", fontRgb: "9C0006" },
         { sqref: `A6:A${lastWorkerExcelRow}`, formula: '$A6="BLOQUEADO"', fillRgb: "F4CCCC", fontRgb: "9C0006" },
         { sqref: `A6:A${lastWorkerExcelRow}`, formula: '$A6="LISTO PARA REVISIÓN RR. HH."', fillRgb: "E2F0D9", fontRgb: "375623" },
+        { sqref: `A6:A${lastWorkerExcelRow}`, formula: '$A6="APROBADO POR RR. HH."', fillRgb: "D9EAD3", fontRgb: "274E13" },
         { sqref: `A6:A${lastWorkerExcelRow}`, formula: '$A6="CERRADO"', fillRgb: "D9EAF7", fontRgb: "17365D" },
       ],
     },

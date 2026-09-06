@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { deriveDailyAttendanceRecord } from "./daily-attendance";
 
 interface UpdateCall {
@@ -8,6 +9,13 @@ interface UpdateCall {
   patch: Record<string, unknown>;
   filters: Array<[column: string, value: unknown]>;
 }
+
+interface RpcCall {
+  name: string;
+  args: Record<string, unknown>;
+}
+
+const COMPANY_ID = "0a4c0000-0000-0000-0000-000000000001";
 
 function createMockSupabase(handlers: {
   employee_time_control_policies?: () => { data: unknown; error: unknown };
@@ -17,8 +25,19 @@ function createMockSupabase(handlers: {
   attendance_records_existing?: () => { data: unknown; error: unknown };
   attendance_records_insert?: () => { data: unknown; error: unknown };
   update?: (call: UpdateCall) => { data?: unknown; error: unknown };
+  rpc?: (call: RpcCall) => { data?: unknown; error: unknown };
 }) {
   return {
+    rpc(name: string, args: Record<string, unknown>) {
+      const overridden = handlers.rpc?.({ name, args });
+      if (overridden) return Promise.resolve(overridden);
+      if (name === "reconcile_workera_attendance_day" && args.p_source_hash !== null) {
+        const inserted = handlers.attendance_records_insert?.() ?? { data: { id: "ar-mock" }, error: null };
+        const row = inserted.data as { id?: string } | null;
+        return Promise.resolve({ data: row?.id ?? null, error: inserted.error });
+      }
+      return Promise.resolve({ data: name === "reconcile_workera_attendance_day" ? null : true, error: null });
+    },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     from(table: string): any {
       let isInsert = false;
@@ -93,7 +112,7 @@ test("deriveDailyAttendanceRecord: trabajador exento -> EXEMPT y nunca consulta 
       return { data: [], error: null };
     },
   });
-  const result = await deriveDailyAttendanceRecord(mock as never, "claudio-id", "2026-08-17");
+  const result = await deriveDailyAttendanceRecord(mock as never, "claudio-id", "2026-08-17", COMPANY_ID);
   assert.equal(result.status, "EXEMPT");
   assert.equal(eventsCalled, false);
 });
@@ -101,6 +120,7 @@ test("deriveDailyAttendanceRecord: trabajador exento -> EXEMPT y nunca consulta 
 test("deriveDailyAttendanceRecord: al pasar a exento retira asistencia y cálculos automáticos anteriores sin consultar eventos", async () => {
   let eventsCalled = false;
   const updates: UpdateCall[] = [];
+  const rpcCalls: RpcCall[] = [];
   const mock = createMockSupabase({
     employee_time_control_policies: () => ({
       data: { policy_code: "EXEMPT_FROM_TIME_CONTROL", legal_basis: "ARTICLE_22" },
@@ -125,19 +145,29 @@ test("deriveDailyAttendanceRecord: al pasar a exento retira asistencia y cálcul
       updates.push(call);
       return { data: [], error: null };
     },
+    rpc: (call) => {
+      rpcCalls.push(call);
+      return { data: true, error: null };
+    },
   });
 
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-exempt", "2026-08-17");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-exempt", "2026-08-17", COMPANY_ID);
 
   assert.equal(result.status, "EXEMPT");
   assert.equal(eventsCalled, false);
-  assert.deepEqual(updates.map((call) => call.table), [
-    "late_arrival_records",
-    "early_departure_records",
-    "overtime_records",
-    "attendance_status_records",
-    "attendance_records",
-  ]);
+  assert.deepEqual(updates, []);
+  assert.deepEqual(rpcCalls, [{
+    name: "reconcile_workera_attendance_day",
+    args: {
+      p_company_id: COMPANY_ID,
+      p_rule_engine_run_id: null,
+      p_employee_id: "emp-exempt",
+      p_work_date: "2026-08-17",
+      p_actual_clock_in: null,
+      p_actual_clock_out: null,
+      p_source_hash: null,
+    },
+  }]);
 });
 
 test("deriveDailyAttendanceRecord: al quedar sin horario retira el grafo automático anterior", async () => {
@@ -162,11 +192,11 @@ test("deriveDailyAttendanceRecord: al quedar sin horario retira el grafo automá
     },
   });
 
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-no-schedule", "2026-08-17");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-no-schedule", "2026-08-17", COMPANY_ID);
 
   assert.equal(result.status, "NO_SCHEDULE_ASSIGNED");
   assert.equal(result.attendanceRecordId, null);
-  assert.equal(updates.at(-1)?.table, "attendance_records");
+  assert.equal(updates.some((call) => call.table === "attendance_records"), false);
 });
 
 test("deriveDailyAttendanceRecord: una transición a exento conserva attendance manual y solo cierra cálculos del motor", async () => {
@@ -193,10 +223,10 @@ test("deriveDailyAttendanceRecord: una transición a exento conserva attendance 
     },
   });
 
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-exempt", "2026-08-17");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-exempt", "2026-08-17", COMPANY_ID);
 
   assert.equal(result.status, "EXEMPT");
-  assert.ok(updates.some((call) => call.table === "attendance_status_records"));
+  assert.equal(updates.some((call) => call.table === "attendance_status_records"), false);
   assert.equal(updates.some((call) => call.table === "attendance_records"), false);
 });
 
@@ -206,7 +236,7 @@ test("deriveDailyAttendanceRecord: día sin turno -> DAY_OFF, nunca genera una f
     schedule_assignments: () => ({ data: { work_schedule_id: "ws-general" }, error: null }),
     work_schedule_rules: () => ({ data: { scheduled_start: null, scheduled_end: null }, error: null }),
   });
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-22");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-22", COMPANY_ID);
   assert.equal(result.status, "DAY_OFF");
   assert.equal(result.attendanceRecordId, null);
 });
@@ -235,24 +265,15 @@ test("deriveDailyAttendanceRecord: un día antes trabajado que ahora es descanso
     },
   });
 
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-22");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-22", COMPANY_ID);
 
   assert.equal(result.status, "DAY_OFF");
   assert.equal(result.attendanceRecordId, null);
   assert.deepEqual(
     updates.map((call) => call.table),
-    ["late_arrival_records", "early_departure_records", "overtime_records", "attendance_status_records", "attendance_records"]
+    []
   );
-  for (const call of updates.slice(0, 4)) {
-    assert.ok(call.filters.some(([column, value]) => column === "employee_id" && value === "emp-1"));
-    assert.ok(call.filters.some(([column, value]) => column === "work_date" && value === "2026-08-22"));
-    assert.ok(call.filters.some(([column, value]) => column === "is_current" && value === true));
-  }
-  const statusUpdate = updates.find((call) => call.table === "attendance_status_records");
-  assert.ok(statusUpdate?.filters.some(([column, value]) => column === "source" && value === "system"));
-  const attendanceUpdate = updates.at(-1);
-  assert.ok(attendanceUpdate?.filters.some(([column, value]) => column === "id" && value === "ar-stale"));
-  assert.ok(attendanceUpdate?.filters.some(([column, value]) => column === "source" && value === "workera"));
+  assert.equal(updates.some((call) => call.table === "attendance_records"), false);
 });
 
 test("deriveDailyAttendanceRecord: feriado que perdió sus eventos también cierra la asistencia derivada vigente", async () => {
@@ -277,11 +298,10 @@ test("deriveDailyAttendanceRecord: feriado que perdió sus eventos también cier
     },
   });
 
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-09-18", true);
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-09-18", COMPANY_ID, true);
 
   assert.equal(result.status, "HOLIDAY");
-  assert.equal(updates.at(-1)?.table, "attendance_records");
-  assert.ok(updates.at(-1)?.filters.some(([column, value]) => column === "id" && value === "ar-stale-holiday"));
+  assert.equal(updates.some((call) => call.table === "attendance_records"), false);
 });
 
 test("deriveDailyAttendanceRecord: solo eventos de descanso en día libre -> SKIPPED_NO_EVENTS y reconcilia datos obsoletos", async () => {
@@ -314,17 +334,11 @@ test("deriveDailyAttendanceRecord: solo eventos de descanso en día libre -> SKI
     },
   });
 
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-22");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-22", COMPANY_ID);
 
   assert.equal(result.status, "SKIPPED_NO_EVENTS");
   assert.equal(result.attendanceRecordId, null);
-  assert.deepEqual(updates.map((call) => call.table), [
-    "late_arrival_records",
-    "early_departure_records",
-    "overtime_records",
-    "attendance_status_records",
-    "attendance_records",
-  ]);
+  assert.deepEqual(updates, []);
 });
 
 test("deriveDailyAttendanceRecord: asistencia manual se conserva aunque Workera ya no entregue eventos", async () => {
@@ -351,7 +365,7 @@ test("deriveDailyAttendanceRecord: asistencia manual se conserva aunque Workera 
     },
   });
 
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-22");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-22", COMPANY_ID);
 
   assert.deepEqual(result, {
     status: "UNCHANGED",
@@ -362,7 +376,7 @@ test("deriveDailyAttendanceRecord: asistencia manual se conserva aunque Workera 
   assert.deepEqual(updates, []);
 });
 
-test("deriveDailyAttendanceRecord: si falla una invalidación, aborta antes de cerrar attendance_records", async () => {
+test("deriveDailyAttendanceRecord: si falla la reconciliación atómica, no ejecuta DML parcial", async () => {
   const updates: UpdateCall[] = [];
   const mock = createMockSupabase({
     employee_time_control_policies: () => ({ data: null, error: null }),
@@ -382,18 +396,16 @@ test("deriveDailyAttendanceRecord: si falla una invalidación, aborta antes de c
     }),
     update: (call) => {
       updates.push(call);
-      return call.table === "overtime_records"
-        ? { error: { message: "db unavailable" } }
-        : { data: [], error: null };
+      return { data: [], error: null };
     },
+    rpc: () => ({ data: null, error: { message: "db unavailable" } }),
   });
 
   await assert.rejects(
-    deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-22"),
-    /fallo reconciliando overtime_records: db unavailable/
+    deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-22", COMPANY_ID),
+    /fallo reconciliando el día: db unavailable/
   );
-  assert.deepEqual(updates.map((call) => call.table), ["late_arrival_records", "early_departure_records", "overtime_records"]);
-  assert.equal(updates.some((call) => call.table === "attendance_records"), false);
+  assert.deepEqual(updates, []);
 });
 
 test("deriveDailyAttendanceRecord: día sin turno con marcaciones sí deriva la jornada extraordinaria", async () => {
@@ -411,7 +423,7 @@ test("deriveDailyAttendanceRecord: día sin turno con marcaciones sí deriva la 
     attendance_records_existing: () => ({ data: null, error: null }),
     attendance_records_insert: () => ({ data: { id: "ar-weekend" }, error: null }),
   });
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-22");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-22", COMPANY_ID);
   assert.equal(result.status, "DERIVED");
   assert.equal(result.attendanceRecordId, "ar-weekend");
   assert.equal(result.clockIn, "2026-08-22T12:00:00Z");
@@ -431,7 +443,7 @@ test("deriveDailyAttendanceRecord: eventos ENTRADA+SALIDA -> deriva clock_in/clo
     attendance_records_existing: () => ({ data: null, error: null }),
     attendance_records_insert: () => ({ data: { id: "ar-1" }, error: null }),
   });
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-17");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-17", COMPANY_ID);
   assert.equal(result.status, "DERIVED");
   assert.equal(result.clockIn, "2026-08-17T11:35:00+00:00");
   assert.equal(result.clockOut, "2026-08-17T21:05:00+00:00");
@@ -444,7 +456,7 @@ test("deriveDailyAttendanceRecord: sin eventos (día programado) -> igual deriva
     attendance_records_existing: () => ({ data: null, error: null }),
     attendance_records_insert: () => ({ data: { id: "ar-2" }, error: null }),
   });
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-17");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-17", COMPANY_ID);
   assert.equal(result.status, "DERIVED");
   assert.equal(result.clockIn, null);
   assert.equal(result.clockOut, null);
@@ -452,6 +464,7 @@ test("deriveDailyAttendanceRecord: sin eventos (día programado) -> igual deriva
 
 test("deriveDailyAttendanceRecord: al cambiar la fuente retira hojas antes de versionar la asistencia", async () => {
   const updates: UpdateCall[] = [];
+  const rpcCalls: RpcCall[] = [];
   const mock = createMockSupabase({
     ...SCHEDULED_MOCKS,
     events: () => ({
@@ -476,24 +489,45 @@ test("deriveDailyAttendanceRecord: al cambiar la fuente retira hojas antes de ve
       },
       error: null,
     }),
-    attendance_records_insert: () => ({ data: { id: "ar-new" }, error: null }),
     update: (call) => {
       updates.push(call);
       return { data: [], error: null };
     },
+    rpc: (call) => {
+      rpcCalls.push(call);
+      return {
+        data: call.name === "reconcile_workera_attendance_day" ? "ar-new" : true,
+        error: null,
+      };
+    },
   });
 
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-17");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-17", COMPANY_ID);
 
   assert.equal(result.status, "DERIVED");
   assert.equal(result.attendanceRecordId, "ar-new");
-  assert.deepEqual(updates.map((call) => call.table), [
-    "late_arrival_records",
-    "early_departure_records",
-    "overtime_records",
-    "attendance_status_records",
-    "attendance_records",
-  ]);
+  assert.deepEqual(updates, []);
+  assert.deepEqual(rpcCalls.map((call) => call.name), ["reconcile_workera_attendance_day"]);
+  assert.notEqual(rpcCalls[0].args.p_source_hash, null);
+});
+
+test("migración final: la raíz Workera se reemplaza o retira atómicamente sin DML service_role lateral", () => {
+  const sql = readFileSync(
+    "supabase/migrations/20260906210000_payroll_revision_state_integrity.sql",
+    "utf8",
+  );
+  const rpc = sql.slice(
+    sql.indexOf("create or replace function public.reconcile_workera_attendance_day"),
+    sql.indexOf("-- El guard heredado cubria solo INSERT"),
+  );
+
+  assert.match(rpc, /security definer[\s\S]*payroll-source-mutation-v1/);
+  assert.match(sql, /create or replace function public\.replace_workera_attendance_record[\s\S]*for update/);
+  assert.match(rpc, /update public\.late_arrival_records[\s\S]*update public\.early_departure_records[\s\S]*update public\.overtime_records/);
+  assert.match(sql, /max\(ar\.source_version\)[\s\S]*set is_current = false[\s\S]*insert into public\.attendance_records/);
+  assert.match(sql, /revoke insert, update, delete on public\.attendance_records from service_role/);
+  assert.match(sql, /grant execute on function public\.reconcile_workera_attendance_day[\s\S]*to service_role/);
+  assert.match(sql, /revoke execute on function public\.replace_workera_attendance_record[\s\S]*from service_role/);
 });
 
 test("deriveDailyAttendanceRecord: mismo conjunto de eventos que la versión vigente -> UNCHANGED, no reinserta", async () => {
@@ -504,11 +538,11 @@ test("deriveDailyAttendanceRecord: mismo conjunto de eventos que la versión vig
       error: null,
     }),
     attendance_records_existing: () => ({
-      data: { id: "ar-existing", source_hash: createHash("sha256").update("fp-1").digest("hex"), source_version: 1 },
+      data: { id: "ar-existing", source_hash: createHash("sha256").update("fp-1|ACTIVO|v1").digest("hex"), source_version: 1 },
       error: null,
     }),
   });
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-17");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-17", COMPANY_ID);
   assert.equal(result.status, "UNCHANGED");
   assert.equal(result.attendanceRecordId, "ar-existing");
 });
@@ -518,7 +552,7 @@ test("deriveDailyAttendanceRecord: sin schedule_assignment vigente -> NO_SCHEDUL
     employee_time_control_policies: () => ({ data: null, error: null }),
     schedule_assignments: () => ({ data: null, error: null }),
   });
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-17");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-08-17", COMPANY_ID);
   assert.equal(result.status, "NO_SCHEDULE_ASSIGNED");
 });
 
@@ -534,7 +568,7 @@ test("deriveDailyAttendanceRecord: feriado SIN eventos -> HOLIDAY, nunca crea at
       return { data: { id: "ar-x" }, error: null };
     },
   });
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-09-18", true);
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-09-18", COMPANY_ID, true);
   assert.equal(result.status, "HOLIDAY");
   assert.equal(result.attendanceRecordId, null);
   assert.equal(insertCalled, false);
@@ -553,7 +587,7 @@ test("deriveDailyAttendanceRecord: feriado TRABAJADO (con eventos) -> se deriva 
     attendance_records_existing: () => ({ data: null, error: null }),
     attendance_records_insert: () => ({ data: { id: "ar-holiday" }, error: null }),
   });
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-09-18", true);
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-09-18", COMPANY_ID, true);
   assert.equal(result.status, "DERIVED");
   assert.equal(result.attendanceRecordId, "ar-holiday");
   assert.ok(result.clockIn);
@@ -568,6 +602,6 @@ test("deriveDailyAttendanceRecord: sin la marca isHoliday, un feriado se procesa
     attendance_records_insert: () => ({ data: { id: "ar-normal" }, error: null }),
   });
   // isHoliday por defecto = false
-  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-09-18");
+  const result = await deriveDailyAttendanceRecord(mock as never, "emp-1", "2026-09-18", COMPANY_ID);
   assert.equal(result.status, "DERIVED");
 });

@@ -108,7 +108,7 @@ set local role authenticated;
 set local request.jwt.claim.sub = '32000000-0000-0000-0000-000000000001';
 
 insert into public.reporting_periods (period_start, period_end, status)
-values (date '2026-08-01', date '2026-08-31', 'READY_TO_CLOSE');
+values (date '2026-08-01', date '2026-08-31', 'OPEN');
 
 reset role;
 
@@ -122,8 +122,8 @@ select lives_ok(
 );
 select is(
   (select status::text from public.reporting_periods where period_start = date '2026-08-01'),
-  'READY_TO_CLOSE',
-  'SUPERVISOR_PRODUCTION NO logra cerrar el ReportingPeriod (regla obligatoria, sección 18 — sigue READY_TO_CLOSE)'
+  'OPEN',
+  'SUPERVISOR_PRODUCTION NO logra cerrar el ReportingPeriod (regla obligatoria, sección 18 — sigue OPEN)'
 );
 
 reset role;
@@ -131,13 +131,15 @@ reset role;
 set local role authenticated;
 set local request.jwt.claim.sub = '32000000-0000-0000-0000-000000000001';
 
-select lives_ok(
+select throws_ok(
   format(
     $$ update public.reporting_periods set status = 'CLOSED', closed_by = %L
        where period_start = date '2026-08-01' $$,
     '32000000-0000-0000-0000-000000000001'
   ),
-  'ADMIN_RRHH puede cerrar el ReportingPeriod, con closed_by = auth.uid()'
+  '42501',
+  null,
+  'ADMIN_RRHH tampoco puede cerrar directo: el cierre exige snapshot verificado'
 );
 
 reset role;

@@ -14,16 +14,17 @@ import {
   type WorkScheduleRule,
 } from "../../../../lib/schedules/schedule-administration";
 import { enforceWorkforceActionRateLimit } from "../../../../lib/decisions/workforce-action-rate-limit";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../../lib/tenant/legacy-workforce";
+import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
 
 /**
  * Server Actions de administración de horarios (MB-1).
  *
- * Todas usan el cliente de SESIÓN (`createClient`), nunca el admin client: la
- * RLS `is_privileged_admin()` de `schedule_assignments` /
- * `employee_time_control_policies` / `work_schedules` es el gate real de
- * autorización. El chequeo de rol de acá es una cortesía de UI para dar un
- * mensaje claro, no la frontera de seguridad -- mismo criterio que
- * `revision-diaria/actions.ts` y `licencias/roster-actions.ts`.
+ * Todas usan el cliente de SESIÓN (`createClient`), nunca el admin client.
+ * Definiciones, reglas y asignaciones rechazan DML directo desde la sesión;
+ * sus RPC validan ADMIN_RRHH + MFA + empresa y conservan el versionado.
+ * El chequeo de rol de acá entrega un error temprano, pero no sustituye esos
+ * controles de base de datos -- mismo criterio que `revision-diaria/actions.ts`.
  */
 
 export interface ScheduleActionState {
@@ -34,10 +35,16 @@ export interface ScheduleActionState {
 async function requireScheduleAdmin() {
   const profile = await getCurrentProfile();
   if (!profile?.role) redirect("/login");
-  if (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH") {
-    throw new Error("Esta operación requiere rol SUPER_ADMIN o ADMIN_RRHH.");
+  const supabase = await createClient();
+  const payrollRole = await resolvePayrollCompanyRole(
+    supabase,
+    ARCOTEX_WORKFORCE_COMPANY_ID,
+    ["ADMIN_RRHH"],
+  );
+  if (payrollRole !== "ADMIN_RRHH") {
+    throw new Error("Solo RR. HH. puede confirmar o cambiar horarios.");
   }
-  await enforceWorkforceActionRateLimit(await createClient(), "workforce.schedules.manage");
+  await enforceWorkforceActionRateLimit(supabase, "workforce.schedules.manage");
   return profile;
 }
 
@@ -177,7 +184,12 @@ export async function createScheduleAction(_prev: ScheduleActionState, formData:
     ];
 
     const supabase = await createClient();
-    await upsertWorkSchedule(supabase, { scheduleId: null, name, rules });
+    await upsertWorkSchedule(supabase, {
+      companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+      scheduleId: null,
+      name,
+      rules,
+    });
     revalidateScheduleViews();
     return { status: "success", message: `Horario "${name}" creado. Ya puedes asignarlo.` };
   } catch (err) {

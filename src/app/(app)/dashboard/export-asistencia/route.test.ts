@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { canDownloadPayrollWorkbook, requireYearMonth } from "./route";
+import { readFileSync } from "node:fs";
 
 /**
  * `mes` llega por query string y los resolvers de período hacen aritmética
@@ -42,4 +43,12 @@ test("canDownloadPayrollWorkbook: la pre-nómina queda solo para RRHH y owner", 
   assert.equal(canDownloadPayrollWorkbook("ADMIN_RRHH"), true);
   assert.equal(canDownloadPayrollWorkbook("SUPERVISOR_PRODUCTION"), false);
   assert.equal(canDownloadPayrollWorkbook("SUPERVISOR_INSTALLATION"), false);
+});
+
+test("descarga de pre-nómina: exige rol del tenant y CLOSED usa el snapshot exacto", () => {
+  const source = readFileSync(new URL("./route.ts", import.meta.url), "utf8");
+  assert.match(source, /resolvePayrollCompanyRole[\s\S]*?\["ADMIN_RRHH", "SUPER_ADMIN"\]/);
+  assert.doesNotMatch(source, /buildAttendanceExportData\(supabase, profile\.role/);
+  assert.match(source, /status === "CLOSED"[\s\S]*?CLOSED_SNAPSHOT[\s\S]*?content_sha256/);
+  assert.match(source, /createHash\("sha256"\)[\s\S]*?snapshot\.data\.content_sha256/);
 });

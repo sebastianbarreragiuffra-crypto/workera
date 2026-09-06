@@ -19,7 +19,7 @@ function todayIsoInSantiago(now: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-export function DescargarAsistenciaCard({ now = new Date() }: { now?: Date }) {
+export function DescargarAsistenciaCard({ now = new Date(), role = "SUPER_ADMIN" }: { now?: Date; role?: "SUPER_ADMIN" | "ADMIN_RRHH" }) {
   const today = todayIsoInSantiago(now);
   const currentMonth = today.slice(0, 7);
   const currentDay = Number(today.slice(8, 10));
@@ -135,7 +135,7 @@ export function DescargarAsistenciaCard({ now = new Date() }: { now?: Date }) {
       >
         Descargar Excel para RR. HH.
       </a>
-      {tipo === "PAGO" && <PayrollWorkbookUpload month={pagoMes} />}
+      {tipo === "PAGO" && <PayrollWorkbookUpload month={pagoMes} canUpload={role === "ADMIN_RRHH"} />}
     </section>
   );
 }

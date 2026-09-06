@@ -6,6 +6,7 @@ import { resolveTargetDate, resolveReconciliationWindow } from "./target-date";
 import { requireCurrentRole, AuthorizationError } from "../supabase/authorize";
 import { createAdminClient } from "../supabase/admin-client";
 import type { Database } from "../supabase/database.types";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../shared/workforce-constants";
 
 /**
  * Orquestación de la automatización de Fase 6B. Reutiliza
@@ -92,23 +93,32 @@ export interface RunForDateResult extends SyncWorkeraAttendanceResult {
  */
 export async function runWorkeraSyncForDate(
   date: string,
-  opts: { triggeredBy: "CRON" | "MANUAL"; deps?: SyncDeps; sleep?: (ms: number) => Promise<void> }
+  opts: {
+    triggeredBy: "CRON" | "MANUAL";
+    companyId?: string;
+    deps?: SyncDeps;
+    sleep?: (ms: number) => Promise<void>;
+  }
 ): Promise<RunForDateResult> {
   const supabaseAdmin = opts.deps?.supabaseAdmin ?? createAdminClient("workera-attendance-sync");
   const sleep = opts.sleep ?? defaultSleep;
+  const companyId = opts.companyId ?? ARCOTEX_WORKFORCE_COMPANY_ID;
 
   // Libera locks huérfanos de procesos caídos ANTES de competir por el
   // índice único -- una fila RUNNING de un intento nuestro previo en esta
   // misma secuencia ya no está RUNNING (terminó FAILED), así que esto solo
   // afecta corridas de OTROS procesos que nunca terminaron limpio.
-  await supabaseAdmin.rpc("reclaim_stale_workera_sync_runs", { p_stale_after_seconds: STALE_RUNNING_SECONDS });
+  await supabaseAdmin.rpc("reclaim_stale_workera_sync_runs", {
+    p_company_id: companyId,
+    p_stale_after_seconds: STALE_RUNNING_SECONDS,
+  });
 
   let lastResult: SyncWorkeraAttendanceResult | null = null;
   let retryOf: string | null = null;
 
   for (let attempt = 1; attempt <= MAX_SYNC_ATTEMPTS; attempt += 1) {
     const result = await syncWorkeraAttendance(
-      { startDate: date, endDate: date, triggeredBy: opts.triggeredBy, attempt, retryOf },
+      { companyId, startDate: date, endDate: date, triggeredBy: opts.triggeredBy, attempt, retryOf },
       { supabaseAdmin, workeraClient: opts.deps?.workeraClient }
     );
     lastResult = result;
@@ -268,30 +278,41 @@ export interface WorkeraSyncHealth {
  * un día calendario completo de margen sobre la cadencia diaria esperada.
  */
 export async function getWorkeraSyncHealth(
-  deps: { supabaseAdmin?: SupabaseClient<Database> } = {},
+  deps: { supabaseAdmin?: SupabaseClient<Database>; companyId?: string } = {},
   staleAfterHours = 30
 ): Promise<WorkeraSyncHealth> {
   const supabaseAdmin = deps.supabaseAdmin ?? createAdminClient("workera-attendance-sync");
+  const companyId = deps.companyId ?? ARCOTEX_WORKFORCE_COMPANY_ID;
 
-  const [{ data: successRows }, { data: failureRows }, { data: runningRows }] = await Promise.all([
+  const [successResult, failureResult, runningResult] = await Promise.all([
     supabaseAdmin
       .from("sync_runs")
       .select("id, target_period_start, finished_at")
+      .eq("company_id", companyId)
       .eq("status", "SUCCEEDED")
       .order("finished_at", { ascending: false })
       .limit(1),
     supabaseAdmin
       .from("sync_runs")
       .select("id, target_period_start, finished_at, error_category")
+      .eq("company_id", companyId)
       .eq("status", "FAILED")
       .order("started_at", { ascending: false })
       .limit(1),
     supabaseAdmin
       .from("sync_runs")
       .select("id, target_period_start, started_at")
+      .eq("company_id", companyId)
       .eq("status", "RUNNING")
       .order("started_at", { ascending: false }),
   ]);
+
+  if (successResult.error || failureResult.error || runningResult.error) {
+    throw new Error("getWorkeraSyncHealth: no fue posible verificar la salud del tenant.");
+  }
+  const successRows = successResult.data;
+  const failureRows = failureResult.data;
+  const runningRows = runningResult.data;
 
   const lastSuccess = successRows?.[0]
     ? {

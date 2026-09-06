@@ -12,6 +12,8 @@ import { CaseCard } from "./CaseCard";
 import { PageHeader } from "../../../components/shell/PageHeader";
 import { FilterBar, type FilterOption } from "../../../components/shell/FilterBar";
 import { SearchInput } from "../../../components/shell/SearchInput";
+import { resolvePayrollCompanyRole } from "../../../lib/payroll/payroll-company-role";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../lib/tenant/legacy-workforce";
 
 const AREA_LABEL: Record<AreaCode, string> = {
   PRODUCTION: "Producción",
@@ -105,7 +107,14 @@ export default async function DailyReviewPage({
   // YYYY-MM-DD y lanza: sin este filtro la página cae con un 500 provocable
   // desde la barra de direcciones.
   const date = params.fecha && isCalendarDate(params.fecha) ? params.fecha : todayInSantiago();
-  const allowedAreas = areasVisibleToRole(profile.role);
+  const supabase = await createClient();
+  const workforceRole = await resolvePayrollCompanyRole(
+    supabase,
+    ARCOTEX_WORKFORCE_COMPANY_ID,
+    ["ADMIN_RRHH", "SUPER_ADMIN", "SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"],
+  );
+  if (!workforceRole) redirect("/acceso-pendiente");
+  const allowedAreas = areasVisibleToRole(workforceRole);
   // Un área desconocida cae al área por defecto del rol, en vez de propagarse
   // hasta `assertAreaAccessAllowed` y mostrar "no tienes acceso" por un typo.
   const requestedArea = parseAreaCode(params.area) ?? allowedAreas[0];
@@ -115,7 +124,7 @@ export default async function DailyReviewPage({
   const feedback = params.hecho;
 
   try {
-    assertAreaAccessAllowed(profile.role, requestedArea);
+    assertAreaAccessAllowed(workforceRole, requestedArea);
   } catch (err) {
     if (err instanceof AreaAccessError) {
       return <ErrorState message="No tienes acceso a esta área." retryHref="/revision-diaria" />;
@@ -123,11 +132,9 @@ export default async function DailyReviewPage({
     throw err;
   }
 
-  const supabase = await createClient();
-
   let board;
   try {
-    board = await getDailyReviewBoard(supabase, profile.role, requestedArea, date);
+    board = await getDailyReviewBoard(supabase, workforceRole, requestedArea, date);
   } catch {
     return <ErrorState retryHref={`/revision-diaria?fecha=${date}&area=${requestedArea}`} />;
   }
@@ -146,7 +153,7 @@ export default async function DailyReviewPage({
   let detail = null;
   if (selectedEmployeeId) {
     try {
-      detail = await getDailyReviewDetail(supabase, profile.role, selectedEmployeeId, date);
+      detail = await getDailyReviewDetail(supabase, workforceRole, selectedEmployeeId, date);
     } catch {
       detail = null;
     }
@@ -268,7 +275,12 @@ export default async function DailyReviewPage({
                 ← Volver a la lista
               </Link>
               {detail ? (
-                <ReviewDetailPanel detail={detail} date={date} area={requestedArea} />
+                <ReviewDetailPanel
+                  detail={detail}
+                  date={date}
+                  area={requestedArea}
+                  canOverrideDecisions={workforceRole === "ADMIN_RRHH"}
+                />
               ) : (
                 <ErrorState message="No pudimos cargar el detalle de este trabajador." retryHref={`/revision-diaria?fecha=${date}&area=${requestedArea}`} />
               )}

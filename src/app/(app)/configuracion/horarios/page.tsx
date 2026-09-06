@@ -9,6 +9,8 @@ import { getScheduleAdminBoard } from "../../../../lib/schedules/schedule-admini
 import { ScheduleAdminClient } from "./ScheduleAdminClient";
 import { BulkAssignCard } from "./BulkAssignCard";
 import { CreateScheduleCard } from "./CreateScheduleCard";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../../lib/tenant/legacy-workforce";
+import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
 
 /**
  * Administración de horarios (MB-1). Es el prerequisito operativo de la marcha
@@ -17,17 +19,23 @@ import { CreateScheduleCard } from "./CreateScheduleCard";
  * motor de reglas no genera ningún candidato de atraso/salida anticipada/horas
  * extra, por más que la sincronización con Workera traiga marcaciones.
  *
- * Privilegiada (SUPER_ADMIN/ADMIN_RRHH) porque escribe las tablas cuya RLS ya
- * es `is_privileged_admin()`. Un supervisor de área nunca define horarios.
+ * ADMIN_RRHH es la única autoridad que escribe y confirma horarios.
+ * SUPER_ADMIN conserva esta vista únicamente como auditor técnico.
  */
 export default async function HorariosPage() {
   const profile = await getCurrentProfile();
   if (!profile?.role) redirect("/login");
-  if (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH") redirect("/dashboard");
+  const supabase = await createClient();
+  const payrollRole = await resolvePayrollCompanyRole(
+    supabase,
+    ARCOTEX_WORKFORCE_COMPANY_ID,
+    ["ADMIN_RRHH", "SUPER_ADMIN"],
+  );
+  if (!payrollRole) redirect("/dashboard");
+  const canManageSchedules = payrollRole === "ADMIN_RRHH";
 
   const today = todayInSantiago();
-  const supabase = await createClient();
-  const board = await getScheduleAdminBoard(supabase, today);
+  const board = await getScheduleAdminBoard(supabase, today, ARCOTEX_WORKFORCE_COMPANY_ID);
 
   const coveredCount = board.totalActive - board.unassignedCount - board.exemptCount;
 
@@ -35,7 +43,9 @@ export default async function HorariosPage() {
     <div className="space-y-4">
       <PageHeader
         title="Horarios"
-        subtitle="Define los horarios de trabajo y quién queda exento de control horario. Sin horario asignado, el motor de reglas no calcula atrasos ni horas extra."
+        subtitle={canManageSchedules
+          ? "Define los horarios de trabajo y quién queda exento de control horario. Sin horario asignado, el motor de reglas no calcula atrasos ni horas extra."
+          : "Revisa la cobertura y las confirmaciones de horarios en modo de auditoría técnica. Solo RR. HH. puede modificarlos."}
       />
 
       <SectionCard title="Cobertura de horarios">
@@ -57,13 +67,27 @@ export default async function HorariosPage() {
         )}
       </SectionCard>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <BulkAssignCard schedules={board.schedules} today={today} unassignedCount={board.unassignedCount} />
-        <CreateScheduleCard />
-      </div>
+      {canManageSchedules ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <BulkAssignCard schedules={board.schedules} today={today} unassignedCount={board.unassignedCount} />
+          <CreateScheduleCard />
+        </div>
+      ) : (
+        <SectionCard title="Auditoría técnica de horarios">
+          <p className="text-sm text-slate-600">
+            Esta vista es de solo lectura para SUPER_ADMIN. La confirmación, creación y reasignación de horarios corresponde
+            exclusivamente a RR. HH.
+          </p>
+        </SectionCard>
+      )}
 
       <SectionCard title={`Trabajadores (${board.totalActive})`}>
-        <ScheduleAdminClient rows={board.rows} schedules={board.schedules} today={today} />
+        <ScheduleAdminClient
+          rows={board.rows}
+          schedules={board.schedules}
+          today={today}
+          canManage={canManageSchedules}
+        />
       </SectionCard>
     </div>
   );

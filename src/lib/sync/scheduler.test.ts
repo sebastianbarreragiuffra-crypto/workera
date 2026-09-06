@@ -29,7 +29,7 @@ function createMockSupabase(overrides: {
   syncRunSelectQueue?: (() => { data: unknown[] | null; error: unknown })[];
   rpc?: (fn: string, args: unknown) => { data: unknown; error: unknown };
 } = {}) {
-  const calls: { table?: string; fn?: string; op: string }[] = [];
+  const calls: { table?: string; fn?: string; op: string; column?: string; value?: unknown }[] = [];
   let syncRunSelectCallIndex = 0;
 
   function makeBuilder(table: string) {
@@ -67,7 +67,8 @@ function createMockSupabase(overrides: {
       in() {
         return builder;
       },
-      eq() {
+      eq(column: string, value: unknown) {
+        calls.push({ table, op: "eq", column, value });
         return builder;
       },
       order() {
@@ -93,7 +94,11 @@ function createMockSupabase(overrides: {
     from: (table: string) => makeBuilder(table) as any,
     rpc: async (fn: string, args: unknown) => {
       calls.push({ fn, op: "rpc" });
-      return overrides.rpc?.(fn, args) ?? { data: 0, error: null };
+      if (overrides.rpc) return overrides.rpc(fn, args);
+      if (fn === "begin_workera_sync_run") return { data: "sr-mock", error: null };
+      if (fn === "finish_workera_sync_run") return { data: true, error: null };
+      if (fn === "upsert_workera_attendance_event") return { data: "INSERTED", error: null };
+      return { data: 0, error: null };
     },
     calls,
   };
@@ -234,7 +239,9 @@ test("runWorkeraSyncForDate: ALREADY_RUNNING (23505 en sync_runs) -> no reintent
   } as unknown as HttpWorkeraClient;
   const mock = createMockSupabase({
     employeesSelect: () => ({ data: [{ id: "emp-1", external_workera_id: "90000017" }], error: null }),
-    syncRunInsert: () => ({ data: null, error: { code: "23505", message: "duplicate key" } }),
+    rpc: (fn) => fn === "begin_workera_sync_run"
+      ? { data: null, error: null }
+      : { data: 0, error: null },
   });
 
   const result = await runWorkeraSyncForDate("2026-08-18", {
@@ -470,8 +477,27 @@ test("rerunWorkeraSync: recorre cada día del rango, uno por uno", async () => {
 
 test("getWorkeraSyncHealth: sin ningún SUCCEEDED -> UNKNOWN", async () => {
   const mock = createMockSupabase({ syncRunSelectQueue: [() => ({ data: [], error: null }), () => ({ data: [], error: null }), () => ({ data: [], error: null })] });
-  const health = await getWorkeraSyncHealth({ supabaseAdmin: mock as never });
+  const health = await getWorkeraSyncHealth({ supabaseAdmin: mock as never, companyId: "tenant-health" });
   assert.equal(health.status, "UNKNOWN");
+  assert.equal(
+    mock.calls.filter((call) => call.table === "sync_runs" && call.op === "eq" && call.column === "company_id" && call.value === "tenant-health").length,
+    3,
+    "las tres consultas quedan aisladas al mismo tenant"
+  );
+});
+
+test("getWorkeraSyncHealth: un error de base falla cerrado en vez de reportar UNKNOWN", async () => {
+  const mock = createMockSupabase({
+    syncRunSelectQueue: [
+      () => ({ data: null, error: { message: "offline" } }),
+      () => ({ data: [], error: null }),
+      () => ({ data: [], error: null }),
+    ],
+  });
+  await assert.rejects(
+    getWorkeraSyncHealth({ supabaseAdmin: mock as never }),
+    /no fue posible verificar la salud del tenant/
+  );
 });
 
 test("getWorkeraSyncHealth: hay una corrida RUNNING -> status RUNNING (prioridad sobre lo demás)", async () => {

@@ -1,5 +1,7 @@
 # Modelo de datos — Fase 2B (extensión operativa)
 
+> **Documento histórico.** Conserva el diseño incremental de Fase 2B y no define la regla final 2026. Las menciones posteriores a bono no automático, exclusión de Instalaciones, período sin confirmar o tratamiento pendiente de `R` quedaron reemplazadas por `docs/BUSINESS_RULES_GATE_D.md` y las migraciones finales.
+
 Extiende `docs/DATA_MODEL_PHASE2.md` (Fase 2A, commit `0345850`) mediante **6 migraciones nuevas** (`08` a `13`), sin modificar ninguna de las 7 migraciones de Fase 2A. `docs/DATA_MODEL_PHASE2.md` no se toca ni se reemplaza — este documento es un complemento.
 
 Migraciones de esta fase:
@@ -213,7 +215,10 @@ No se implementaron todas como triggers — se diferenció explícitamente integ
 
 ---
 
-## 25. Preguntas P0/P1/P2 (Fase 2B — no inventadas)
+## 25. Preguntas P0/P1/P2 históricas de Fase 2B
+
+Esta lista se conserva como trazabilidad de diseño. Fue resuelta por las reglas
+finales de pre-nómina 2026: no debe utilizarse como política vigente.
 
 **P0 — bloquean el cálculo, no la estructura (mismo criterio que Fase 2A):**
 - Regla exacta de overtime del viernes para Producción (sigue abierta desde Fase 2A).

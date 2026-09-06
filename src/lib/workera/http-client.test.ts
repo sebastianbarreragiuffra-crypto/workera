@@ -235,6 +235,39 @@ test("payload que no cumple el schema -> WorkeraValidationError (nunca llega al 
   );
 });
 
+for (const invalidTimestamp of [
+  "2026-08-18",
+  "2026-08-18T07:30:00Z",
+  "2026-08-18T07:30:00-04:00",
+  "2026-02-30T07:30:00",
+  "2026-08-18T25:00:00",
+]) {
+  test(`attendanceDate inválido (${invalidTimestamp}) se rechaza antes del mapper`, async () => {
+    const payload = {
+      page: 1,
+      totalPages: 1,
+      pageResult: 1,
+      totalResult: 1,
+      data: [{
+        employee: { code: "EMP-1" },
+        attendanceDate: invalidTimestamp,
+        attendanceType: 0,
+        attendanceStatus: "ACTIVO",
+      }],
+    };
+    await withMockFetch(
+      async () => jsonResponse(200, payload),
+      async () => {
+        const client = new HttpWorkeraClient(TEST_CONFIG);
+        await assert.rejects(
+          () => client.getAttendanceEvents({ start: "2026-08-18", end: "2026-08-18" }),
+          WorkeraValidationError
+        );
+      }
+    );
+  });
+}
+
 test("attendanceType 0..5 se mapean a las 6 etiquetas documentadas", async () => {
   const labels = ["ENTRADA", "SALIDA", "SALIDA_EXTRAORDINARIA", "ENTRADA_EXTRAORDINARIA", "INICIO_DESCANSO", "TERMINO_DESCANSO"];
   const payload = {
@@ -434,6 +467,57 @@ test("getAllAttendanceEvents: protección de límite de páginas -- excede maxPa
 test("getAllAttendanceEvents: el servidor devuelve un page distinto al solicitado -> WorkeraValidationError, protección contra desincronización", async () => {
   await withMockFetch(
     async () => pageResponse(99, 2, "EMP-99"), // siempre responde page=99, sin importar lo solicitado
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await assert.rejects(
+        () => client.getAllAttendanceEvents({ start: "2026-08-18", end: "2026-08-18" }),
+        WorkeraValidationError
+      );
+    }
+  );
+});
+
+test("getAllAttendanceEvents: rechaza totalPages/totalResult que cambian entre páginas", async () => {
+  await withMockFetch(
+    async (input) => {
+      const url = new URL(typeof input === "string" ? input : (input as Request).url);
+      const page = Number(url.searchParams.get("page"));
+      const response = pageResponse(page, 2, `EMP-${page}`);
+      if (page === 1) return response;
+      return jsonResponse(200, {
+        page: 2,
+        totalPages: 3,
+        pageResult: 1,
+        totalResult: 3,
+        data: [{ employee: { code: "EMP-2" }, attendanceDate: "2026-08-18T02:00:00", attendanceType: 0, attendanceStatus: "ACTIVO" }],
+      });
+    },
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await assert.rejects(
+        () => client.getAllAttendanceEvents({ start: "2026-08-18", end: "2026-08-18" }),
+        WorkeraValidationError
+      );
+    }
+  );
+});
+
+test("getAllAttendanceEvents: rechaza pageResult distinto de la cantidad recibida", async () => {
+  await withMockFetch(
+    async () => jsonResponse(200, { ...VALID_PAYLOAD, pageResult: 99 }),
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await assert.rejects(
+        () => client.getAllAttendanceEvents({ start: "2026-08-18", end: "2026-08-18" }),
+        WorkeraValidationError
+      );
+    }
+  );
+});
+
+test("getAllAttendanceEvents: rechaza una cantidad agregada distinta de totalResult", async () => {
+  await withMockFetch(
+    async () => jsonResponse(200, { ...VALID_PAYLOAD, totalResult: 3 }),
     async () => {
       const client = new HttpWorkeraClient(TEST_CONFIG);
       await assert.rejects(

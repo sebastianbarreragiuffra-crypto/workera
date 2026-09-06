@@ -102,6 +102,10 @@ test("worstHttpStatus: cualquier FAILED -> 500 (nunca 200 si el sync falló, PAS
   assert.equal(worstHttpStatus(["SUCCEEDED", "FAILED"]), 500);
 });
 
+test("worstHttpStatus: un motor PARTIAL también alerta al cron con 500", () => {
+  assert.equal(worstHttpStatus(["SUCCEEDED", "PARTIAL"]), 500);
+});
+
 test("worstHttpStatus: ALREADY_RUNNING sin FAILED -> 409", () => {
   assert.equal(worstHttpStatus(["SUCCEEDED", "ALREADY_RUNNING"]), 409);
 });

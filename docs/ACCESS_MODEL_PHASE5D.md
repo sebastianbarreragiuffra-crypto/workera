@@ -1,5 +1,7 @@
 # Modelo de accesos — Fase 5D (SUPER_ADMIN + 4 tipos de rol)
 
+> **Documento histórico, no autoridad vigente para decisiones laborales.** El modelo final 2026 limita `SUPER_ADMIN` a administración técnica, lectura y auditoría; no puede aprobar, rechazar, reemplazar decisiones de asistencia ni cerrar/reabrir/aprobar la pre-nómina. Esas facultades empresariales corresponden a la membresía `ADMIN_RRHH`. Las afirmaciones incompatibles que siguen documentan la evolución de la fase y quedaron reemplazadas por `docs/BUSINESS_RULES_GATE_D.md` y las migraciones finales de autoridad laboral.
+
 Estado: `IMPLEMENTED` a nivel de base de datos (RLS) y de backend server-only (gestión de usuarios). Verificado con 39 pruebas pgTAP nuevas (251/251 totales) y las 212 preexistentes sin modificar. **Sin UI todavía** — ver sección final.
 
 **Advertencia obligatoria**: `SUPER_ADMIN` administra **esta aplicación web** (Workera Supervisor App) — usuarios, roles, configuración, correcciones auditadas, cierre/reapertura de períodos. `SUPER_ADMIN` **no es** un administrador de la cuenta de Workera ni de su API — son dos sistemas separados y no deben confundirse (ver sección 7).

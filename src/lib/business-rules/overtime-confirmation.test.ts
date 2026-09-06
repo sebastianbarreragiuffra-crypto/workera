@@ -1,6 +1,29 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { generateOvertimeCandidate } from "./overtime-confirmation";
+import { generateOvertimeCandidate as generateOvertimeCandidateRaw } from "./overtime-confirmation";
+
+const COMPANY_ID = "0a4c0000-0000-0000-0000-000000000001";
+const RUN_ID = "30000000-0000-4000-8000-000000000003";
+
+const generateOvertimeCandidate = (
+  supabase: Parameters<typeof generateOvertimeCandidateRaw>[0],
+  employeeId: string,
+  workDate: string,
+  attendanceRecordId: string,
+  clockOut: string | null,
+  clockIn: string | null = null,
+  isHoliday = false
+) => generateOvertimeCandidateRaw(
+  supabase,
+  employeeId,
+  workDate,
+  attendanceRecordId,
+  clockOut,
+  clockIn,
+  isHoliday,
+  COMPANY_ID,
+  RUN_ID
+);
 
 function createMockSupabase(handlers: {
   employee_time_control_policies?: () => { data: unknown; error: unknown };
@@ -15,6 +38,50 @@ function createMockSupabase(handlers: {
   overtime_records_update?: (id: string | null) => { data: unknown; error: unknown };
 }) {
   return {
+    async rpc(name: string, args: Record<string, unknown>) {
+      assert.equal(name, "reconcile_overtime_candidate");
+      const existingResult = handlers.overtime_records_existing?.() ?? { data: null, error: null };
+      if (existingResult.error) return { data: null, error: existingResult.error };
+      const existing = existingResult.data as {
+        id: string;
+        attendance_record_id?: string;
+        candidate_minutes?: number;
+        overtime_policy_id?: string;
+        overtime_types?: { code: string } | null;
+      } | null;
+
+      if (args.p_attendance_record_id === null) {
+        if (existing) {
+          const update = handlers.overtime_records_update?.(existing.id) ?? { data: null, error: null };
+          if (update.error) return { data: null, error: update.error };
+        }
+        return { data: { record_id: null, changed: existing !== null }, error: null };
+      }
+
+      const date = String(args.p_work_date);
+      const expectedType = date === "2026-09-18" || new Date(`${date}T00:00:00Z`).getUTCDay() === 0
+        ? "OVERTIME_100"
+        : "OVERTIME_50";
+      if (
+        existing &&
+        existing.attendance_record_id === args.p_attendance_record_id &&
+        existing.candidate_minutes === args.p_candidate_minutes &&
+        existing.overtime_policy_id === args.p_overtime_policy_id &&
+        existing.overtime_types?.code === expectedType
+      ) {
+        return { data: { record_id: existing.id, changed: false }, error: null };
+      }
+      if (existing) {
+        const update = handlers.overtime_records_update?.(existing.id) ?? { data: null, error: null };
+        if (update.error) return { data: null, error: update.error };
+      }
+      const inserted = handlers.overtime_records_insert?.() ?? { data: { id: "or-mock" }, error: null };
+      if (inserted.error) return { data: null, error: inserted.error };
+      return {
+        data: { record_id: (inserted.data as { id: string }).id, changed: true },
+        error: null,
+      };
+    },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     from(table: string): any {
       let isInsert = false;
@@ -48,6 +115,17 @@ function createMockSupabase(handlers: {
           return builder;
         },
         maybeSingle: async () => {
+          if (table === "employee_group_assignments") {
+            const employee = handlers.employees?.() ?? { data: null, error: null };
+            const group = handlers.employee_groups?.() ?? { data: null, error: null };
+            const employeeRow = employee.data as { employee_group_id?: string } | null;
+            return employeeRow?.employee_group_id && group.data
+              ? {
+                  data: { employee_group_id: employeeRow.employee_group_id, employee_groups: group.data },
+                  error: employee.error ?? group.error,
+                }
+              : { data: null, error: employee.error ?? group.error };
+          }
           if (table === "overtime_records") return handlers.overtime_records_existing?.() ?? { data: null, error: null };
           const readHandler = handlers[table as keyof typeof handlers] as
             | (() => { data: unknown; error: unknown })

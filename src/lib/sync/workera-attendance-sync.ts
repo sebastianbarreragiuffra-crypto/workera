@@ -6,6 +6,7 @@ import { getWorkeraConfig } from "../workera/config";
 import type { NormalizedWorkeraAttendanceEvent } from "../workera/types/attendance-event";
 import type { Database } from "../supabase/database.types";
 import { classifySyncError, type SyncErrorCategory } from "./errors";
+import { WorkeraConfigurationError } from "../workera/errors";
 
 /**
  * Ingesta controlada Workera -> Supabase (Fase 6A). Orquesta:
@@ -25,6 +26,8 @@ import { classifySyncError, type SyncErrorCategory } from "./errors";
 const MAX_DAYS_PER_SYNC = 1;
 
 export interface SyncWorkeraAttendanceParams {
+  /** Tenant explícito; nunca se infiere desde un default de esquema. */
+  companyId: string;
   /** yyyy-MM-dd */
   startDate: string;
   /** yyyy-MM-dd */
@@ -134,9 +137,19 @@ export async function syncWorkeraAttendance(
   deps: SyncWorkeraAttendanceDeps = {}
 ): Promise<SyncWorkeraAttendanceResult> {
   const dryRun = params.dryRun ?? false;
+  const companyId = params.companyId.trim();
+  if (!companyId) {
+    return {
+      syncRunId: null,
+      status: "FAILED",
+      errorMessage: "companyId es obligatorio para sincronizar Workera.",
+      errorCategory: "CONFIGURATION",
+      ...emptyCounts(),
+    };
+  }
 
   const spanDays = daysBetween(params.startDate, params.endDate);
-  if (spanDays > MAX_DAYS_PER_SYNC) {
+  if (!Number.isFinite(spanDays) || spanDays !== MAX_DAYS_PER_SYNC || params.startDate !== params.endDate) {
     return {
       syncRunId: null,
       status: "BLOCKED_RANGE_TOO_LARGE",
@@ -146,39 +159,138 @@ export async function syncWorkeraAttendance(
     };
   }
 
-  const workeraClient =
-    deps.workeraClient ??
-    (() => {
-      const config = getWorkeraConfig();
-      if (config.provider !== "http" || !config.baseUrl || !config.apiUser || !config.apiKey) {
-        throw new Error(
-          "syncWorkeraAttendance requiere WORKERA_PROVIDER=http con WORKERA_BASE_URL/WORKERA_API_USER/WORKERA_API_KEY configurados."
-        );
-      }
-      return new HttpWorkeraClient({
-        baseUrl: config.baseUrl,
-        apiUser: config.apiUser,
-        apiKey: config.apiKey,
-        requestTimeoutMs: config.requestTimeoutMs,
-      });
-    })();
-
   const supabaseAdmin = deps.supabaseAdmin ?? createAdminClient("workera-attendance-sync");
+
+  // El lease se abre ANTES de consultar Workera. Así un timeout, payload
+  // inválido o identidad irresoluble queda registrado como último intento
+  // FAILED y no permite que cierre reutilice una sincronización antigua.
+  let syncRun: { id: string } | null = null;
+  if (!dryRun) {
+    const { data, error } = await supabaseAdmin.rpc("begin_workera_sync_run", {
+      p_company_id: companyId,
+      p_period_start: params.startDate,
+      p_period_end: params.endDate,
+      p_triggered_by: params.triggeredBy ?? "MANUAL",
+      p_attempt: params.attempt ?? 1,
+      p_retry_of: params.retryOf ?? null,
+    });
+
+    if (error) {
+      return {
+        syncRunId: null,
+        status: "FAILED",
+        errorMessage: `Fallo creando sync_run: ${error.message}`,
+        errorCategory: "DATABASE",
+        ...emptyCounts(),
+      };
+    }
+    if (typeof data !== "string") {
+      return {
+        syncRunId: null,
+        status: "ALREADY_RUNNING",
+        errorMessage: "Ya existe una sincronización o recálculo en curso para este día.",
+        errorCategory: "CONCURRENCY",
+        ...emptyCounts(),
+      };
+    }
+    syncRun = { id: data };
+  }
+
+  async function finishRun(
+    status: "SUCCEEDED" | "FAILED",
+    patch: Database["public"]["Tables"]["sync_runs"]["Update"]
+  ): Promise<{ ok: boolean; error: string | null }> {
+    if (!syncRun) return { ok: true, error: null };
+    const { data, error } = await supabaseAdmin.rpc("finish_workera_sync_run", {
+      p_company_id: companyId,
+      p_sync_run_id: syncRun.id,
+      p_status: status,
+      p_records_read: patch.records_read ?? 0,
+      p_records_created: patch.records_created ?? 0,
+      p_records_updated: patch.records_updated ?? 0,
+      p_records_unchanged: patch.records_unchanged ?? 0,
+      p_error_summary: patch.error_summary ?? null,
+      p_error_category: patch.error_category ?? null,
+    });
+    if (error) return { ok: false, error: error.message };
+    if (data !== true) return { ok: false, error: "la corrida perdió su lease" };
+    return { ok: true, error: null };
+  }
 
   // 1) Fetch completo (todas las páginas).
   let events: NormalizedWorkeraAttendanceEvent[];
   let pagesFetched: number;
   try {
+    const workeraClient =
+      deps.workeraClient ??
+      (() => {
+        const config = getWorkeraConfig();
+        if (config.provider !== "http" || !config.baseUrl || !config.apiUser || !config.apiKey) {
+          throw new WorkeraConfigurationError(
+            "syncWorkeraAttendance requiere WORKERA_PROVIDER=http con WORKERA_BASE_URL/WORKERA_API_USER/WORKERA_API_KEY configurados."
+          );
+        }
+        return new HttpWorkeraClient({
+          baseUrl: config.baseUrl,
+          apiUser: config.apiUser,
+          apiKey: config.apiKey,
+          requestTimeoutMs: config.requestTimeoutMs,
+        });
+      })();
     const fetched = await workeraClient.getAllAttendanceEvents({ start: params.startDate, end: params.endDate });
     events = fetched.events;
     pagesFetched = fetched.pagesFetched;
   } catch (err) {
+    const message = err instanceof Error ? err.message : "Fallo desconocido consultando Workera.";
+    const category = classifySyncError(err);
+    const finished = await finishRun("FAILED", {
+      records_read: 0,
+      error_summary: { message },
+      error_category: category,
+    });
     return {
-      syncRunId: null,
+      syncRunId: syncRun?.id ?? null,
       status: "FAILED",
-      errorMessage: err instanceof Error ? err.message : "Fallo desconocido consultando Workera.",
-      errorCategory: classifySyncError(err),
+      errorMessage: finished.ok ? message : `${message}; además no se pudo cerrar la corrida: ${finished.error}`,
+      errorCategory: category,
       ...emptyCounts(),
+    };
+  }
+
+  const seenFingerprints = new Set<string>();
+  const invalidRangeEvent = events.find(
+    (event) =>
+      event.attendanceTimestampRaw.slice(0, 10) !== params.startDate ||
+      event.attendanceTimestampRaw.slice(0, 10) !== params.endDate
+  );
+  const duplicateFingerprint = events.find((event) => {
+    const fingerprint = buildFingerprint(
+      event.employeeExternalId,
+      event.attendanceTimestampRaw,
+      event.attendanceTypeCode,
+      event.originCode
+    );
+    if (seenFingerprints.has(fingerprint)) return true;
+    seenFingerprints.add(fingerprint);
+    return false;
+  });
+  if (invalidRangeEvent || duplicateFingerprint) {
+    const message = invalidRangeEvent
+      ? "Workera devolvió una marcación fuera del día solicitado."
+      : "Workera devolvió una marcación duplicada entre páginas.";
+    const finished = await finishRun("FAILED", {
+      records_read: events.length,
+      error_summary: { message },
+      error_category: "WORKERA_PAYLOAD",
+    });
+    return {
+      syncRunId: syncRun?.id ?? null,
+      status: "FAILED",
+      errorMessage: finished.ok ? message : `${message}; además no se pudo cerrar la corrida: ${finished.error}`,
+      errorCategory: "WORKERA_PAYLOAD",
+      ...emptyCounts(),
+      pagesFetched,
+      eventsFetched: events.length,
     };
   }
 
@@ -196,10 +308,16 @@ export async function syncWorkeraAttendance(
   if (employeesWithBlankCode.length > 0) {
     // Gate explícito (PASO 24): un evento sin employee.code no se puede
     // resolver de ninguna forma -- nunca se persiste nada de esta corrida.
+    const message = `${employeesWithBlankCode.length} evento(s) sin employee.code -- no se puede resolver identidad, no se persiste nada.`;
+    const finished = await finishRun("FAILED", {
+      records_read: events.length,
+      error_summary: { message },
+      error_category: "EMPLOYEE_RESOLUTION",
+    });
     return {
-      syncRunId: null,
+      syncRunId: syncRun?.id ?? null,
       status: "BLOCKED_UNRESOLVED_EMPLOYEES",
-      errorMessage: `${employeesWithBlankCode.length} evento(s) sin employee.code -- no se puede resolver identidad, no se persiste nada.`,
+      errorMessage: finished.ok ? message : `${message}; además no se pudo cerrar la corrida: ${finished.error}`,
       errorCategory: "EMPLOYEE_RESOLUTION",
       ...emptyCounts(),
       pagesFetched,
@@ -212,13 +330,20 @@ export async function syncWorkeraAttendance(
   const { data: existingEmployees, error: employeesLookupError } = await supabaseAdmin
     .from("employees")
     .select("id, external_workera_id")
+    .eq("company_id", companyId)
     .in("external_workera_id", distinctCodes.length > 0 ? distinctCodes : ["__none__"]);
 
   if (employeesLookupError) {
+    const message = `Fallo consultando employees existentes: ${employeesLookupError.message}`;
+    const finished = await finishRun("FAILED", {
+      records_read: events.length,
+      error_summary: { message },
+      error_category: "DATABASE",
+    });
     return {
-      syncRunId: null,
+      syncRunId: syncRun?.id ?? null,
       status: "FAILED",
-      errorMessage: `Fallo consultando employees existentes: ${employeesLookupError.message}`,
+      errorMessage: finished.ok ? message : `${message}; además no se pudo cerrar la corrida: ${finished.error}`,
       errorCategory: "DATABASE",
       ...emptyCounts(),
       pagesFetched,
@@ -242,6 +367,7 @@ export async function syncWorkeraAttendance(
     const firstName = detail.name?.trim() || "(sin nombre Workera)";
     const lastName = detail.lastName?.trim() || "(sin apellido Workera)";
     return {
+      company_id: companyId,
       external_workera_id: code,
       first_name: firstName,
       last_name: lastName,
@@ -257,10 +383,16 @@ export async function syncWorkeraAttendance(
       .select("id, external_workera_id");
 
     if (bootstrapError) {
+      const message = `Fallo creando empleados nuevos (bootstrap): ${bootstrapError.message}`;
+      const finished = await finishRun("FAILED", {
+        records_read: events.length,
+        error_summary: { message },
+        error_category: "DATABASE",
+      });
       return {
-        syncRunId: null,
+        syncRunId: syncRun?.id ?? null,
         status: "FAILED",
-        errorMessage: `Fallo creando empleados nuevos (bootstrap): ${bootstrapError.message}`,
+        errorMessage: finished.ok ? message : `${message}; además no se pudo cerrar la corrida: ${finished.error}`,
         errorCategory: "DATABASE",
         ...emptyCounts(),
         pagesFetched,
@@ -282,15 +414,24 @@ export async function syncWorkeraAttendance(
 
   const { data: existingCurrentRows, error: existingLookupError } = await supabaseAdmin
     .from("workera_attendance_events")
-    .select("id, external_fingerprint, external_attendance_status, checksum, device_name, origin, origin_code, source_version")
+    .select(
+      "id, employee_id, external_fingerprint, attendance_type_label, attendance_status, external_attendance_status, checksum, device_name, origin, origin_code, source_version"
+    )
     .in("external_fingerprint", fingerprints.length > 0 ? fingerprints : ["__none__"])
+    .eq("company_id", companyId)
     .eq("is_current", true);
 
   if (existingLookupError) {
+    const message = `Fallo consultando eventos vigentes existentes: ${existingLookupError.message}`;
+    const finished = await finishRun("FAILED", {
+      records_read: events.length,
+      error_summary: { message },
+      error_category: "DATABASE",
+    });
     return {
-      syncRunId: null,
+      syncRunId: syncRun?.id ?? null,
       status: "FAILED",
-      errorMessage: `Fallo consultando eventos vigentes existentes: ${existingLookupError.message}`,
+      errorMessage: finished.ok ? message : `${message}; además no se pudo cerrar la corrida: ${finished.error}`,
       errorCategory: "DATABASE",
       ...emptyCounts(),
       pagesFetched,
@@ -301,7 +442,7 @@ export async function syncWorkeraAttendance(
   const existingByFingerprint = new Map((existingCurrentRows ?? []).map((r) => [r.external_fingerprint, r]));
 
   const toInsert: NormalizedWorkeraAttendanceEvent[] = [];
-  const toVersion: { event: NormalizedWorkeraAttendanceEvent; existingId: string; nextVersion: number }[] = [];
+  const toVersion: NormalizedWorkeraAttendanceEvent[] = [];
   let unchangedCount = 0;
 
   for (const event of events) {
@@ -314,6 +455,9 @@ export async function syncWorkeraAttendance(
     }
 
     const changed =
+      existing.employee_id !== codeToEmployeeId.get(event.employeeExternalId) ||
+      existing.attendance_type_label !== event.attendanceTypeLabel ||
+      existing.attendance_status !== event.attendanceStatus ||
       existing.external_attendance_status !== event.externalAttendanceStatus ||
       existing.checksum !== event.checksum ||
       existing.device_name !== event.deviceName ||
@@ -321,7 +465,7 @@ export async function syncWorkeraAttendance(
       existing.origin_code !== event.originCode;
 
     if (changed) {
-      toVersion.push({ event, existingId: existing.id, nextVersion: existing.source_version + 1 });
+      toVersion.push(event);
     } else {
       unchangedCount += 1;
     }
@@ -349,138 +493,55 @@ export async function syncWorkeraAttendance(
     };
   }
 
-  // 4) Persistencia real. sync_runs registra el resultado; si algo falla a
-  // mitad de camino, termina FAILED explícito (nunca SUCCEEDED parcial,
-  // PASO 19 del encargo). Nota de diseño (riesgo residual documentado en
-  // docs/WORKERA_SYNC_PHASE6A.md): supabase-js sobre PostgREST no ofrece una
-  // transacción multi-tabla real desde el cliente; la protección efectiva
-  // ante un fallo a mitad de camino es que CADA escritura es en sí misma
-  // idempotente (el índice único de fingerprint vigente + el matching por
-  // external_workera_id garantizan que reintentar la misma corrida nunca
-  // duplica nada), no una atomicidad instantánea de Postgres.
-  const { data: syncRun, error: syncRunError } = await supabaseAdmin
-    .from("sync_runs")
-    .insert({
-      status: "RUNNING",
-      target_period_start: params.startDate,
-      target_period_end: params.endDate,
-      triggered_by: params.triggeredBy ?? "MANUAL",
-      attempt: params.attempt ?? 1,
-      retry_of: params.retryOf ?? null,
-    })
-    .select("id")
-    .single();
-
-  if (syncRunError || !syncRun) {
-    // 23505 = choca con el índice único parcial
-    // sync_runs_no_concurrent_running_key (Fase 6B) -- ya hay un sync_run
-    // RUNNING para este mismo rango. No es un fallo de este proceso: es la
-    // señal correcta de "otro proceso ya está sincronizando este día".
-    if (syncRunError?.code === "23505") {
-      return {
-        syncRunId: null,
-        status: "ALREADY_RUNNING",
-        errorMessage: "Ya existe una sincronización en curso para este rango de fechas.",
-        errorCategory: "CONCURRENCY",
-        pagesFetched,
-        eventsFetched: events.length,
-        employeesDistinct: distinctCodes.length,
-        employeesResolvedExisting,
-        employeesBootstrapped,
-        employeesUnresolved: 0,
-        unresolvedEmployeeCodes: [],
-        wouldInsert: 0,
-        wouldVersion: 0,
-        wouldUnchanged: 0,
-        inserted: 0,
-        versioned: 0,
-        unchanged: 0,
-      };
-    }
-    return {
-      syncRunId: null,
-      status: "FAILED",
-      errorMessage: `Fallo creando sync_run: ${syncRunError?.message ?? "sin fila devuelta"}`,
-      errorCategory: "DATABASE",
-      pagesFetched,
-      eventsFetched: events.length,
-      employeesDistinct: distinctCodes.length,
-      employeesResolvedExisting,
-      employeesBootstrapped,
-      employeesUnresolved: 0,
-      unresolvedEmployeeCodes: [],
-      wouldInsert: 0,
-      wouldVersion: 0,
-      wouldUnchanged: 0,
-      inserted: 0,
-      versioned: 0,
-      unchanged: 0,
-    };
-  }
-
+  // 4) Persistencia real. Cada evento se reconcilia dentro de UNA transacción
+  // PostgreSQL y el RPC vuelve a comprobar tenant + lease. Un proceso
+  // reclamado o una carrera con el motor no puede seguir escribiendo.
   try {
-    for (const { existingId } of toVersion) {
-      const { error } = await supabaseAdmin
-        .from("workera_attendance_events")
-        .update({ is_current: false })
-        .eq("id", existingId);
-      if (error) throw new Error(`Fallo marcando versión anterior no vigente (${existingId}): ${error.message}`);
+    let inserted = 0;
+    let versioned = 0;
+    let unchanged = 0;
+    for (const event of events) {
+      const employeeId = codeToEmployeeId.get(event.employeeExternalId);
+      if (!employeeId || !syncRun) {
+        throw new Error(`No se resolvió el trabajador para la ficha ${event.employeeExternalId}.`);
+      }
+      const { data, error } = await supabaseAdmin.rpc("upsert_workera_attendance_event", {
+        p_company_id: companyId,
+        p_sync_run_id: syncRun.id,
+        p_employee_id: employeeId,
+        p_external_employee_code: event.employeeExternalId,
+        p_attendance_timestamp_raw: event.attendanceTimestampRaw,
+        p_attendance_type_code: event.attendanceTypeCode,
+        p_attendance_type_label: event.attendanceTypeLabel,
+        p_attendance_status: event.attendanceStatus,
+        p_external_attendance_status: event.externalAttendanceStatus,
+        p_origin: event.origin,
+        p_origin_code: event.originCode,
+        p_device_name: event.deviceName,
+        p_checksum: event.checksum,
+      });
+      if (error) throw new Error(`Fallo reconciliando evento Workera: ${error.message}`);
+      if (data === "INSERTED") inserted += 1;
+      else if (data === "VERSIONED") versioned += 1;
+      else if (data === "UNCHANGED") unchanged += 1;
+      else throw new Error(`Respuesta inesperada al reconciliar evento Workera: ${String(data)}`);
     }
 
-    const rows = [
-      ...toInsert.map((e) => ({
-        employee_id: codeToEmployeeId.get(e.employeeExternalId)!,
-        external_employee_code: e.employeeExternalId,
-        work_date: e.attendanceTimestampRaw.slice(0, 10),
-        attendance_timestamp_raw: e.attendanceTimestampRaw,
-        attendance_type_code: e.attendanceTypeCode,
-        attendance_type_label: e.attendanceTypeLabel,
-        attendance_status: e.attendanceStatus,
-        external_attendance_status: e.externalAttendanceStatus,
-        origin: e.origin,
-        origin_code: e.originCode,
-        device_name: e.deviceName,
-        checksum: e.checksum,
-        source_version: 1,
-        sync_run_id: syncRun.id as string,
-      })),
-      ...toVersion.map(({ event: e, nextVersion }) => ({
-        employee_id: codeToEmployeeId.get(e.employeeExternalId)!,
-        external_employee_code: e.employeeExternalId,
-        work_date: e.attendanceTimestampRaw.slice(0, 10),
-        attendance_timestamp_raw: e.attendanceTimestampRaw,
-        attendance_type_code: e.attendanceTypeCode,
-        attendance_type_label: e.attendanceTypeLabel,
-        attendance_status: e.attendanceStatus,
-        external_attendance_status: e.externalAttendanceStatus,
-        origin: e.origin,
-        origin_code: e.originCode,
-        device_name: e.deviceName,
-        checksum: e.checksum,
-        source_version: nextVersion,
-        sync_run_id: syncRun.id as string,
-      })),
-    ];
+    const finished = await finishRun("SUCCEEDED", {
+      records_read: events.length,
+      records_created: inserted,
+      records_updated: versioned,
+      records_unchanged: unchanged,
+      error_summary: null,
+      error_category: null,
+    });
+    if (!finished.ok) throw new Error(`No se pudo confirmar SUCCEEDED: ${finished.error}`);
 
-    if (rows.length > 0) {
-      const { error } = await supabaseAdmin.from("workera_attendance_events").insert(rows);
-      if (error) throw new Error(`Fallo insertando eventos: ${error.message}`);
-    }
-
-    await supabaseAdmin
-      .from("sync_runs")
-      .update({
-        status: "SUCCEEDED",
-        finished_at: new Date().toISOString(),
-        records_read: events.length,
-        records_created: toInsert.length,
-        records_updated: toVersion.length,
-        records_unchanged: unchangedCount,
-      })
-      .eq("id", syncRun.id);
+    const completedRunId = syncRun?.id;
+    if (!completedRunId) throw new Error("La corrida no conserva un lease válido al finalizar.");
 
     return {
-      syncRunId: syncRun.id,
+      syncRunId: completedRunId,
       status: "SUCCEEDED",
       pagesFetched,
       eventsFetched: events.length,
@@ -492,27 +553,22 @@ export async function syncWorkeraAttendance(
       wouldInsert: 0,
       wouldVersion: 0,
       wouldUnchanged: 0,
-      inserted: toInsert.length,
-      versioned: toVersion.length,
-      unchanged: unchangedCount,
+      inserted,
+      versioned,
+      unchanged,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Fallo desconocido durante la persistencia.";
-    await supabaseAdmin
-      .from("sync_runs")
-      .update({
-        status: "FAILED",
-        finished_at: new Date().toISOString(),
-        records_read: events.length,
-        error_summary: { message },
-        error_category: "DATABASE",
-      })
-      .eq("id", syncRun.id);
+    const finished = await finishRun("FAILED", {
+      records_read: events.length,
+      error_summary: { message },
+      error_category: "DATABASE",
+    });
 
     return {
-      syncRunId: syncRun.id,
+      syncRunId: syncRun?.id ?? null,
       status: "FAILED",
-      errorMessage: message,
+      errorMessage: finished.ok ? message : `${message}; además no se pudo cerrar la corrida: ${finished.error}`,
       errorCategory: "DATABASE",
       pagesFetched,
       eventsFetched: events.length,

@@ -26,14 +26,17 @@ export {
  * cuando existe un período en estado CLOSED que cubra esa fecha.
  *
  * Todo pasa por el cliente de SESIÓN (nunca admin): la RLS
- * `reporting_periods_insert_admin` / `_update_admin` (is_privileged_admin())
- * es el gate real. Al cerrar/reabrir hay que setear `closed_by`/`reopened_by`
- * = el usuario actual EN EL MISMO update, porque la policy lo exige en su
- * `with_check`.
+ * `reporting_periods_insert_admin` / `_update_admin` (`is_admin_rrhh()`)
+ * es el gate real. La reapertura atribuye `reopened_by` al usuario actual;
+ * el cierre queda reservado al RPC que crea el snapshot en la misma
+ * transacción.
  *
  * Ciclo de estados (enum `reporting_period_status`):
  *   OPEN -> IN_REVIEW -> READY_TO_CLOSE -> CLOSED
  *   CLOSED -> REOPENED (con motivo obligatorio) -> ... -> CLOSED de nuevo
+ *
+ * `CLOSED` no se escribe desde este helper genérico: requiere el protocolo
+ * de snapshot exacto (`closePayrollPeriodWithSnapshot`) y su RPC atómico.
  */
 
 interface RawPeriod {
@@ -133,14 +136,17 @@ export async function transitionReportingPeriod(
   if (!ALLOWED_TRANSITIONS[input.from].includes(input.to)) {
     throw new Error(`Transición no permitida: ${statusLabel(input.from)} -> ${statusLabel(input.to)}.`);
   }
+  if (input.to === "CLOSED" || input.to === "READY_TO_CLOSE") {
+    throw new Error(
+      input.to === "CLOSED"
+        ? "Cerrar un período exige generar y confirmar su snapshot Excel exacto."
+        : "Aprobar un período exige recalcular pendientes y registrar la evidencia conciliada de RR. HH.",
+    );
+  }
 
   type PeriodPatch = Database["public"]["Tables"]["reporting_periods"]["Update"];
   const patch: PeriodPatch = { status: input.to };
 
-  if (input.to === "CLOSED") {
-    patch.closed_by = input.actorId;
-    patch.closed_at = new Date().toISOString();
-  }
   if (input.to === "REOPENED") {
     const reason = (input.reopenReason ?? "").trim();
     if (!reason) throw new Error("Reabrir un período cerrado exige un motivo.");

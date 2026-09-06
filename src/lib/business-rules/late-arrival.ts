@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 import { resolveEffectiveSchedule } from "./schedule";
+import { resolveEffectiveEmployeeGroup } from "./effective-employee-group";
 import { santiagoWallClockMinutesSinceMidnight, scheduledTimeToMinutes } from "./wall-clock";
 
 /**
@@ -40,52 +41,55 @@ function minutesBetween(scheduledStart: string, clockIn: Date): number {
   return santiagoWallClockMinutesSinceMidnight(clockIn) - scheduledTimeToMinutes(scheduledStart);
 }
 
-type CurrentLateArrival = Pick<
-  Database["public"]["Tables"]["late_arrival_records"]["Row"],
-  | "id"
-  | "attendance_record_id"
-  | "scheduled_start"
-  | "actual_start"
-  | "detected_minutes"
-  | "late_arrival_policy_id"
-  | "calculation_version"
->;
-
-async function loadCurrentLateArrival(
-  supabase: SupabaseClient<Database>,
-  employeeId: string,
-  workDate: string
-): Promise<CurrentLateArrival | null> {
-  const { data, error } = await supabase
-    .from("late_arrival_records")
-    .select(
-      "id, attendance_record_id, scheduled_start, actual_start, detected_minutes, late_arrival_policy_id, calculation_version"
-    )
-    .eq("employee_id", employeeId)
-    .eq("work_date", workDate)
-    .eq("is_current", true)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`generateLateArrivalCandidate: fallo consultando late_arrival_records vigente: ${error.message}`);
-  }
-  return data;
+interface CandidateReconciliation {
+  record_id: string | null;
+  changed: boolean;
 }
 
-async function retireLoadedLateArrival(
-  supabase: SupabaseClient<Database>,
-  current: CurrentLateArrival | null
-): Promise<boolean> {
-  if (!current) return false;
-  const { error } = await supabase
-    .from("late_arrival_records")
-    .update({ is_current: false })
-    .eq("id", current.id)
-    .eq("is_current", true);
-  if (error) {
-    throw new Error(`generateLateArrivalCandidate: fallo retirando late_arrival_records vigente: ${error.message}`);
+function parseReconciliation(data: unknown): CandidateReconciliation {
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    typeof (data as { changed?: unknown }).changed !== "boolean" ||
+    !(
+      (data as { record_id?: unknown }).record_id === null ||
+      typeof (data as { record_id?: unknown }).record_id === "string"
+    )
+  ) {
+    throw new Error("generateLateArrivalCandidate: respuesta invalida del RPC atomico.");
   }
-  return true;
+  return data as unknown as CandidateReconciliation;
+}
+
+async function reconcileLateArrival(
+  supabase: SupabaseClient<Database>,
+  employeeId: string,
+  workDate: string,
+  companyId: string | undefined,
+  ruleEngineRunId: string | undefined,
+  payload: {
+    attendanceRecordId: string;
+    scheduledStart: string;
+    actualStart: string;
+    detectedMinutes: number;
+    policyId: string;
+  } | null
+): Promise<CandidateReconciliation> {
+  const { data, error } = await supabase.rpc("reconcile_late_arrival_candidate", {
+    p_company_id: companyId ?? null,
+    p_rule_engine_run_id: ruleEngineRunId ?? null,
+    p_employee_id: employeeId,
+    p_work_date: workDate,
+    p_attendance_record_id: payload?.attendanceRecordId ?? null,
+    p_scheduled_start: payload?.scheduledStart ?? null,
+    p_actual_start: payload?.actualStart ?? null,
+    p_detected_minutes: payload?.detectedMinutes ?? null,
+    p_late_arrival_policy_id: payload?.policyId ?? null,
+  });
+  if (error) {
+    throw new Error(`generateLateArrivalCandidate: fallo reconciliando atraso: ${error.message}`);
+  }
+  return parseReconciliation(data);
 }
 
 /**
@@ -96,13 +100,11 @@ async function retireLoadedLateArrival(
 export async function retireCurrentLateArrivalCandidate(
   supabase: SupabaseClient<Database>,
   employeeId: string,
-  workDate: string
+  workDate: string,
+  companyId?: string,
+  ruleEngineRunId?: string
 ): Promise<boolean> {
-  return retireLoadedLateArrival(supabase, await loadCurrentLateArrival(supabase, employeeId, workDate));
-}
-
-function sameInstant(left: string, right: string): boolean {
-  return new Date(left).getTime() === new Date(right).getTime();
+  return (await reconcileLateArrival(supabase, employeeId, workDate, companyId, ruleEngineRunId, null)).changed;
 }
 
 export async function generateLateArrivalCandidate(
@@ -110,35 +112,33 @@ export async function generateLateArrivalCandidate(
   employeeId: string,
   workDate: string,
   attendanceRecordId: string,
-  clockIn: string | null
+  clockIn: string | null,
+  companyId?: string,
+  ruleEngineRunId?: string
 ): Promise<GenerateLateArrivalResult> {
   const schedule = await resolveEffectiveSchedule(supabase, employeeId, workDate);
 
   if (schedule.kind === "EXEMPT") {
-    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate);
+    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate, companyId, ruleEngineRunId);
     return { status: "EXEMPT", lateArrivalRecordId: null, detectedMinutes: null };
   }
   if (schedule.kind === "DAY_OFF") {
-    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate);
+    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate, companyId, ruleEngineRunId);
     return { status: "DAY_OFF", lateArrivalRecordId: null, detectedMinutes: null };
   }
   if (schedule.kind === "NO_SCHEDULE_ASSIGNED") {
-    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate);
+    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate, companyId, ruleEngineRunId);
     return { status: "NO_SCHEDULE_ASSIGNED", lateArrivalRecordId: null, detectedMinutes: null };
   }
   if (!clockIn) {
-    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate);
+    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate, companyId, ruleEngineRunId);
     return { status: "NO_CLOCK_IN", lateArrivalRecordId: null, detectedMinutes: null };
   }
-
-  const { data: employee, error: employeeError } = await supabase
-    .from("employees")
-    .select("employee_group_id")
-    .eq("id", employeeId)
-    .single();
-  if (employeeError || !employee?.employee_group_id) {
-    throw new Error(`generateLateArrivalCandidate: fallo resolviendo employee_group_id: ${employeeError?.message ?? "sin grupo"}`);
+  if (!companyId?.trim()) {
+    throw new Error("generateLateArrivalCandidate: companyId es obligatorio para resolver el grupo histórico.");
   }
+
+  const employeeGroup = await resolveEffectiveEmployeeGroup(supabase, employeeId, workDate, companyId);
 
   const [year, month, day] = workDate.split("-").map(Number);
   const workDateDow = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
@@ -146,7 +146,7 @@ export async function generateLateArrivalCandidate(
   const { data: policy, error: policyError } = await supabase
     .from("late_arrival_policies")
     .select("id, tolerance_minutes")
-    .eq("employee_group_id", employee.employee_group_id)
+    .eq("employee_group_id", employeeGroup.id)
     .eq("day_of_week", workDateDow)
     .lte("effective_from", workDate)
     .or(`effective_to.is.null,effective_to.gte.${workDate}`)
@@ -156,7 +156,7 @@ export async function generateLateArrivalCandidate(
     throw new Error(`generateLateArrivalCandidate: fallo consultando late_arrival_policies: ${policyError.message}`);
   }
   if (!policy) {
-    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate);
+    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate, companyId, ruleEngineRunId);
     return { status: "NO_POLICY", lateArrivalRecordId: null, detectedMinutes: null };
   }
 
@@ -164,43 +164,24 @@ export async function generateLateArrivalCandidate(
   const detectedMinutes = Math.max(0, rawMinutes - policy.tolerance_minutes);
 
   if (detectedMinutes === 0) {
-    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate);
+    await retireCurrentLateArrivalCandidate(supabase, employeeId, workDate, companyId, ruleEngineRunId);
     return { status: "NO_LATE", lateArrivalRecordId: null, detectedMinutes: 0 };
   }
 
-  const existing = await loadCurrentLateArrival(supabase, employeeId, workDate);
-  if (
-    existing &&
-    existing.attendance_record_id === attendanceRecordId &&
-    scheduledTimeToMinutes(existing.scheduled_start) === scheduledTimeToMinutes(schedule.scheduledStart) &&
-    sameInstant(existing.actual_start, clockIn) &&
-    existing.detected_minutes === detectedMinutes &&
-    existing.late_arrival_policy_id === policy.id
-  ) {
-    return { status: "UNCHANGED", lateArrivalRecordId: existing.id, detectedMinutes };
-  }
-  if (existing) {
-    await retireLoadedLateArrival(supabase, existing);
+  const reconciled = await reconcileLateArrival(supabase, employeeId, workDate, companyId, ruleEngineRunId, {
+    attendanceRecordId,
+    scheduledStart: schedule.scheduledStart,
+    actualStart: clockIn,
+    detectedMinutes,
+    policyId: policy.id,
+  });
+  if (!reconciled.record_id) {
+    throw new Error("generateLateArrivalCandidate: el RPC atomico no devolvio el candidato vigente.");
   }
 
-  const { data: inserted, error: insertError } = await supabase
-    .from("late_arrival_records")
-    .insert({
-      employee_id: employeeId,
-      work_date: workDate,
-      attendance_record_id: attendanceRecordId,
-      scheduled_start: schedule.scheduledStart,
-      actual_start: clockIn,
-      detected_minutes: detectedMinutes,
-      late_arrival_policy_id: policy.id,
-      calculation_version: (existing?.calculation_version ?? 0) + 1,
-    })
-    .select("id")
-    .single();
-
-  if (insertError || !inserted) {
-    throw new Error(`generateLateArrivalCandidate: fallo insertando late_arrival_records: ${insertError?.message ?? "sin fila devuelta"}`);
-  }
-
-  return { status: "GENERATED", lateArrivalRecordId: inserted.id, detectedMinutes };
+  return {
+    status: reconciled.changed ? "GENERATED" : "UNCHANGED",
+    lateArrivalRecordId: reconciled.record_id,
+    detectedMinutes,
+  };
 }

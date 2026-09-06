@@ -298,12 +298,18 @@ select throws_ok(
 );
 
 -- ---------------------------------------------------------------------------
--- 16) attendance_corrections (Gate D) sigue funcionando sin verse afectado
---     por la tabla nueva — ambos mecanismos coexisten sin interferir.
+-- 16) attendance_corrections conserva un camino autenticado, pero solo por
+--     el RPC atómico que deriva actor y valida hecho/empleado/fecha.
 reset role;
 select ok(
-  has_table_privilege('authenticated', 'public.attendance_corrections', 'INSERT'),
-  'attendance_corrections conserva su propio camino de escritura para authenticated, sin verse afectado por Fase 6A'
+  not has_table_privilege('authenticated', 'public.attendance_corrections', 'INSERT')
+  and not has_table_privilege('authenticated', 'public.attendance_corrections', 'UPDATE')
+  and has_function_privilege(
+    'authenticated',
+    'public.replace_attendance_correction(uuid,uuid,date,timestamp with time zone,timestamp with time zone,text)',
+    'EXECUTE'
+  ),
+  'attendance_corrections se escribe exclusivamente mediante su RPC atómico autenticado'
 );
 
 -- ---------------------------------------------------------------------------

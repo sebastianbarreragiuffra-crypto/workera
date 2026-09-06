@@ -20,6 +20,7 @@ import { uploadSupportingDocument, MAX_SUPPORTING_DOCUMENT_SIZE_BYTES, type Supp
 import { getDailyReviewBoard, sortPendingCards, findNextPendingEmployeeId } from "../../../lib/view-models/daily-review-view";
 import { assertEmployeeAccessAllowed, type AreaCode, type CallerRole } from "../../../lib/access/scope";
 import { enforceWorkforceActionRateLimit } from "../../../lib/decisions/workforce-action-rate-limit";
+import { resolvePayrollCompanyRole } from "../../../lib/payroll/payroll-company-role";
 
 /**
  * Server Actions de Fase 8, ampliadas en Fase 8B.2 (PASO 23/24: feedback +
@@ -38,8 +39,18 @@ import { enforceWorkforceActionRateLimit } from "../../../lib/decisions/workforc
 async function requireActiveProfile() {
   const profile = await getCurrentProfile();
   if (!profile?.role) redirect("/login");
-  await enforceWorkforceActionRateLimit(await createClient(), "workforce.review.mutate");
-  return profile;
+  const supabase = await createClient();
+  const workforceRole = await resolvePayrollCompanyRole(
+    supabase,
+    ARCOTEX_WORKFORCE_COMPANY_ID,
+    ["ADMIN_RRHH", "SUPER_ADMIN", "SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"],
+  );
+  if (!workforceRole) redirect("/acceso-pendiente");
+  if (workforceRole === "SUPER_ADMIN") {
+    redirect("/revision-diaria?error=super-admin-solo-lectura");
+  }
+  await enforceWorkforceActionRateLimit(supabase, "workforce.review.mutate");
+  return { ...profile, role: workforceRole };
 }
 
 async function goToNextPending(area: AreaCode, date: string, decidedEmployeeId: string, feedback: string): Promise<never> {
@@ -50,7 +61,14 @@ async function goToNextPending(area: AreaCode, date: string, decidedEmployeeId: 
 
   if (!profile?.role) redirect(`/revision-diaria?fecha=${date}&area=${area}&filtro=pendientes&hecho=${feedback}`);
 
-  const board = await getDailyReviewBoard(supabase, profile.role, area, date);
+  const workforceRole = await resolvePayrollCompanyRole(
+    supabase,
+    ARCOTEX_WORKFORCE_COMPANY_ID,
+    ["ADMIN_RRHH", "SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"],
+  );
+  if (!workforceRole) redirect("/acceso-pendiente");
+
+  const board = await getDailyReviewBoard(supabase, workforceRole, area, date);
   const pending = sortPendingCards(board.cards.filter((c) => c.needsReview));
   const nextId = findNextPendingEmployeeId(pending, decidedEmployeeId);
 
@@ -81,8 +99,12 @@ export async function decideOvertimeAction(formData: FormData) {
   const area = String(formData.get("area")) as AreaCode;
   const action = String(formData.get("action")) as OvertimeDecisionAction;
   const reason = (formData.get("reason") as string) || null;
+  const approvedMinutesRaw = formData.get("approvedMinutes");
+  const approvedMinutes = action === "APPROVE" && approvedMinutesRaw !== null && approvedMinutesRaw !== ""
+    ? Number(approvedMinutesRaw)
+    : null;
 
-  await decideOvertime(supabase, { overtimeRecordId, action, reason });
+  await decideOvertime(supabase, { overtimeRecordId, action, approvedMinutes, reason });
   await goToNextPending(area, date, employeeId, action === "APPROVE" ? "ot-aprobada" : "ot-rechazada");
 }
 
@@ -205,10 +227,14 @@ export async function submitAttendanceCorrectionAction(formData: FormData) {
     correctedClockOut,
     correctedClockOutNextDay,
     reason,
-    correctedBy: profile.id,
   });
 
-  const reprocessResult = await reprocessEmployeeDay(employeeId, date, ARCOTEX_WORKFORCE_COMPANY_ID);
+  const reprocessResult = await reprocessEmployeeDay(
+    employeeId,
+    date,
+    ARCOTEX_WORKFORCE_COMPANY_ID,
+    profile.id,
+  );
   if (reprocessResult.failures.length > 0) {
     throw new Error(
       "La corrección quedó guardada, pero no fue posible recalcular la asistencia. Reintenta antes de continuar."

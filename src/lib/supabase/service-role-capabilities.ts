@@ -42,8 +42,8 @@ export const SERVICE_ROLE_CAPABILITIES = {
   "attendance-rule-engine": {
     consumers: ["src/lib/rule-engine/service.ts"],
     entrypoints: ["CRON", "USER_ACTION", "INTERNAL"],
-    authorization: "El llamador autoriza antes del límite; la rederivación queda acotada a fecha y empleado.",
-    resources: ["rule_engine_runs", "hechos derivados de asistencia"],
+    authorization: "El llamador autoriza antes del límite; la rederivación queda acotada a empresa, fecha y empleado.",
+    resources: ["rule_engine_runs", "hechos derivados de asistencia", "RPC-only para publicar o retirar códigos diarios del sistema"],
   },
   "expense-ocr-worker": {
     consumers: ["src/lib/expense-ocr/service.ts"],
@@ -98,6 +98,22 @@ export const SERVICE_ROLE_CAPABILITIES = {
     entrypoints: ["CRON"],
     authorization: "CRON_SECRET y flag fail-closed; RPC entrega solo reservas vencidas, no consumidas y sin documento registrado.",
     resources: ["RPC fenced y snapshot agregado de supporting_document_upload_intents", "bucket privado supporting-documents DELETE"],
+  },
+  "payroll-period-close": {
+    consumers: ["src/lib/payroll-close/approval-service.ts", "src/lib/payroll-close/service.ts"],
+    entrypoints: ["USER_ACTION"],
+    authorization: "La sesión ADMIN_RRHH con MFA prepara cierre o aprobación tenant-aware; cada límite confirma únicamente evidencia conciliada y estable.",
+    resources: ["bucket privado payroll-workbooks READ", "approve_reporting_period_ready()", "commit_payroll_period_close()"],
+  },
+  "payroll-workbook-acceptance": {
+    consumers: ["src/lib/payroll-workbook/service.ts"],
+    entrypoints: ["USER_ACTION"],
+    authorization: "La ruta autoriza la sesión ADMIN_RRHH con MFA, compara el XLSX y pasa el actor real; el RPC vuelve a validar rol y membresía antes de aceptar.",
+    resources: [
+      "bucket privado payroll-workbooks READ y limpieza DELETE fail-closed",
+      "get_payroll_workbook_object_identity() service_role-only",
+      "register_accepted_payroll_workbook() con atestación física service_role-only",
+    ],
   },
   "staging-data-inventory": {
     consumers: ["src/lib/staging-preflight/service.ts"],

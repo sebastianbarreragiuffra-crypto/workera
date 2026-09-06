@@ -23,6 +23,17 @@ export function evaluatePayrollOvertime(input: PayrollOvertimeInput): PayrollOve
   const sunday = input.dayOfWeek === 0;
   const warnings: string[] = [];
 
+  if (input.realMinutes < 0 || (input.approvedMinutes !== null && input.approvedMinutes !== undefined && input.approvedMinutes < 0)) {
+    return {
+      rate: sunday || input.isHoliday ? "HH100" : "HH50",
+      realMinutes,
+      payableMinutes: 0,
+      bonusClp: 0,
+      blocked: true,
+      warnings: ["Los minutos reales o aprobados no pueden ser negativos."],
+    };
+  }
+
   if (input.area === "ADMINISTRATION") {
     return { rate: null, realMinutes, payableMinutes: 0, bonusClp: 0, blocked: realMinutes > 0, warnings: realMinutes > 0 ? ["Administración no tiene regla automática de horas extra."] : [] };
   }
@@ -31,18 +42,24 @@ export function evaluatePayrollOvertime(input: PayrollOvertimeInput): PayrollOve
   }
 
   const rate = sunday || input.isHoliday ? "HH100" : "HH50";
-  if (realMinutes > 0 && realMinutes < 60) warnings.push("Menos de una hora: no es pagable automáticamente.");
+  if (realMinutes > 0 && realMinutes < 60) {
+    warnings.push("Menos de una hora real: no es pagable aunque exista aprobación.");
+    return { rate, realMinutes, payableMinutes: 0, bonusClp: 0, blocked: true, warnings };
+  }
   if (input.approvedMinutes === null || input.approvedMinutes === undefined) {
     if (realMinutes > 0) warnings.push("Falta aprobación competente.");
     return { rate, realMinutes, payableMinutes: 0, bonusClp: 0, blocked: realMinutes > 0, warnings };
   }
 
   const approved = Math.max(0, Math.trunc(input.approvedMinutes));
+  if (approved > 0 && approved < 60) {
+    warnings.push("Menos de una hora aprobada: no es pagable.");
+    return { rate, realMinutes, payableMinutes: 0, bonusClp: 0, blocked: true, warnings };
+  }
   const cap = sunday ? Number.POSITIVE_INFINITY : input.isHoliday ? 360 : 120;
   const payableMinutes = Math.min(realMinutes, approved, cap);
   if (approved > realMinutes) warnings.push("La aprobación supera las horas reales y fue limitada.");
   if (realMinutes > cap) warnings.push(`Las horas reales superan el tope pagable de ${cap / 60} hora(s).`);
-  if (payableMinutes < 60 && realMinutes > 0) warnings.push("El tiempo aprobado es inferior a una hora.");
   return {
     rate,
     realMinutes,

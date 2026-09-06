@@ -1,5 +1,7 @@
 # Seguridad — Fase 3 (Autenticación, roles, permisos y RLS)
 
+> **Documento histórico.** Registra el modelo de la Fase 3 y no define las reglas finales de pre-nómina 2026. Las referencias a Instalaciones, bono automático o código `R` todavía pendientes quedaron reemplazadas por `docs/BUSINESS_RULES_GATE_D.md` y las migraciones finales.
+
 Extiende `docs/DATA_MODEL_PHASE2.md` y `docs/DATA_MODEL_PHASE2B.md` con 10 migraciones nuevas (`14` a `24`), sin modificar ninguna de las 13 migraciones de Fase 2A/2B. Principio rector en toda la fase: **UI ≠ seguridad**. Ninguna regla de autorización depende de que el frontend oculte un botón — todas están impuestas por PostgreSQL (privilegios de tabla + RLS), de modo que funcionan incluso si alguien modifica manualmente una request HTTP.
 
 Migraciones de esta fase:

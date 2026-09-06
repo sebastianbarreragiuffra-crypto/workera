@@ -1,5 +1,7 @@
 # Fase 7 — Motor de reglas de asistencia
 
+> **Documento histórico.** Describe el estado de Fase 7, no las reglas finales de pre-nómina 2026. En particular, quedaron reemplazadas las referencias a selector binario/redondeo, autoridad laboral de `SUPER_ADMIN` y casos viernes/`R` pendientes. La autoridad vigente está en `docs/BUSINESS_RULES_GATE_D.md` y en las migraciones finales.
+
 Estado: `IMPLEMENTED`. Construye la interpretación empresarial ENCIMA de los eventos ya sincronizados (Fase 6A/6B) — nunca modifica `workera_attendance_events` ni rediseña el pipeline de sync. No incluye layout (Fase 8) ni generación de Excel.
 
 ## 1. Arquitectura
@@ -102,7 +104,7 @@ Matching **exacto** (normalizado: trim + espacios colapsados + mayúsculas) cont
 `generateOvertimeCandidate` reutiliza el motor de aprobación/cap ya construido en Gate D (`overtime_records`/`overtime_policies`/clasificación HH50-HH100/selector binario Producción) — Fase 7 solo agrega la generación del **candidato** (`candidate_minutes`), que antes no existía automáticamente.
 
 - **PRODUCTION**: política confirmada, genera candidato automático usando el horario efectivo del trabajador (individual o general) — verificado que Alejandro/María acumulan overtime desde SU propio `scheduled_end`, no 17:00 fijo.
-- **INSTALLATION**: decisión cerrada en Gate D: genera los minutos exactos, sin selector 1h/2h y sin tope fijo de negocio. La política de 1440 minutos es solo el límite técnico de un día. En días sin turno usa el tramo real entrada-salida.
+- **INSTALLATION**: genera minutos reales exactos, sin selector 1h/2h. El pagable queda limitado a 120 minutos de lunes a sábado y 360 en festivo; solo el domingo conserva HH100 sin tope fijo y requiere decisión del jefe/supervisor de Instalación. En días sin turno usa el tramo real entrada-salida.
 - **Días libres y feriados trabajados**: ya no se descartan antes de leer marcaciones. Con eventos reales se deriva el registro; el candidato usa el tramo entrada-salida y conserva la clasificación HH50/HH100 del motor de base de datos. En un feriado trabajado no se generan falsos atrasos ni salidas anticipadas.
 - **Recálculo autoritativo**: si desaparece la salida, la persona queda exenta/no elegible o el nuevo cálculo da cero, el candidato anterior deja de ser `is_current`; nunca continúa en la cola una hora extra que ya no respalda la marcación vigente.
 - **ADMINISTRATION**: `overtime_eligible=false` ya confirmado → `NOT_ELIGIBLE`.

@@ -1,6 +1,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { generateLateArrivalCandidate, retireCurrentLateArrivalCandidate } from "./late-arrival";
+import { generateLateArrivalCandidate as generateLateArrivalCandidateRaw, retireCurrentLateArrivalCandidate } from "./late-arrival";
+
+const COMPANY_ID = "0a4c0000-0000-0000-0000-000000000001";
+const RUN_ID = "30000000-0000-4000-8000-000000000003";
+
+const generateLateArrivalCandidate = (
+  supabase: Parameters<typeof generateLateArrivalCandidateRaw>[0],
+  employeeId: string,
+  workDate: string,
+  attendanceRecordId: string,
+  clockIn: string | null
+) => generateLateArrivalCandidateRaw(
+  supabase,
+  employeeId,
+  workDate,
+  attendanceRecordId,
+  clockIn,
+  COMPANY_ID,
+  RUN_ID
+);
 
 /**
  * Mock genérico: cada tabla se configura con un handler por operación
@@ -19,6 +38,49 @@ function createMockSupabase(handlers: {
   onInsert?: (row: Record<string, unknown>) => void;
 }) {
   return {
+    async rpc(name: string, args: Record<string, unknown>) {
+      assert.equal(name, "reconcile_late_arrival_candidate");
+      const existingResult = handlers.late_arrival_records_existing?.() ?? { data: null, error: null };
+      if (existingResult.error) return { data: null, error: existingResult.error };
+      const existing = existingResult.data as typeof CURRENT_LATE | null;
+
+      if (args.p_attendance_record_id === null) {
+        if (existing) {
+          const update = handlers.late_arrival_records_update?.(existing.id) ?? { data: null, error: null };
+          if (update.error) return { data: null, error: update.error };
+        }
+        return { data: { record_id: null, changed: existing !== null }, error: null };
+      }
+
+      if (
+        existing &&
+        existing.attendance_record_id === args.p_attendance_record_id &&
+        existing.scheduled_start === args.p_scheduled_start &&
+        new Date(existing.actual_start).getTime() === new Date(String(args.p_actual_start)).getTime() &&
+        existing.detected_minutes === args.p_detected_minutes &&
+        existing.late_arrival_policy_id === args.p_late_arrival_policy_id
+      ) {
+        return { data: { record_id: existing.id, changed: false }, error: null };
+      }
+      if (existing) {
+        const update = handlers.late_arrival_records_update?.(existing.id) ?? { data: null, error: null };
+        if (update.error) return { data: null, error: update.error };
+      }
+      handlers.onInsert?.({
+        attendance_record_id: args.p_attendance_record_id,
+        scheduled_start: args.p_scheduled_start,
+        actual_start: args.p_actual_start,
+        detected_minutes: args.p_detected_minutes,
+        late_arrival_policy_id: args.p_late_arrival_policy_id,
+        calculation_version: (existing?.calculation_version ?? 0) + 1,
+      });
+      const inserted = handlers.late_arrival_records_insert?.() ?? { data: { id: "lar-mock" }, error: null };
+      if (inserted.error) return { data: null, error: inserted.error };
+      return {
+        data: { record_id: (inserted.data as { id: string }).id, changed: true },
+        error: null,
+      };
+    },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     from(table: string): any {
       let isInsert = false;
@@ -48,6 +110,13 @@ function createMockSupabase(handlers: {
           return builder;
         },
         maybeSingle: async () => {
+          if (table === "employee_group_assignments") {
+            const employee = handlers.employees?.() ?? { data: null, error: null };
+            const row = employee.data as { employee_group_id?: string } | null;
+            return row?.employee_group_id
+              ? { data: { employee_group_id: row.employee_group_id, employee_groups: { code: "PRODUCTION" } }, error: employee.error }
+              : employee;
+          }
           if (table === "late_arrival_records") return handlers.late_arrival_records_existing?.() ?? { data: null, error: null };
           if (table === "employee_time_control_policies") {
             return handlers.employee_time_control_policies?.() ?? { data: null, error: null };
@@ -387,6 +456,6 @@ test("late arrival: un fallo al retirar aborta, nunca devuelve NO_LATE falsament
 
   await assert.rejects(
     generateLateArrivalCandidate(mock as never, "emp-1", "2026-08-17", "att-new", "2026-08-17T11:30:00.000Z"),
-    /fallo retirando late_arrival_records vigente: db unavailable/
+    /fallo reconciliando atraso: db unavailable/
   );
 });

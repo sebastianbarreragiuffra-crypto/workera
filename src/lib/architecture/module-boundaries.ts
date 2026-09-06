@@ -34,6 +34,8 @@ export const LIBRARY_MODULES = {
   "expense-whatsapp": { realm: "expenses", owner: "expenses", purpose: "Adaptador de ingreso por WhatsApp" },
   expenses: { realm: "expenses", owner: "expenses", purpose: "Núcleo y casos de uso de rendiciones" },
   payroll: { realm: "workforce", owner: "workforce", purpose: "Nómina y proveedores laborales" },
+  "payroll-close": { realm: "workforce", owner: "workforce-security", purpose: "Frontera privilegiada que verifica y confirma snapshots de cierre" },
+  "payroll-workbook": { realm: "workforce", owner: "workforce-security", purpose: "Frontera privilegiada de aceptación e integridad de libros de pre-nómina" },
   periods: { realm: "workforce", owner: "workforce", purpose: "Períodos laborales" },
   platform: { realm: "platform", owner: "platform", purpose: "Control plane multiempresa" },
   pwa: { realm: "shared", owner: "experience-platform", purpose: "Política PWA transversal" },

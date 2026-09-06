@@ -14,21 +14,22 @@ Confirmadas por el usuario e implementadas a nivel de base de datos, verificadas
 - ~~Horas extra de viernes para Producción~~ → 120 min, igual que lunes-jueves.
 - ~~Determinación HH50 vs. HH100~~ → lunes-sábado sin feriado = HH50; domingo o feriado (cualquier día) = HH100.
 - ~~Código de estado `R`~~ → desactivado (`active=false`), preservado por compatibilidad histórica, bloqueado para asignaciones nuevas (INSERT y UPDATE/upsert, verificado en el segundo hardening).
-- ~~Horas extra de Instalación~~ → sin tope fijo automático, autoridad exacta del supervisor asignado (`SUPERVISOR_INSTALLATION`, rol ya existente), minutos exactos, nunca reducida al selector binario.
-- ~~Bono de Instalación~~ → mismo esquema que Producción (120 min aprobados = $1.000 CLP).
-- ~~Fines de semana de Instalación~~ → según demanda, sin tope fijo (cubierto por la regla general de Instalación arriba).
-- ~~Selector 1h/2h de Producción~~ → exclusivo Producción lunes-viernes HH50, matriz exacta de minutos (< 60 sin propuesta, 60-114 → 60, 115-117 → 60 con revisión obligatoria, 118-120 → 120, > 120 → tope 120), autorizado exclusivamente por Jefe de Producción (`SUPERVISOR_PRODUCTION`, sobre su grupo) y RR. HH. (`ADMIN_RRHH`), vía la RLS ya existente de `overtime_decisions`.
+- ~~Horas extra de Instalación~~ → lunes a sábado, tope pagable de 120 minutos; festivo, 360; domingo, HH100 sin tope fijo y con decisión del jefe/supervisor de Instalación. Producción en domingo queda bloqueada.
+- ~~Bono de Instalación~~ → mismo umbral diario que Producción: al menos 120 minutos aprobados = $1.000 CLP, tanto HH50 como HH100; nunca más de $1.000 por día.
+- ~~Fines de semana de Instalación~~ → sábado HH50 con tope pagable de 120 minutos; domingo HH100 sin tope fijo y con decisión del jefe/supervisor de Instalación.
+- ~~Selector binario 1h/2h de Producción~~ → reemplazado por minutos reales y minutos aprobados exactos: menos de 60 queda en alerta sin pago automático; desde 60 puede aprobarse el valor exacto; el máximo lunes-sábado es 120. Autoriza el supervisor del área y RR. HH. conserva el veredicto final.
 - ~~Marcaciones faltantes~~ → red flag automática (`MISSING_CLOCK_IN`/`_CLOCK_OUT`/`_BOTH`), bloquea aprobación de horas extra hasta corregirse, resoluble solo por RRHH/jefe correspondiente.
 - ~~Correcciones de marcación~~ → se reutiliza `attendance_corrections` (Fase 3), reforzada con rol del autor, tipo de corrección, validaciones de zona horaria de Chile, bloqueo en período cerrado, y bloqueo por conflicto con una decisión de horas extra activa. El dato crudo de Workera nunca se sobrescribe.
 
 ## Reglas de negocio — todavía pendientes
 
+- `[USUARIO/PRODUCTO]` + `[TÉCNICA]` **Propagación explícita desde el Excel**: la versión exacta y los ajustes normalizados del período ya se conservan, pero faltan las opciones `Actualizar también la ficha` y `Usar este diseño en próximos períodos`. RUT/nombre podrían mapearse a la ficha; Área, centro de costo y jornada son historiales con vigencia y catálogos, y una fórmula arbitraria no puede convertirse en autoridad contable. Antes de propagar se debe confirmar qué campos maestros están habilitados, su fecha efectiva y el subconjunto sanitizado de diseño/fórmulas. Hasta entonces todo queda limitado al período, sin propagación implícita.
 - `[USUARIO/PRODUCTO]` **Colación en la planilla de asistencia de RRHH**: el
   archivo real muestra `Colación: 40 minutos` bajo el horario, pero el esquema no
   almacena la duración ni define si depende de empresa, horario o trabajador.
   RRHH debe confirmar el origen y si afecta fórmulas de jornada antes de la marcha
   blanca. No hardcodear 40 minutos ni inferirlo desde el texto del horario.
-- `[USUARIO/PRODUCTO]` **Ciclo exacto de cierre mensual** (`ReportingPeriod`): duración/fecha de corte no confirmada. Gate D solo agregó que la recomputación del bono respeta `status='CLOSED'` (falla en vez de mutar) — el ciclo en sí sigue sin definir.
+- ~~`[USUARIO/PRODUCTO]` **Ciclo exacto de cierre mensual**~~ → confirmado: del 16 del mes anterior al 15 del mes de remuneración, ambos incluidos; cierre y reapertura son exclusivos de RR. HH.
 - `[TÉCNICA]` **Bloqueo de cierre con revisiones semanales pendientes**: hoy es solo documentado (`docs/DATA_MODEL_PHASE2B.md` sección 24), no un trigger de base de datos — decisión técnica pendiente: ¿implementarlo como constraint duro o dejarlo como validación de aplicación? (Ver `docs/THREAT_MODEL.md` T-21.) No resuelto por Gate D.
 
 ## Seguridad y operación

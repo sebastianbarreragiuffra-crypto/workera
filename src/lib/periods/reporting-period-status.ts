@@ -28,7 +28,10 @@ export const ALLOWED_TRANSITIONS: Record<ReportingPeriodStatus, ReportingPeriodS
 const STATUS_LABEL: Record<ReportingPeriodStatus, string> = {
   OPEN: "Abierto",
   IN_REVIEW: "En revisión",
-  READY_TO_CLOSE: "Listo para cerrar",
+  // READY_TO_CLOSE es el estado técnico alcanzado solo mediante la decisión
+  // explícita de RR. HH.; en producto se presenta con la semántica laboral
+  // acordada, no como una aprobación automática derivada de cero pendientes.
+  READY_TO_CLOSE: "Aprobado por RR. HH.",
   CLOSED: "Cerrado",
   REOPENED: "Reabierto",
 };

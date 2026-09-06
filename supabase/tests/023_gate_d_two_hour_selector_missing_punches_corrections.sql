@@ -1,6 +1,6 @@
--- pgTAP Gate D (segundo hardening): matriz exacta del selector binario de
--- Producción (lunes-viernes, HH50), autorización exclusiva, Instalación con
--- minutos exactos, límites de fin de semana/feriado, bono no duplicado,
+-- pgTAP Gate D: matriz canónica de minutos reales/pagables para Producción
+-- e Instalaciones, autorización exclusiva, límites de semana/feriado,
+-- domingo por área, bono no duplicado,
 -- marcaciones faltantes (red flag + bloqueo de aprobación + resolución vía
 -- corrección autorizada), attendance_corrections (motivo/rol/historial/
 -- período cerrado/preservación del crudo), y R desactivado por UPDATE/upsert.
@@ -29,8 +29,7 @@ values
 -- A. MATRIZ EXACTA DE PRODUCCIÓN LUNES-VIERNES HH50 (14)
 -- ===========================================================================
 
--- A1: candidato 59 (< 60) -> "no inventar una hora aprobable": sin
--- constraint binario, se aprueba el valor exacto por la vía genérica.
+-- A1: candidato 59 (< 60) se conserva, pero nunca es pagable.
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -49,7 +48,7 @@ values (
   (select op.id from public.overtime_policies op join public.employee_groups eg on eg.id = op.employee_group_id
      where eg.code = 'PRODUCTION' and op.day_of_week = 1)
 );
-select lives_ok(
+select throws_ok(
   format(
     $$ insert into public.overtime_decisions
          (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by)
@@ -58,7 +57,8 @@ select lives_ok(
        (select id from public.employees where external_workera_id = 'GATED2-PROD-001') and work_date = date '2026-10-05'),
     '50000000-0000-0000-0000-000000000002'
   ),
-  'Matriz: candidato 59 min (< 60) se aprueba por la vía genérica, sin selector binario'
+  'P0001', null,
+  'Matriz: candidato 59 min (< 60) no se puede aprobar'
 );
 select is(
   (select system_proposed_minutes from public.overtime_decisions od
@@ -66,7 +66,7 @@ select is(
      where ovr.employee_id = (select id from public.employees where external_workera_id = 'GATED2-PROD-001')
        and ovr.work_date = date '2026-10-05'),
   null::integer,
-  'Matriz: candidato 59 min no genera propuesta automática (NULL, no se inventa una hora aprobable)'
+  'Matriz: candidato 59 min no genera propuesta ni decisión aprobada'
 );
 
 -- A2: candidato 60 -> aprobar 60 permitido, sin motivo.
@@ -111,10 +111,10 @@ select throws_ok(
     '50000000-0000-0000-0000-000000000001'
   ),
   'P0001', null,
-  'Matriz: candidato 60 min, aprobar 120 es rechazado (excede el candidato real, no está en ventana de redondeo)'
+  'Matriz: candidato 60 min, aprobar 120 es rechazado porque excede lo real'
 );
 
--- A4: candidato 90 -> intentar aprobar 90 (no está en {0,60,120}) rechazado.
+-- A4: candidato 90 -> aprobación exacta permitida, sin redondeo.
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -133,7 +133,7 @@ values (
   (select op.id from public.overtime_policies op join public.employee_groups eg on eg.id = op.employee_group_id
      where eg.code = 'PRODUCTION' and op.day_of_week = 3)
 );
-select throws_ok(
+select lives_ok(
   format(
     $$ insert into public.overtime_decisions
          (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by)
@@ -142,12 +142,10 @@ select throws_ok(
        (select id from public.employees where external_workera_id = 'GATED2-PROD-001') and work_date = date '2026-10-07'),
     '50000000-0000-0000-0000-000000000002'
   ),
-  'P0001', null,
-  'Matriz: 90 min no es un valor de decisión válido (solo 0, 60 o 120) para Producción lunes-viernes HH50'
+  'Matriz: 90 min se aprueban exactos para Producción lunes-viernes HH50'
 );
 
--- A5: candidato 115 (ventana de revisión obligatoria), aprobar 120 SIN
--- motivo -> rechazado.
+-- A5: candidato 115, aprobar 120 se rechaza porque nunca se paga más de lo real.
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -176,38 +174,36 @@ select throws_ok(
     '50000000-0000-0000-0000-000000000002'
   ),
   'P0001', null,
-  'Matriz: candidato 115 min, aprobar 120 sin motivo es rechazado (excepción exige motivo obligatorio)'
+  'Matriz: candidato 115 min, aprobar 120 se rechaza porque excede lo real'
 );
 
--- A6: mismo caso CON motivo -> permitido (redondeo excepcional), y marca
--- requires_manual_review = true.
+-- A6: un motivo no habilita redondeo; se aprueban los 115 minutos exactos.
 select lives_ok(
   format(
     $$ insert into public.overtime_decisions
          (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by, reason)
-       values (%L, 120, 0, 'FULLY_APPROVED', %L, 'Aprobación excepcional: 115 min reales, se completan las 2 horas.') $$,
+       values (%L, 115, 0, 'FULLY_APPROVED', %L, 'Aprobación exacta de los minutos realmente registrados.') $$,
     (select id from public.overtime_records where employee_id =
        (select id from public.employees where external_workera_id = 'GATED2-PROD-001') and work_date = date '2026-10-08'),
     '50000000-0000-0000-0000-000000000002'
   ),
-  'Matriz: candidato 115 min, aprobar 120 CON motivo es permitido (redondeo excepcional)'
+  'Matriz: candidato 115 min se aprueba exacto, sin redondeo'
 );
 select is(
   (select requires_manual_review from public.overtime_decisions od
      join public.overtime_records ovr on ovr.id = od.overtime_record_id
      where ovr.employee_id = (select id from public.employees where external_workera_id = 'GATED2-PROD-001')
        and ovr.work_date = date '2026-10-08'),
-  true,
-  'Matriz: candidato 115 min queda marcado requires_manual_review = true'
+  false,
+  'Matriz: candidato 115 min exacto no requiere alerta de exceso del tope'
 );
 
--- A7: candidato 118, aprobar 120 (coincide con la propuesta) -> permitido
--- sin motivo, requires_manual_review = false.
+-- A7: candidato exacto 120 -> permitido sin redondeo; genera bono diario.
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
   (select id from public.employees where external_workera_id = 'GATED2-PROD-001'),
-  date '2026-10-09', timestamptz '2026-10-09 07:30-03', timestamptz '2026-10-09 19:28-03',
+  date '2026-10-09', timestamptz '2026-10-09 07:30-03', timestamptz '2026-10-09 19:30-03',
   'hash-g2-118', 1, true
 );
 insert into public.overtime_records
@@ -217,7 +213,7 @@ values (
   date '2026-10-09',
   (select id from public.attendance_records where source_hash = 'hash-g2-118'),
   (select id from public.overtime_types where code = 'OVERTIME_50'),
-  118,
+  120,
   (select op.id from public.overtime_policies op join public.employee_groups eg on eg.id = op.employee_group_id
      where eg.code = 'PRODUCTION' and op.day_of_week = 5)
 );
@@ -230,7 +226,7 @@ select lives_ok(
        (select id from public.employees where external_workera_id = 'GATED2-PROD-001') and work_date = date '2026-10-09'),
     '50000000-0000-0000-0000-000000000002'
   ),
-  'Matriz: candidato 118 min, aprobar 120 (coincide con propuesta) permitido sin motivo'
+  'Matriz: candidato 120 min, aprobar 120 exactos permitido sin motivo'
 );
 select is(
   (select requires_manual_review from public.overtime_decisions od
@@ -238,12 +234,10 @@ select is(
      where ovr.employee_id = (select id from public.employees where external_workera_id = 'GATED2-PROD-001')
        and ovr.work_date = date '2026-10-09'),
   false,
-  'Matriz: candidato 118 min NO requiere revisión obligatoria (solo 115-117)'
+  'Matriz: candidato 120 min exacto no requiere alerta de exceso del tope'
 );
 
--- A8: candidato 119 (ventana 118-120, propuesta 120), aprobar 60 SIN motivo
--- -> rechazado (reduce la propuesta de 120). Registro fresco (2026-10-19,
--- lunes) para no chocar con la decisión vigente ya creada en A7.
+-- A8: candidato 119, aprobación parcial de 60 permitida y 59 rechazados.
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -262,7 +256,7 @@ values (
   (select op.id from public.overtime_policies op join public.employee_groups eg on eg.id = op.employee_group_id
      where eg.code = 'PRODUCTION' and op.day_of_week = 1)
 );
-select throws_ok(
+select lives_ok(
   format(
     $$ insert into public.overtime_decisions
          (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by)
@@ -271,8 +265,7 @@ select throws_ok(
        (select id from public.employees where external_workera_id = 'GATED2-PROD-001') and work_date = date '2026-10-19'),
     '50000000-0000-0000-0000-000000000002'
   ),
-  'P0001', null,
-  'Matriz: candidato 119 min, aprobar 60 sin motivo es rechazado (reduce la propuesta de 120)'
+  'Matriz: candidato 119 min permite decisión parcial de 60 aprobados y 59 rechazados'
 );
 
 -- A9: candidato 121 (> 120), aprobar 120 -> permitido sin motivo (dato real
@@ -313,8 +306,7 @@ select is(
   'Matriz: candidate_minutes conserva el dato real (121) aunque el máximo aprobable sea 120'
 );
 
--- A10: candidato 200 (> 120), aprobar 60 SIN motivo -> rechazado (reduce la
--- propuesta de 120).
+-- A10: candidato 200, aprobación parcial de 60 permitida; el resto se conserva rechazado.
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
 values (
@@ -333,7 +325,7 @@ values (
   (select op.id from public.overtime_policies op join public.employee_groups eg on eg.id = op.employee_group_id
      where eg.code = 'PRODUCTION' and op.day_of_week = 2)
 );
-select throws_ok(
+select lives_ok(
   format(
     $$ insert into public.overtime_decisions
          (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by)
@@ -342,8 +334,7 @@ select throws_ok(
        (select id from public.employees where external_workera_id = 'GATED2-PROD-001') and work_date = date '2026-10-13'),
     '50000000-0000-0000-0000-000000000002'
   ),
-  'P0001', null,
-  'Matriz: candidato 200 min, aprobar 60 sin motivo es rechazado (reduce la propuesta de 120)'
+  'Matriz: candidato 200 min permite 60 aprobados y conserva 140 rechazados'
 );
 
 -- ===========================================================================
@@ -351,8 +342,7 @@ select throws_ok(
 -- ===========================================================================
 
 -- B1: SUPERVISOR_INSTALLATION no puede decidir sobre un trabajador de
--- Producción (fuera de su grupo). Registro fresco (2026-10-18, domingo -> se
--- usa un candidato de 60 min sobre un día CUALQUIERA sin decisión previa;
+-- Producción (fuera de su grupo). Se usa un candidato fresco de 60 min;
 -- el punto de la prueba es la autorización, no la matriz) para no chocar con
 -- la decisión vigente ya creada en A1 sobre 2026-10-05.
 insert into public.attendance_records
@@ -440,7 +430,7 @@ select throws_ok(
 reset role;
 
 -- ===========================================================================
--- C. INSTALACIÓN — MINUTOS EXACTOS, SIN SELECTOR BINARIO (1)
+-- C. INSTALACIÓN — TOPE L-S SIN ALTERAR EL CANDIDATO REAL (1)
 -- ===========================================================================
 insert into public.attendance_records
   (employee_id, work_date, actual_clock_in, actual_clock_out, source_hash, source_version, is_current)
@@ -464,12 +454,12 @@ select lives_ok(
   format(
     $$ insert into public.overtime_decisions
          (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by)
-       values (%L, 137, 0, 'FULLY_APPROVED', %L) $$,
+       values (%L, 120, 17, 'PARTIALLY_APPROVED', %L) $$,
     (select id from public.overtime_records where employee_id =
        (select id from public.employees where external_workera_id = 'GATED2-INSTALL-001') and work_date = date '2026-10-05'),
     '50000000-0000-0000-0000-000000000003'
   ),
-  'Instalación: 137 min aprobados exactos (> 120) es permitido — nunca reducido al selector binario'
+  'Instalación: conserva 137 reales y limita a 120 pagables de lunes a sábado'
 );
 
 -- ===========================================================================
@@ -508,7 +498,7 @@ select throws_ok(
     '50000000-0000-0000-0000-000000000002'
   ),
   'P0001', null,
-  'Producción sábado: máximo aprobable de 6 horas (360 min) — 361 es rechazado'
+  'Producción sábado: máximo aprobable de 2 horas (120 min) — 361 es rechazado'
 );
 
 -- ===========================================================================
@@ -534,7 +524,7 @@ select is(
 -- ===========================================================================
 -- F. BONO — NO DUPLICADO BAJO REINTENTO (1)
 -- ===========================================================================
--- La decisión de 120 min de A7 (candidato 118, 2026-10-09) ya generó un bono
+-- La decisión exacta de 120 min de A7 (2026-10-09) ya generó un bono
 -- automático. Reintentar recompute_employee_daily_bonus manualmente para el
 -- mismo trabajador+fecha (idempotencia, sin nuevo INSERT/UPDATE en
 -- overtime_decisions) no debe duplicar el bono.
@@ -651,9 +641,9 @@ set local role authenticated;
 set local request.jwt.claim.sub = '50000000-0000-0000-0000-000000000003'; -- SUPERVISOR_INSTALLATION, no maneja Producción
 select throws_ok(
   format(
-    $$ insert into public.attendance_corrections
-         (attendance_record_id, employee_id, work_date, corrected_clock_out, reason)
-       values (%L, %L, date '2026-10-16', timestamptz '2026-10-16 18:15-03', 'Corrección no autorizada') $$,
+    $$ select public.replace_attendance_correction(
+         %L, %L, date '2026-10-16', null::timestamptz,
+         timestamptz '2026-10-16 18:15-03', 'Corrección no autorizada') $$,
     (select id from public.attendance_records where source_hash = 'hash-g2-missing-out'),
     (select id from public.employees where external_workera_id = 'GATED2-PROD-001')
   ),
@@ -663,27 +653,28 @@ select throws_ok(
 reset role;
 
 -- G7: motivo vacío es rechazado.
+set local role authenticated;
+set local request.jwt.claim.sub = '50000000-0000-0000-0000-000000000002';
 select throws_ok(
   format(
-    $$ insert into public.attendance_corrections
-         (attendance_record_id, employee_id, work_date, corrected_clock_out, reason)
-       values (%L, %L, date '2026-10-16', timestamptz '2026-10-16 18:15-03', '   ') $$,
+    $$ select public.replace_attendance_correction(
+         %L, %L, date '2026-10-16', null::timestamptz,
+         timestamptz '2026-10-16 18:15-03', '   ') $$,
     (select id from public.attendance_records where source_hash = 'hash-g2-missing-out'),
     (select id from public.employees where external_workera_id = 'GATED2-PROD-001')
   ),
-  '23514', null,
-  'Corrección: motivo en blanco es rechazado (CHECK reason no vacío)'
+  '22023', null,
+  'Corrección: motivo en blanco es rechazado antes de mutar el historial'
 );
+reset role;
 
 -- G8: corrección autorizada resuelve la marcación faltante.
 set local role authenticated;
 set local request.jwt.claim.sub = '50000000-0000-0000-0000-000000000002'; -- SUPERVISOR_PRODUCTION
-insert into public.attendance_corrections
-  (attendance_record_id, employee_id, work_date, corrected_clock_out, reason)
-values (
+select public.replace_attendance_correction(
   (select id from public.attendance_records where source_hash = 'hash-g2-missing-out'),
   (select id from public.employees where external_workera_id = 'GATED2-PROD-001'),
-  date '2026-10-16', timestamptz '2026-10-16 18:30-03',
+  date '2026-10-16', null::timestamptz, timestamptz '2026-10-16 18:30-03',
   'Trabajador confirmó salida a las 18:30, marcación no quedó registrada en Workera.'
 );
 reset role;
@@ -719,41 +710,35 @@ select is(
   'Corrección: attendance_effective_punches.effective_clock_out refleja la corrección vigente'
 );
 
--- G10: segunda corrección sobre el mismo hecho requiere que ADMIN_RRHH
--- invalide la vigente primero — el historial se preserva (ninguna se borra).
--- Nota: una policy RLS de UPDATE con solo USING (sin WITH CHECK que se
--- viole) no lanza excepción sobre filas que no matchean — simplemente las
--- excluye del UPDATE (mismo comportamiento ya documentado en
--- 018_admin_override_and_period_security.sql, "el UPDATE no truena, 0 filas
--- afectadas por RLS"). Se verifica con lives_ok + comprobación de que
--- is_current sigue en true, no con throws_ok.
+-- G10: segunda corrección sobre el mismo hecho es un reemplazo atómico y
+-- exclusivo de ADMIN_RRHH; nunca existe una ventana sin versión vigente.
 set local role authenticated;
-set local request.jwt.claim.sub = '50000000-0000-0000-0000-000000000002'; -- SUPERVISOR_PRODUCTION, no puede invalidar
-select lives_ok(
+set local request.jwt.claim.sub = '50000000-0000-0000-0000-000000000002'; -- SUPERVISOR_PRODUCTION, no puede reemplazar
+select throws_ok(
   format(
-    $$ update public.attendance_corrections set is_current = false where attendance_record_id = %L $$,
-    (select id from public.attendance_records where source_hash = 'hash-g2-missing-out')
+    $$ select public.replace_attendance_correction(
+         %L, %L, date '2026-10-16', null::timestamptz,
+         timestamptz '2026-10-16 18:40-03', 'Intento de reemplazo supervisor') $$,
+    (select id from public.attendance_records where source_hash = 'hash-g2-missing-out'),
+    (select id from public.employees where external_workera_id = 'GATED2-PROD-001')
   ),
-  'Corrección: el UPDATE de un supervisor no autorizado no truena (0 filas afectadas por RLS)'
+  '42501', null,
+  'Corrección: un supervisor no puede reemplazar una corrección vigente'
 );
 reset role;
 select is(
   (select is_current from public.attendance_corrections
      where attendance_record_id = (select id from public.attendance_records where source_hash = 'hash-g2-missing-out')),
   true,
-  'Corrección: la corrección vigente NO fue invalidada por el intento no autorizado (RLS la excluyó del UPDATE)'
+  'Corrección: el RPC no invalidó la versión vigente ante el reemplazo no autorizado'
 );
 
 set local role authenticated;
 set local request.jwt.claim.sub = '50000000-0000-0000-0000-000000000001'; -- ADMIN_RRHH
-update public.attendance_corrections set is_current = false
-  where attendance_record_id = (select id from public.attendance_records where source_hash = 'hash-g2-missing-out');
-insert into public.attendance_corrections
-  (attendance_record_id, employee_id, work_date, corrected_clock_out, reason)
-values (
+select public.replace_attendance_correction(
   (select id from public.attendance_records where source_hash = 'hash-g2-missing-out'),
   (select id from public.employees where external_workera_id = 'GATED2-PROD-001'),
-  date '2026-10-16', timestamptz '2026-10-16 18:45-03',
+  date '2026-10-16', null::timestamptz, timestamptz '2026-10-16 18:45-03',
   'Corrección administrativa: hora exacta confirmada con el jefe de turno, 18:45.'
 );
 reset role;
@@ -778,9 +763,9 @@ insert into public.reporting_periods (period_start, period_end, status, closed_b
 values (date '2026-10-17', date '2026-10-17', 'CLOSED', '50000000-0000-0000-0000-000000000001', now());
 select throws_ok(
   format(
-    $$ insert into public.attendance_corrections
-         (attendance_record_id, employee_id, work_date, corrected_clock_in, corrected_clock_out, reason)
-       values (%L, %L, date '2026-10-17', timestamptz '2026-10-17 07:30-03', timestamptz '2026-10-17 17:00-03', 'Corrección tardía sobre período ya cerrado') $$,
+    $$ select public.replace_attendance_correction(
+         %L, %L, date '2026-10-17', timestamptz '2026-10-17 07:30-03',
+         timestamptz '2026-10-17 17:00-03', 'Corrección tardía sobre período ya cerrado') $$,
     (select id from public.attendance_records where source_hash = 'hash-g2-missing-both'),
     (select id from public.employees where external_workera_id = 'GATED2-PROD-001')
   ),
@@ -796,9 +781,9 @@ set local role authenticated;
 set local request.jwt.claim.sub = '50000000-0000-0000-0000-000000000002';
 select throws_ok(
   format(
-    $$ insert into public.attendance_corrections
-         (attendance_record_id, employee_id, work_date, corrected_clock_out, reason)
-       values (%L, %L, date '2026-10-06', timestamptz '2026-10-06 18:45-03', 'Intento de corregir con decisión activa') $$,
+    $$ select public.replace_attendance_correction(
+         %L, %L, date '2026-10-06', null::timestamptz,
+         timestamptz '2026-10-06 18:45-03', 'Intento de corregir con decisión activa') $$,
     (select id from public.attendance_records where source_hash = 'hash-g2-60'),
     (select id from public.employees where external_workera_id = 'GATED2-PROD-001')
   ),

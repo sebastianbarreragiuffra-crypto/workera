@@ -44,7 +44,7 @@ select is((select count(*)::int from public.attendance_records where id='bb00000
 select is((select count(*)::int from public.attendance_corrections where id='bb000000-0000-0000-0000-000000000401'),1,'admin ARCOTEX ve attendance_corrections');
 select is((select count(*)::int from public.attendance_status_records where id='bb000000-0000-0000-0000-000000000501'),1,'admin ARCOTEX ve attendance_status_records');
 select is((select count(*)::int from public.attendance_missing_punch_flags where id='bb000000-0000-0000-0000-000000000601'),1,'admin ARCOTEX ve attendance_missing_punch_flags');
-select lives_ok($$update public.attendance_corrections set is_current=false where id='bb000000-0000-0000-0000-000000000401'$$,'admin ARCOTEX puede actualizar corrección propia');
+select ok(not has_table_privilege('authenticated','public.attendance_corrections','UPDATE'),'ni ADMIN_RRHH muta correcciones directamente: usa el RPC atómico');
 select lives_ok($$update public.attendance_missing_punch_flags set status='CONTACTED' where id='bb000000-0000-0000-0000-000000000601'$$,'admin ARCOTEX puede actualizar flag propia');
 reset role;
 
@@ -59,7 +59,18 @@ select is((select count(*)::int from public.attendance_records where id='bb00000
 select is((select count(*)::int from public.attendance_corrections where id='bb000000-0000-0000-0000-000000000401'),0,'ajena no ve attendance_corrections');
 select is((select count(*)::int from public.attendance_status_records where id='bb000000-0000-0000-0000-000000000501'),0,'ajena no ve attendance_status_records');
 select is((select count(*)::int from public.attendance_missing_punch_flags where id='bb000000-0000-0000-0000-000000000601'),0,'ajena no ve attendance_missing_punch_flags');
-select lives_ok($$update public.attendance_corrections set is_current=false where id='bb000000-0000-0000-0000-000000000401'$$,'UPDATE ajeno se filtra por RLS (no error, no filas)');
+select throws_ok(
+  $$select public.replace_attendance_correction(
+      'bb000000-0000-0000-0000-000000000301',
+      'bb000000-0000-0000-0000-000000000201',
+      current_date,
+      null::timestamptz,
+      current_date + time '17:45',
+      'Intento desde otra empresa'
+    )$$,
+  '42501', null,
+  'admin ajena no puede reemplazar una corrección ARCOTEX por el RPC'
+);
 select lives_ok($$update public.attendance_missing_punch_flags set status='CONTACTED' where id='bb000000-0000-0000-0000-000000000601'$$,'UPDATE ajeno se filtra por RLS (no error, no filas)');
 reset role;
 

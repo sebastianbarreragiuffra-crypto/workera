@@ -14,6 +14,7 @@ import { WeekSummaryCard } from "../../../components/dashboard/WeekSummaryCard";
 import { DescargarAsistenciaCard } from "../../../components/dashboard/DescargarAsistenciaCard";
 import { AttendanceReadinessCard } from "../../../components/dashboard/AttendanceReadinessCard";
 import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../lib/tenant/legacy-workforce";
+import { resolvePayrollCompanyRole } from "../../../lib/payroll/payroll-company-role";
 
 const AREA_LABEL: Record<"PRODUCTION" | "INSTALLATION" | "ADMINISTRATION", string> = {
   PRODUCTION: "Producción",
@@ -33,13 +34,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // cualquiera puede provocar desde la barra de direcciones.
   const date = requestedDate && isCalendarDate(requestedDate) ? requestedDate : today;
   const supabase = await createClient();
+  const workforceRole = await resolvePayrollCompanyRole(
+    supabase,
+    ARCOTEX_WORKFORCE_COMPANY_ID,
+    ["ADMIN_RRHH", "SUPER_ADMIN", "SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"],
+  );
+  if (!workforceRole) redirect("/acceso-pendiente");
 
   let dashboard;
   let readiness;
   try {
     [dashboard, readiness] = await Promise.all([
-      getDashboardForRole(supabase, profile.role, date),
-      getAttendanceReadiness(supabase, profile.role, ARCOTEX_WORKFORCE_COMPANY_ID),
+      getDashboardForRole(supabase, workforceRole, date),
+      getAttendanceReadiness(supabase, workforceRole, ARCOTEX_WORKFORCE_COMPANY_ID),
     ]);
   } catch {
     return <ErrorState retryHref="/dashboard" />;
@@ -71,7 +78,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <KpiRow kpis={dashboard.kpis} date={date} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {dashboard.kind === "ADMIN" && <DescargarAsistenciaCard />}
+        {dashboard.kind === "ADMIN" && <DescargarAsistenciaCard role={workforceRole as "SUPER_ADMIN" | "ADMIN_RRHH"} />}
         <AttendanceReadinessCard readiness={readiness} />
       </div>
 

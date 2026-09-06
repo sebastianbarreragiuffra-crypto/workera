@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { uploadMedicalLicense, listMedicalLicenses, approveMedicalLicense, rejectMedicalLicense, computeLicenseSummary, type MedicalLicenseListItem } from "./medical-license";
 import { MAX_SUPPORTING_DOCUMENT_SIZE_BYTES } from "./documents";
 import { canApproveMedicalLicense } from "../supabase/authorize";
@@ -219,6 +221,24 @@ test("rejectMedicalLicense: llama exactamente a la función atómica reject_medi
 
   assert.deepEqual(calls, ["reject_medical_license"]);
   assert.deepEqual(inserted.reject_medical_license[0], { p_approval_id: "approval-1", p_reason: "Certificado ilegible" });
+});
+
+test("licencias médicas: solo los RPC con MFA pueden cambiar aprobación y toda transición invalida readiness", () => {
+  const sql = readFileSync(path.resolve(
+    import.meta.dirname,
+    "../../../supabase/migrations/20260906210000_payroll_revision_state_integrity.sql",
+  ), "utf8");
+
+  const approve = sql.slice(
+    sql.indexOf("create or replace function public.approve_medical_license"),
+    sql.indexOf("create or replace function public.reject_medical_license"),
+  );
+  assert.match(approve, /security definer[\s\S]*?enforce_mfa_for_privileged/);
+  assert.match(approve, /payroll-source-mutation-v1[\s\S]*?for update/);
+  assert.match(approve, /insert into public\.attendance_status_records[\s\S]*?update public\.medical_license_approvals/);
+  assert.match(sql, /revoke insert, update, delete on public\.medical_license_approvals\s+from authenticated/);
+  assert.match(sql, /when tg_table_name = 'medical_license_approvals'[\s\S]*?join public\.employees/);
+  assert.match(sql, /'medical_license_approvals',[\s\S]*?'supporting_documents'/);
 });
 
 test("canApproveMedicalLicense: usa la autoridad tenant-aware y falla cerrado", async () => {

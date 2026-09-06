@@ -1,6 +1,9 @@
 # Reglas de negocio — Gate D (horas extra, bono, feriados, código R)
 
-Estado: `IMPLEMENTED` a nivel de base de datos. Dos pasadas:
+Estado histórico: `SUPERSEDED` por las reglas finales de pre-nómina 2026 y por
+las migraciones `20260906130000`–`20260906210000`. Las evidencias que siguen
+describen la evolución de Gate D; ante cualquier diferencia manda la matriz
+vigente de esta sección y sus pruebas actuales. Dos pasadas originales:
 - **Primera pasada** (migración `20260818160000_overtime_rate_holidays_bonus_engine_and_r_deactivation.sql`): clasificación HH50/HH100, feriados, límites por grupo/día, bono automático, desactivación de "R". 44 pruebas pgTAP nuevas.
 - **Segundo hardening** (migración `20260818170000_production_two_hour_selector_missing_punches_and_corrections_hardening.sql`): selector binario 1h/2h exclusivo de Producción, marcaciones faltantes con red flag auditable, refuerzo de `attendance_corrections`, y 3 correcciones de defectos confirmados en la primera pasada (ver sección 8). 49 pruebas pgTAP nuevas (212/212 totales) y 4 escenarios reales de concurrencia con dos sesiones PostgreSQL (uno de ellos reveló y llevó a corregir un defecto real de concurrencia — ver sección 9).
 
@@ -11,7 +14,7 @@ Ver también: `ARCHITECTURE.md`, `docs/DATA_MODEL_PHASE2.md`, `docs/DATA_MODEL_P
 ## 1. Clasificación HH50 / HH100
 
 - **HH50**: lunes a sábado, sin feriado.
-- **HH100**: domingo, o cualquier día (incluso lunes-sábado) marcado como feriado activo en el calendario administrativo. El feriado **prevalece** sobre la clasificación de día de semana.
+- **HH100**: domingo, o cualquier día marcado como feriado activo. Si domingo y feriado coinciden, la tasa sigue siendo HH100 pero prevalece la regla operativa especial de domingo de Instalación (sin tope fijo); no se aplica el tope de festivo.
 - Calculada server-side, de forma determinista, por `public.classify_overtime_type_id(work_date)` — el cliente no puede elegir la tasa: el trigger `overtime_records_classify_rate` sobrescribe siempre `overtime_type_id` según la fecha, ignorando cualquier valor propuesto en el INSERT/UPDATE.
 - Usa `work_date` (tipo `date`, sin componente horario) — sin conversión de zona horaria involucrada en la clasificación en sí.
 
@@ -23,17 +26,17 @@ Tabla nueva `public.holidays` (fecha única, nombre, activo/inactivo, auditoría
 
 | Grupo | Lunes-viernes | Sábado | Domingo | Feriado (cualquier día) |
 |---|---|---|---|---|
-| PRODUCTION | 120 min | 360 min | 360 min | 360 min |
-| INSTALLATION | Sin tope fijo automático — autoridad exacta del supervisor asignado | Sin tope fijo | Sin tope fijo | Sin tope fijo |
+| PRODUCTION | 120 min | 120 min | Bloqueado | 360 min |
+| INSTALLATION | 120 min | 120 min | Sin tope fijo; aprobación del jefe/supervisor de Instalación | 360 min; si también es domingo prevalece domingo sin tope fijo |
 | ADMINISTRATION | Sin cambio — no elegible (regla previa, `overtime_policies.overtime_eligible=false`) | — | — | — |
 
 Implementado en `public.max_approvable_overtime_minutes(employee_group_code, work_date)`, invocado desde `validate_overtime_decision()` (extensión del trigger ya existente de Fase 2A). **El exceso se rechaza explícitamente** (excepción, no aprobación recortada en silencio) — un supervisor que intenta aprobar más del máximo ve un error claro. El dato original (`overtime_records.candidate_minutes`, ej. un registro importado que exceda el máximo) **nunca se altera**: el límite se aplica solo a `approved_minutes` en el momento de la decisión.
 
-Para Instalación, la ausencia de tope automático es una decisión explícita del usuario ("no inventar un límite que no se ha definido") — la autoridad real es que el supervisor de Instalación (`SUPERVISOR_INSTALLATION`, ya existente, sin rol nuevo) registre/confirme el número exacto de minutos aprobados vía `overtime_decisions.approved_minutes`, sujeto únicamente a `approved_minutes <= candidate_minutes` (regla preexistente).
+Solo el domingo de Instalación carece de tope fijo: allí la autoridad real es que el supervisor de Instalación (`SUPERVISOR_INSTALLATION`, ya existente, sin rol nuevo) registre/confirme el número exacto de minutos aprobados vía `overtime_decisions.approved_minutes`, sujeto a `approved_minutes <= candidate_minutes`. Lunes a sábado conserva 120 minutos y los festivos no dominicales 360 minutos.
 
 ## 4. Bono diario
 
-- Aplica a **PRODUCTION** e **INSTALLATION** (antes solo Producción — `docs/DECISIONS_PENDING.md` P0 resuelto).
+- Aplica a **PRODUCTION** e **INSTALLATION**, tanto para HH50 como HH100, incluidos domingos de Instalación cuando existan al menos 120 minutos aprobados.
 - Umbral: **120 minutos** de horas extra **aprobadas** (no candidateadas ni marcadas) en el día.
 - Monto: **$1.000 CLP fijo** por trabajador y día — nunca proporcional a las horas (verificado: 120, 121, 180 y 360 min aprobados producen exactamente $1.000, no un múltiplo).
 - Nunca más de un bono por trabajador y fecha — garantizado en tres niveles independientes: `unique(overtime_decision_id)` (Fase 2B), `unique(employee_id, work_date)` (Gate D, nuevo), y lock consultivo (`pg_advisory_xact_lock`) en el motor de recomputación.
@@ -59,9 +62,13 @@ Todos los mecanismos nuevos están diseñados para ser seguros ante:
 
 Evidencia completa (comandos, salidas de `pg_stat_activity`, timestamps de adquisición/liberación del lock) se generó en scripts temporales fuera del repositorio, ejecutados contra el contenedor Docker local (`supabase_db_Workera`), y se eliminaron al finalizar — no forman parte del repositorio.
 
-## 7. Selector binario 1h/2h — exclusivo de Producción (segundo hardening)
+## 7. Selector binario histórico — reemplazado por minutos aprobados exactos
 
-**Alcance exacto**: únicamente Producción, lunes a viernes, HH50 (no feriado, no sábado, no domingo, no Instalación). Fuera de ese alcance exacto (Instalación siempre; Producción sábado/domingo/feriado), la aprobación sigue siendo de **minutos exactos**, sin selector binario.
+El selector binario de la segunda pasada de Gate D ya no es la regla vigente.
+La versión final conserva los minutos reales y permite una decisión competente
+en minutos exactos, aplicando después el tope pagable correspondiente: 120
+minutos de lunes a sábado, 360 en festivo y sin tope fijo el domingo de
+Instalación. Producción en domingo queda bloqueada.
 
 Matriz exacta (candidato real = `overtime_records.candidate_minutes`):
 
@@ -75,7 +82,7 @@ Matriz exacta (candidato real = `overtime_records.candidate_minutes`):
 
 Implementado como extensión de `validate_overtime_decision()`: fuerza `approved_minutes ∈ {0, 60, 120}` dentro del alcance exacto, y exige `reason` no vacío exactamente en los tres casos listados. Autorización: **la RLS de `overtime_decisions` ya existente (Fase 2A/3) es exactamente la autorización pedida** — `decided_by = auth.uid() AND can_manage_employee(employee)`, que resuelve a ADMIN_RRHH o al supervisor cuyo grupo coincide con el trabajador — no requirió ningún cambio de RLS.
 
-Instalación (`SUPERVISOR_INSTALLATION`) nunca queda sujeta al selector binario — sigue aprobando/rechazando/registrando el número exacto de minutos, sin tope fijo automático (regla ya confirmada en la primera pasada).
+Instalación (`SUPERVISOR_INSTALLATION`) nunca queda sujeta al selector binario histórico: registra minutos exactos. El valor pagable se limita a 120 minutos de lunes a sábado, 360 en festivo y queda sin tope fijo únicamente el domingo.
 
 ## 8. Marcaciones faltantes y correcciones auditadas (segundo hardening)
 

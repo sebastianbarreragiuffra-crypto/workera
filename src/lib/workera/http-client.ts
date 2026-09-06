@@ -308,6 +308,8 @@ export class HttpWorkeraClient implements WorkeraClient {
     let totalPages = 1;
     let totalResult = 0;
     let pagesFetched = 0;
+    let expectedTotalPages: number | null = null;
+    let expectedTotalResult: number | null = null;
 
     while (currentPage <= totalPages) {
       if (pagesFetched >= maxPages) {
@@ -318,11 +320,6 @@ export class HttpWorkeraClient implements WorkeraClient {
       }
 
       const result = await this.getAttendanceEvents({ ...params, page: currentPage });
-      allEvents.push(...result.events);
-      totalPages = result.totalPages;
-      totalResult = result.totalResult;
-      pagesFetched += 1;
-
       if (result.page !== currentPage) {
         // El servidor no devolvió la página que pedimos — protección contra
         // loop infinito si `page` no avanza de forma confiable.
@@ -331,8 +328,38 @@ export class HttpWorkeraClient implements WorkeraClient {
           []
         );
       }
+      if (result.pageResult !== result.events.length) {
+        throw new WorkeraValidationError(
+          `getAllAttendanceEvents: pageResult=${result.pageResult} no coincide con data.length=${result.events.length} en page=${currentPage}.`,
+          []
+        );
+      }
+      if (expectedTotalPages === null) {
+        expectedTotalPages = result.totalPages;
+        expectedTotalResult = result.totalResult;
+      } else if (
+        result.totalPages !== expectedTotalPages ||
+        result.totalResult !== expectedTotalResult
+      ) {
+        throw new WorkeraValidationError(
+          `getAllAttendanceEvents: la metadata totalPages/totalResult cambió durante la paginación en page=${currentPage}.`,
+          []
+        );
+      }
+
+      allEvents.push(...result.events);
+      totalPages = expectedTotalPages;
+      totalResult = expectedTotalResult ?? 0;
+      pagesFetched += 1;
 
       currentPage += 1;
+    }
+
+    if (allEvents.length !== totalResult) {
+      throw new WorkeraValidationError(
+        `getAllAttendanceEvents: se recibieron ${allEvents.length} eventos, pero totalResult declaró ${totalResult}.`,
+        []
+      );
     }
 
     return { events: allEvents, pagesFetched, totalResult };
