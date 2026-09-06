@@ -69,12 +69,24 @@ La validación se hizo el 2026-09-06 en una instancia Supabase local aislada, co
 
 La primera corrida completa de pgTAP se hizo después del recorrido manual y falló porque los fixtures de 55 personas y dos períodos seguían cargados. Se descartó ese resultado, se reinició exclusivamente la instancia aislada y se repitió desde migraciones limpias: 2.516/2.516 aprobadas. Luego se detuvo la instancia aislada y se restauró `supabase/config.toml`. La instancia compartida `Workera` no se reinició ni se modificó.
 
+## Fase 5: 30 simuladores laborales completados
+
+Los 30 escenarios se ejecutaron individualmente con datos ficticios. El ejecutor puro obtuvo inicialmente 21 aprobados, 0 fallidos, 9 parciales y 0 no ejecutados. Las nueve brechas se comprobaron después con render real del Excel, pruebas pgTAP en una Supabase aislada, dos sesiones PostgreSQL concurrentes y un ciclo real DB–Storage. Con esa evidencia complementaria el resultado validado quedó en 30 aprobados, 0 fallidos, 0 parciales y 0 no ejecutados.
+
+- El simulador 2 se renderizó de forma individual. `RESUMEN_NOMINA!A6` mostró `BLOQUEADO` en rojo, `O6` mostró un pendiente y `CONTROL_PENDIENTES` vinculó la fecha ficticia con `HH 50% sin decisión`. No hubo errores de fórmula.
+- Los simuladores 12, 19, 20, 23, 24 y 25 se cerraron combinando su ejecución concreta con las pruebas aisladas 095–105 y con el recorrido DB–Storage de la fase 4.
+- El simulador 29 se repitió contra PostgreSQL real mediante dos confirmaciones simultáneas. Ambas devolvieron `245f0f70-942b-4488-9e60-ae88cc746561`; quedaron una versión y un recibo, sin duplicados.
+- El simulador 30 ejecutó preparación, subida privada, commit de cierre, descarga exacta, reapertura con motivo y una versión posterior. El snapshot cerrado fue `7aaa11e3-488b-4814-a6a6-1e3918bb89e9`; el SHA-256 subido y descargado fue `c1ee533f985246a22c54a588ad65ab4c30b5b4fa7709cbc590470b3422850e34`; la reapertura conservó el cierre anterior y la nueva versión aceptada fue `7dbc1242-e903-4809-a51e-fcc692d6f3ff`.
+
+El recorrido del simulador 30 descubrió una falla crítica real: la reserva `PREPARED` protegía la ruta antes de que Storage pudiera crear el snapshot, de modo que el protocolo documentado `prepare → upload → commit` se bloqueaba a sí mismo con `42501`. La migración `20260906233000_allow_prepared_payroll_snapshot_upload.sql` permite solamente el primer `INSERT` en la ruta reservada por el mismo actor. `commit_payroll_period_close` sigue verificando hash, tamaño, MIME y metadatos, y cualquier `UPDATE`, `DELETE`, recreación o escritura de otro actor permanece bloqueada. La prueba `107_prepared_payroll_snapshot_upload.sql` reproduce conductualmente la subida válida y los intentos prohibidos.
+
+La validación final se repitió desde una reconstrucción limpia de la Supabase aislada: 107 archivos pgTAP y 2.524/2.524 comprobaciones aprobadas. La suite TypeScript completa obtuvo 1.374 aprobadas, 0 fallidas y 2 omitidas; las 158 pruebas focalizadas aprobaron; TypeScript, lint y el build de producción terminaron con código de salida 0.
+
 ## Pendiente para continuar
 
-1. Ejecutar y documentar individualmente los 30 simuladores laborales sobre el commit final. No confundirlos con los 55 trabajadores ficticios ni con las 1.376 pruebas automatizadas.
-2. Hacer la auditoría final contra el prompt maestro recuperable y emitir el veredicto de marcha blanca. No declarar listo si algún simulador crítico falla o queda sin evidencia.
-3. Después del piloto Arcotex, extender el aislamiento por empresa a las tablas laborales heredadas que todavía dependen del modelo Arcotex único y completar el NO-GO multiempresa documentado en `docs/PLATFORM_MULTI_COMPANY.md`.
-4. Al incorporar una segunda empresa, convertir horarios, jornada, topes, bono y excepciones en una plantilla base con ajustes por empresa. Hoy las reglas operativas siguen siendo las de Arcotex.
+1. Hacer la auditoría final contra el prompt maestro recuperable y emitir el veredicto de marcha blanca. No declarar listo si alguna regla crítica queda sin evidencia.
+2. Después del piloto Arcotex, extender el aislamiento por empresa a las tablas laborales heredadas que todavía dependen del modelo Arcotex único y completar el NO-GO multiempresa documentado en `docs/PLATFORM_MULTI_COMPANY.md`.
+3. Al incorporar una segunda empresa, convertir horarios, jornada, topes, bono y excepciones en una plantilla base con ajustes por empresa. Hoy las reglas operativas siguen siendo las de Arcotex.
 
 ## Punto seguro para retomar
 
@@ -86,4 +98,4 @@ git status --short --branch
 git log --oneline -3
 ```
 
-El siguiente bloque recomendado es el punto 1 de pendientes: ejecutar los 30 simuladores y conservar una fila de evidencia por escenario. La ampliación multiempresa queda deliberadamente después del piloto Arcotex.
+El siguiente bloque recomendado es la auditoría final contra el prompt maestro, usando la tabla completa de 30 simuladores ya ejecutados. La ampliación multiempresa queda deliberadamente después del piloto Arcotex.
