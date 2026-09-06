@@ -245,8 +245,9 @@ export async function closePayrollPeriodWithSnapshot(
   const client = supabase as unknown as PayrollCloseClient;
   const periodResult = await client
     .from("reporting_periods")
-    .select("id, period_start, period_end, status, closed_at")
+    .select("id, company_id, period_start, period_end, status, closed_at")
     .eq("id", input.reportingPeriodId)
+    .eq("company_id", input.companyId)
     .maybeSingle();
   const periodRow = asReportingPeriod(periodResult.data);
   if (periodResult.error || !periodRow) {

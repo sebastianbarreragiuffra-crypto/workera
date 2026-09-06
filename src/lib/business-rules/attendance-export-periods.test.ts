@@ -1,11 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  resolveDailyPeriod,
   resolveWeeklyPeriod,
   resolveFortnightPeriod,
   resolveMonthlyPeriod,
   resolvePayrollPeriod,
 } from "./attendance-export-periods";
+
+test("resolveDailyPeriod: conserva exactamente el día seleccionado", () => {
+  assert.deepEqual(resolveDailyPeriod("2026-09-06"), {
+    type: "DIARIO",
+    startDate: "2026-09-06",
+    endDate: "2026-09-06",
+    label: "Día 2026-09-06",
+  });
+});
 
 test("resolveWeeklyPeriod: cualquier fecha de la semana resuelve al mismo lunes-domingo", () => {
   const wed = resolveWeeklyPeriod("2026-08-19");

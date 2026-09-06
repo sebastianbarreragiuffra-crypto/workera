@@ -4728,6 +4728,7 @@ export type Database = {
         Row: {
           closed_at: string | null
           closed_by: string | null
+          company_id: string
           created_at: string
           id: string
           period_end: string
@@ -4741,6 +4742,7 @@ export type Database = {
         Insert: {
           closed_at?: string | null
           closed_by?: string | null
+          company_id?: string
           created_at?: string
           id?: string
           period_end: string
@@ -4754,6 +4756,7 @@ export type Database = {
         Update: {
           closed_at?: string | null
           closed_by?: string | null
+          company_id?: string
           created_at?: string
           id?: string
           period_end?: string
@@ -4765,6 +4768,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "reporting_periods_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "reporting_periods_closed_by_fkey"
             columns: ["closed_by"]

@@ -130,8 +130,9 @@ export async function approvePayrollPeriodReady(
   const client = supabase as unknown as ApprovalClient;
   const periodResult = await client
     .from("reporting_periods")
-    .select("id, period_start, period_end, status")
+    .select("id, company_id, period_start, period_end, status")
     .eq("id", input.reportingPeriodId)
+    .eq("company_id", input.companyId)
     .maybeSingle();
   const periodRow = asPeriod(periodResult.data);
   if (periodResult.error || !periodRow || periodRow.status !== input.from) {

@@ -1,6 +1,7 @@
 /**
  * Límites de período para el exportador de asistencia (Fase 9). Exactamente
- * tres modos, sin rango arbitrario -- ver DescargarAsistenciaCard.tsx.
+ * cuatro ventanas controladas, sin rango arbitrario -- ver
+ * DescargarAsistenciaCard.tsx.
  *
  * SEMANAL reutiliza `currentWeekRange` (dashboard-view.ts), el mismo cálculo
  * lunes-domingo ya usado en el resto de la app -- ninguna aritmética de
@@ -11,7 +12,7 @@
  */
 import { currentWeekRange } from "../view-models/dashboard-view";
 
-export type AttendanceExportType = "SEMANAL" | "QUINCENAL" | "MENSUAL" | "PAGO";
+export type AttendanceExportType = "DIARIO" | "SEMANAL" | "QUINCENAL" | "MENSUAL" | "PAGO";
 
 export interface AttendanceExportPeriod {
   type: AttendanceExportType;
@@ -33,6 +34,11 @@ function fmt(year: number, month1to12: number, day: number): string {
 function monthLabel(year: number, month1to12: number): string {
   const label = MONTH_LABEL.format(new Date(Date.UTC(year, month1to12 - 1, 1)));
   return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+/** DIARIO: conserva exactamente el día seleccionado. */
+export function resolveDailyPeriod(date: string): AttendanceExportPeriod {
+  return { type: "DIARIO", startDate: date, endDate: date, label: `Día ${date}` };
 }
 
 /** SEMANAL: cualquier fecha dentro de la semana deseada -- se resuelve a lunes-domingo. */
@@ -82,7 +88,10 @@ export function resolvePayrollPeriod(yearMonth: string): AttendanceExportPeriod 
   };
 }
 
-/** MENSUAL: mes (YYYY-MM) completo, 1º al último día calendario. */
+/**
+ * MENSUAL CALENDARIO legacy. No se ofrece en la UI desde la fase multiempresa:
+ * la opción mensual visible usa resolvePayrollPeriod (ciclo oficial 16-15).
+ */
 export function resolveMonthlyPeriod(yearMonth: string): AttendanceExportPeriod {
   const [yearStr, monthStr] = yearMonth.split("-");
   const year = Number(yearStr);

@@ -66,7 +66,11 @@ export async function createPeriodAction(_prev: PeriodActionState, formData: For
       throw new Error("Las fechas del período no son válidas.");
     }
 
-    await createReportingPeriod(supabase, { periodStart, periodEnd });
+    await createReportingPeriod(supabase, {
+      companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+      periodStart,
+      periodEnd,
+    });
     revalidate();
     return { status: "success", message: `Período ${periodStart} al ${periodEnd} creado (abierto).` };
   } catch (err) {
@@ -109,7 +113,14 @@ export async function transitionPeriodAction(_prev: PeriodActionState, formData:
         callerRole: payrollRole,
       });
     } else {
-      await transitionReportingPeriod(supabase, { periodId, from, to, actorId: profile.id, reopenReason });
+      await transitionReportingPeriod(supabase, {
+        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        periodId,
+        from,
+        to,
+        actorId: profile.id,
+        reopenReason,
+      });
     }
     revalidate();
 

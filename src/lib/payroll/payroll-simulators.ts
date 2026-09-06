@@ -344,6 +344,7 @@ async function simulateCloseAndReopenLifecycle(): Promise<{
   await transitionReportingPeriod(
     reopenClient as unknown as SupabaseClient<Database>,
     {
+      companyId: COMPANY_A,
       periodId,
       from: "CLOSED",
       to: "REOPENED",

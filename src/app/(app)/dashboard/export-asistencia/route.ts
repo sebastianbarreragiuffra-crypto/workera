@@ -3,9 +3,9 @@ import { createHash } from "node:crypto";
 import { createClient } from "../../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../../lib/auth/session";
 import {
+  resolveDailyPeriod,
   resolveWeeklyPeriod,
   resolveFortnightPeriod,
-  resolveMonthlyPeriod,
   resolvePayrollPeriod,
   type AttendanceExportPeriod,
 } from "../../../../lib/business-rules/attendance-export-periods";
@@ -25,9 +25,10 @@ import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-compa
  * descarga a partir de los datos actuales -- nunca un archivo pre-generado ni
  * cacheado (backend siempre fuente de verdad, Fase 9).
  *
- * `pago` es el modo que replica la planilla real de remuneraciones (16 del mes
- * anterior al 15). Los otros tres se conservan porque son útiles para revisar
- * ventanas más cortas durante la marcha blanca.
+ * `mensual` replica la planilla real de remuneraciones (16 del mes anterior
+ * al 15). Diario, semanal y quincenal son versiones de trabajo regeneradas
+ * desde los datos vigentes. `pago` se conserva solo como alias de enlaces
+ * históricos.
  */
 /**
  * Los resolvers hacen aritmética con `Number(...)` sobre las dos mitades de
@@ -74,7 +75,12 @@ export async function GET(request: NextRequest) {
 
   let period: AttendanceExportPeriod;
   try {
-    if (tipo === "semanal") {
+    if (tipo === "diario") {
+      const fecha = searchParams.get("fecha");
+      if (!fecha) throw new Error("Falta el parámetro 'fecha' para el modo diario.");
+      if (!isCalendarDate(fecha)) throw new Error("El parámetro 'fecha' debe ser un día real en formato YYYY-MM-DD.");
+      period = resolveDailyPeriod(fecha);
+    } else if (tipo === "semanal") {
       const fecha = searchParams.get("fecha");
       if (!fecha) throw new Error("Falta el parámetro 'fecha' para el modo semanal.");
       if (!isCalendarDate(fecha)) throw new Error("El parámetro 'fecha' debe ser un día real en formato YYYY-MM-DD.");
@@ -85,11 +91,11 @@ export async function GET(request: NextRequest) {
       if (quincena !== "1" && quincena !== "2") throw new Error("El parámetro 'quincena' debe ser 1 o 2.");
       period = resolveFortnightPeriod(mes, quincena === "1" ? 1 : 2);
     } else if (tipo === "mensual") {
-      period = resolveMonthlyPeriod(requireYearMonth(searchParams.get("mes")));
+      period = resolvePayrollPeriod(requireYearMonth(searchParams.get("mes")));
     } else if (tipo === "pago") {
       period = resolvePayrollPeriod(requireYearMonth(searchParams.get("mes")));
     } else {
-      throw new Error("El parámetro 'tipo' debe ser pago, semanal, quincenal o mensual.");
+      throw new Error("El parámetro 'tipo' debe ser diario, semanal, quincenal o mensual.");
     }
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Parámetros de período inválidos." }, { status: 400 });
@@ -121,6 +127,7 @@ export async function GET(request: NextRequest) {
     const loose = supabase as unknown as { from(name: string): ClosedPayrollQuery };
     const periodResult = await loose.from("reporting_periods")
       .select("id, status")
+      .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
       .eq("period_start", period.startDate)
       .eq("period_end", period.endDate)
       .maybeSingle();

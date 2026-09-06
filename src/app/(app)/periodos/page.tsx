@@ -23,7 +23,7 @@ export default async function ReportingPeriodsPage() {
     ["ADMIN_RRHH", "SUPER_ADMIN"],
   );
   if (!payrollRole) redirect("/dashboard");
-  const board = await getReportingPeriodsBoard(supabase);
+  const board = await getReportingPeriodsBoard(supabase, ARCOTEX_WORKFORCE_COMPANY_ID);
 
   return (
     <div className="space-y-4">

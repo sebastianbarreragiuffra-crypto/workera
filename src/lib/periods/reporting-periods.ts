@@ -41,6 +41,7 @@ export {
 
 interface RawPeriod {
   id: string;
+  company_id: string;
   period_start: string;
   period_end: string;
   status: ReportingPeriodStatus;
@@ -52,6 +53,7 @@ interface RawPeriod {
 function toPeriod(r: RawPeriod): ReportingPeriod {
   return {
     id: r.id,
+    companyId: r.company_id,
     periodStart: r.period_start,
     periodEnd: r.period_end,
     status: r.status,
@@ -82,10 +84,14 @@ function nextPayrollYearMonth(lastEnd: string | null): string {
   return `${nextYear}-${String(nextMonth).padStart(2, "0")}`;
 }
 
-export async function getReportingPeriodsBoard(supabase: SupabaseClient<Database>): Promise<ReportingPeriodsBoard> {
+export async function getReportingPeriodsBoard(
+  supabase: SupabaseClient<Database>,
+  companyId: string,
+): Promise<ReportingPeriodsBoard> {
   const { data, error } = await supabase
     .from("reporting_periods")
-    .select("id, period_start, period_end, status, closed_at, reopened_at, reopen_reason")
+    .select("id, company_id, period_start, period_end, status, closed_at, reopened_at, reopen_reason")
+    .eq("company_id", companyId)
     .order("period_start", { ascending: false });
 
   if (error) throw new Error(`getReportingPeriodsBoard: fallo leyendo reporting_periods: ${error.message}`);
@@ -117,11 +123,11 @@ function translateError(message: string): string {
 
 export async function createReportingPeriod(
   supabase: SupabaseClient<Database>,
-  input: { periodStart: string; periodEnd: string }
+  input: { companyId: string; periodStart: string; periodEnd: string }
 ): Promise<{ id: string }> {
   const { data, error } = await supabase
     .from("reporting_periods")
-    .insert({ period_start: input.periodStart, period_end: input.periodEnd, status: "OPEN" })
+    .insert({ company_id: input.companyId, period_start: input.periodStart, period_end: input.periodEnd, status: "OPEN" })
     .select("id")
     .single();
 
@@ -131,7 +137,7 @@ export async function createReportingPeriod(
 
 export async function transitionReportingPeriod(
   supabase: SupabaseClient<Database>,
-  input: { periodId: string; from: ReportingPeriodStatus; to: ReportingPeriodStatus; actorId: string; reopenReason?: string | null }
+  input: { companyId: string; periodId: string; from: ReportingPeriodStatus; to: ReportingPeriodStatus; actorId: string; reopenReason?: string | null }
 ): Promise<void> {
   if (!ALLOWED_TRANSITIONS[input.from].includes(input.to)) {
     throw new Error(`Transición no permitida: ${statusLabel(input.from)} -> ${statusLabel(input.to)}.`);
@@ -161,6 +167,7 @@ export async function transitionReportingPeriod(
     .from("reporting_periods")
     .update(patch)
     .eq("id", input.periodId)
+    .eq("company_id", input.companyId)
     .eq("status", input.from)
     .select("id");
 

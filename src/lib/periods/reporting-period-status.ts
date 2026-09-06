@@ -8,6 +8,7 @@ export type ReportingPeriodStatus = "OPEN" | "IN_REVIEW" | "READY_TO_CLOSE" | "C
 
 export interface ReportingPeriod {
   id: string;
+  companyId: string;
   periodStart: string;
   periodEnd: string;
   status: ReportingPeriodStatus;

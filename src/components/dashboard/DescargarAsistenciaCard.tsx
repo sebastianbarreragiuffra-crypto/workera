@@ -9,7 +9,7 @@ import { PayrollWorkbookUpload } from "./PayrollWorkbookUpload";
  * fila por persona, pendientes accionables y sábana diaria.
  */
 
-type ExportType = "PAGO" | "SEMANAL" | "QUINCENAL" | "MENSUAL";
+type ExportType = "DIARIO" | "SEMANAL" | "QUINCENAL" | "MENSUAL";
 
 function todayIsoInSantiago(now: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
@@ -24,11 +24,11 @@ export function DescargarAsistenciaCard({ now = new Date(), role = "SUPER_ADMIN"
   const currentMonth = today.slice(0, 7);
   const currentDay = Number(today.slice(8, 10));
 
-  // "Período de pago" es el modo por defecto: es el que replica la planilla
+  // "Mensual" es el modo por defecto: es el que replica la planilla
   // real de remuneraciones (16 del mes anterior al 15) y el único que se
   // compara 1 a 1 contra el archivo que RRHH usa hoy.
-  const [tipo, setTipo] = useState<ExportType>("PAGO");
-  const [pagoMes, setPagoMes] = useState(currentMonth);
+  const [tipo, setTipo] = useState<ExportType>("MENSUAL");
+  const [diaFecha, setDiaFecha] = useState(today);
   const [semanaFecha, setSemanaFecha] = useState(today);
   const [quincenaMes, setQuincenaMes] = useState(currentMonth);
   const [quincena, setQuincena] = useState<"1" | "2">(currentDay <= 15 ? "1" : "2");
@@ -36,9 +36,9 @@ export function DescargarAsistenciaCard({ now = new Date(), role = "SUPER_ADMIN"
 
   const href = useMemo(() => {
     const params = new URLSearchParams();
-    if (tipo === "PAGO") {
-      params.set("tipo", "pago");
-      params.set("mes", pagoMes);
+    if (tipo === "DIARIO") {
+      params.set("tipo", "diario");
+      params.set("fecha", diaFecha);
     } else if (tipo === "SEMANAL") {
       params.set("tipo", "semanal");
       params.set("fecha", semanaFecha);
@@ -51,7 +51,7 @@ export function DescargarAsistenciaCard({ now = new Date(), role = "SUPER_ADMIN"
       params.set("mes", mensualMes);
     }
     return `/dashboard/export-asistencia?${params.toString()}`;
-  }, [tipo, pagoMes, semanaFecha, quincenaMes, quincena, mensualMes]);
+  }, [tipo, diaFecha, semanaFecha, quincenaMes, quincena, mensualMes]);
 
   return (
     <section aria-labelledby="descargar-asistencia-heading" className="rounded-lg border border-border bg-card p-4 shadow-sm">
@@ -68,21 +68,21 @@ export function DescargarAsistenciaCard({ now = new Date(), role = "SUPER_ADMIN"
         onChange={(event) => setTipo(event.target.value as ExportType)}
         className="mt-1 w-full rounded-md border border-border bg-white px-2.5 py-1.5 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
       >
-        <option value="PAGO">Período de pago (16 al 15)</option>
+        <option value="DIARIO">Diario (1 día)</option>
         <option value="SEMANAL">Semanal</option>
         <option value="QUINCENAL">Quincenal</option>
-        <option value="MENSUAL">Mensual</option>
+        <option value="MENSUAL">Mensual de remuneraciones (16 al 15)</option>
       </select>
 
       <label htmlFor="descargar-asistencia-periodo" className="mt-3 block text-xs font-medium text-slate-500">
         Período
       </label>
-      {tipo === "PAGO" && (
+      {tipo === "DIARIO" && (
         <input
           id="descargar-asistencia-periodo"
-          type="month"
-          value={pagoMes}
-          onChange={(event) => setPagoMes(event.target.value)}
+          type="date"
+          value={diaFecha}
+          onChange={(event) => setDiaFecha(event.target.value)}
           className="mt-1 w-full rounded-md border border-border bg-white px-2.5 py-1.5 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
         />
       )}
@@ -135,7 +135,7 @@ export function DescargarAsistenciaCard({ now = new Date(), role = "SUPER_ADMIN"
       >
         Descargar Excel para RR. HH.
       </a>
-      {tipo === "PAGO" && <PayrollWorkbookUpload month={pagoMes} canUpload={role === "ADMIN_RRHH"} />}
+      {tipo === "MENSUAL" && <PayrollWorkbookUpload month={mensualMes} canUpload={role === "ADMIN_RRHH"} />}
     </section>
   );
 }
