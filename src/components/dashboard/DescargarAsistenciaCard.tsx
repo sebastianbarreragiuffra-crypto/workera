@@ -4,8 +4,8 @@ import { useMemo, useState } from "react";
 
 /**
  * Exportador operacional respaldado por `attendance_status_records`. Mantiene
- * cuatro ventanas controladas y genera un libro con resumen de remuneraciones
- * más la matriz diaria familiar de RR. HH.
+ * cuatro ventanas controladas y genera un libro con nómina, pendientes
+ * accionables y la matriz diaria familiar de RR. HH.
  */
 
 type ExportType = "PAGO" | "SEMANAL" | "QUINCENAL" | "MENSUAL";
@@ -125,7 +125,7 @@ export function DescargarAsistenciaCard({ now = new Date() }: { now?: Date }) {
       )}
 
       <p className="mt-3 text-xs leading-relaxed text-slate-500">
-        El archivo incluye una hoja resumen para liquidar sueldos y otra con el detalle diario. En el período 16–15 se identifica claramente si la descarga todavía es un borrador.
+        Incluye nómina lista para revisar, una cola de pendientes y respaldo diario. HH 50%, HH 100%, descuentos y bonos se completan desde decisiones del sistema; un dato pendiente no se paga ni descuenta por error.
       </p>
 
       <a
