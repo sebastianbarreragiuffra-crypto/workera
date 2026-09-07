@@ -47,7 +47,7 @@ create or replace function public.apply_workera_roster_reconciliation(
 returns jsonb
 language plpgsql
 volatile
-security invoker
+security definer
 set search_path = ''
 as $$
 declare
@@ -78,7 +78,7 @@ begin
   end if;
 
   if not coalesce((
-       select c.workspace_enabled
+       select c.active and c.status = 'ACTIVE' and c.workspace_enabled
        from public.companies c
        where c.id = p_company_id
      ), false)
@@ -273,7 +273,7 @@ begin
 
   -- El rol empresarial pudo revocarse mientras esta transacción esperaba el lock.
   if not coalesce((
-       select c.workspace_enabled
+       select c.active and c.status = 'ACTIVE' and c.workspace_enabled
        from public.companies c
        where c.id = p_company_id
      ), false)

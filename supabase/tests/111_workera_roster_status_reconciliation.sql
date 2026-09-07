@@ -21,12 +21,12 @@ select volatility_is(
 );
 
 select ok(
-  not (
+  (
     select p.prosecdef
     from pg_catalog.pg_proc p
     where p.oid = 'public.apply_workera_roster_reconciliation(uuid,jsonb,jsonb,jsonb)'::regprocedure
   ),
-  'el RPC es SECURITY INVOKER y conserva RLS'
+  'el RPC es SECURITY DEFINER y valida autorización internamente'
 );
 
 select ok(
