@@ -201,7 +201,10 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
 
 ## 4. Qué todavía NO está implementado
 
-No hay aún control propio para login/recuperación ni rate limit de borde para
-webhooks. Los defaults de Auth local no deben asumirse válidos en producción:
-deben confirmarse y ensayarse en el proyecto hospedado. Todas las cuotas de
-aplicación siguen sujetas a calibración con carga y operación real.
+No hay aún control propio combinado por IP+cuenta para login/recuperación. El
+hook de Vercel WAF ya cubre localmente login, callbacks y webhooks sensibles,
+pero sus reglas y contadores no existen hasta publicarlos y probarlos en el
+proyecto hospedado; ver `docs/EDGE_RATE_LIMIT_RUNBOOK.md`. Los defaults de Auth
+local no deben asumirse válidos en producción: deben confirmarse y ensayarse en
+el proyecto hospedado. Todas las cuotas de aplicación siguen sujetas a
+calibración con carga y operación real.
