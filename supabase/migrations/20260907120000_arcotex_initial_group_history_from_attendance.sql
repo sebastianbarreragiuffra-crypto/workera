@@ -73,7 +73,8 @@ security definer
 set search_path = ''
 as $$
 begin
-  if new.company_id = '0a4c0000-0000-0000-0000-000000000001'::uuid then
+  if new.company_id = '0a4c0000-0000-0000-0000-000000000001'::uuid
+     and new.is_current then
     perform private.extend_arcotex_initial_group_history(
       new.employee_id,
       new.work_date
@@ -102,6 +103,7 @@ begin
     select wae.employee_id, pg_catalog.min(wae.work_date) as first_work_date
     from public.workera_attendance_events wae
     where wae.company_id = '0a4c0000-0000-0000-0000-000000000001'::uuid
+      and wae.is_current
     group by wae.employee_id
   loop
     perform private.extend_arcotex_initial_group_history(
@@ -127,6 +129,7 @@ begin
       from public.workera_attendance_events wae
       where wae.company_id = e.company_id
         and wae.employee_id = e.id
+        and wae.is_current
     ) evidence on evidence.first_work_date is not null
     where e.company_id = '0a4c0000-0000-0000-0000-000000000001'::uuid
       and (
