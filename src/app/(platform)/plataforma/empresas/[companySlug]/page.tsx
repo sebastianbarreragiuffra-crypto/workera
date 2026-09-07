@@ -30,6 +30,7 @@ import {
 } from "@/lib/platform/portfolio";
 import { createClient } from "@/lib/supabase/server";
 import { presentOnboardingStatus } from "@/components/platform/status-presenters";
+import { requireArcotexPilotEmployeeIds } from "@/lib/employees/arcotex-pilot-roster";
 
 const TAB_LABELS: Array<{ key: CompanyTabKey; label: string }> = [
   { key: "overview", label: "Resumen" },
@@ -369,10 +370,21 @@ export default async function CompanyDetailPage({
   const detail: PlatformCompanyDetail = detailResult.value;
   const expenseCompanies = expenseCompaniesResult.status === "fulfilled" ? expenseCompaniesResult.value : [];
   const canOpenExpenses = expenseCompanies.some((company) => company.slug === detail.header.slug);
+  let employeeMetric: { label: string; value: string | number } | undefined;
+  if (detail.header.slug === "arcotex") {
+    try {
+      employeeMetric = {
+        label: "Padrón piloto",
+        value: requireArcotexPilotEmployeeIds(process.env.ARCOTEX_PILOT_EMPLOYEE_IDS).length,
+      };
+    } catch {
+      employeeMetric = { label: "Padrón piloto", value: "Bloqueado" };
+    }
+  }
 
   return (
     <div className="space-y-6">
-      <CompanyHeader company={detail.header} backHref="/plataforma/empresas" />
+      <CompanyHeader company={detail.header} backHref="/plataforma/empresas" employeeMetric={employeeMetric} />
       <CompanyTabs tabs={buildTabs(detail.header.slug, selected, detail)} />
       {selected === "overview" && <OverviewTab detail={detail} canManage={session.canManage} />}
       {selected === "users" && (

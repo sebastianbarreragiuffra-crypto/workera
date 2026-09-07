@@ -13,13 +13,17 @@ export function CompanyHeader({
   company,
   backHref,
   workspaceHref,
+  employeeMetric,
 }: {
   company: CompanyHeaderSummary;
   backHref: string;
   workspaceHref?: string | null;
+  employeeMetric?: { label: string; value: string | number };
 }) {
   const status = presentCompanyStatus(company.status);
   const progress = onboardingProgress(company.onboarding.completedSteps, company.onboarding.totalSteps);
+  const employeeMetricLabel = employeeMetric?.label ?? "Trabajadores";
+  const employeeMetricValue = employeeMetric?.value ?? company.employeeCount ?? "—";
 
   return (
     <section className="space-y-4" aria-label={`Empresa ${company.name}`}>
@@ -57,8 +61,8 @@ export function CompanyHeader({
             <dd className="mt-1 text-lg font-semibold tabular-nums text-slate-900">{company.modules.enabled}<span className="text-sm font-normal text-slate-400"> / {company.modules.available}</span></dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-500">Trabajadores</dt>
-            <dd className="mt-1 text-lg font-semibold tabular-nums text-slate-900">{company.employeeCount ?? "—"}</dd>
+            <dt className="text-xs text-slate-500">{employeeMetricLabel}</dt>
+            <dd className="mt-1 text-lg font-semibold tabular-nums text-slate-900">{employeeMetricValue}</dd>
           </div>
         </dl>
       </div>
