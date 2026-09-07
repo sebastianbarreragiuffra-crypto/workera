@@ -134,6 +134,12 @@ export const SERVICE_ROLE_CAPABILITIES = {
     authorization: "Operador local con .env.staging; alcance fijo por slug ARCOTEX y consultas de solo lectura sin atributos personales.",
     resources: ["Conteos agregados de sincronización, asistencia, motor de reglas y colas de revisión humana de ARCOTEX"],
   },
+  "arcotex-attendance-status-repair": {
+    consumers: ["src/lib/staging-preflight/arcotex-attendance-status-repair-service.ts"],
+    entrypoints: ["OPERATOR_SCRIPT"],
+    authorization: "Operador local con .env.staging, slug ARCOTEX fijo y --apply explícito; bloquea cualquier estado crudo fuera de la allowlist documentada.",
+    resources: ["Lectura de eventos ARCOTEX y RPC versionados begin/upsert/finish de sync para un único día"],
+  },
 } as const;
 
 export type ServiceRoleCapability = keyof typeof SERVICE_ROLE_CAPABILITIES;
