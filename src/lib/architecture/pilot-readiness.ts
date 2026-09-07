@@ -136,7 +136,7 @@ export const READINESS_GATES = [
     status: "REQUIRES_HOSTED_EVIDENCE",
     owner: "Platform / Privacy",
     evidence: ["docs/STAGING_ENVIRONMENT.md"],
-    nextAction: "Clasificar los 97 registros existentes y limpiar o reemplazar el ambiente.",
+    nextAction: "Clasificar las filas existentes y limpiar o reemplazar el ambiente.",
   },
   {
     id: "APPLICATION_RATE_LIMIT",

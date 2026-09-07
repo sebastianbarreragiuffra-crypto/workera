@@ -1,8 +1,9 @@
 # Ambiente compartido de staging — arcotex-workera-staging
 
 > **SECURITY HOLD — NO-GO para nuevas pruebas con PII o conectores reales.** Este
-> proyecto contiene 97 registros de empleados y no existe evidencia de que estén
-> anonimizados. Aunque MFA/AAL2 ya está desplegado, todavía no están cerrados
+> inventario agregado del 7 de septiembre detectó 98 empleados y 2 perfiles, y
+> no existe evidencia de que estén anonimizados. Aunque MFA/AAL2 ya está
+> desplegado, todavía no están cerrados
 > antimalware, backup y restauración DB+Storage, blast radius de `service_role`, incident response ni el
 > paquete legal/privacidad. Hasta sanearlo con datos sintéticos/minimizados o aplicar
 > controles equivalentes a producción, limitar acceso, mantener conectores apagados
@@ -50,8 +51,8 @@ documentos, rutas ni identificadores. También exige que los 15 flags críticos
 estén explícitamente en sus valores seguros; depender de un default implícito
 se considera drift operacional.
 
-`REQUIRES_CLASSIFICATION` es el resultado esperado mientras existan los 97
-registros sin evidencia revisada. No significa que sean reales ni sintéticos:
+`REQUIRES_CLASSIFICATION` es el resultado esperado mientras existan filas sin
+evidencia revisada. No significa que sean reales ni sintéticas:
 impide adivinarlo. Privacy/Platform debe clasificar y registrar la disposición
 en un sistema privado; el conteo no autoriza borrar filas, aplicar migraciones
 ni habilitar proveedores. `READY_FOR_SYNTHETIC_SEED` solo indica que las tablas
