@@ -421,6 +421,16 @@ export const RPC_CONSUMER_SURFACES = [
     auditControl: "BUSINESS_LEDGER", dataClass: "INTERNAL", blockers: [],
   },
   {
+    source: "src/lib/staging-preflight/arcotex-attendance-status-repair-service.ts",
+    domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "arcotex-attendance-status-repair",
+    tenantScope: "LEGACY_ARCOTEX",
+    literalRpcs: ["begin_workera_sync_run", "finish_workera_sync_run", "upsert_workera_attendance_event"],
+    dynamicRpcs: [],
+    authorization: "Operador local con entorno de staging, slug ARCOTEX fijo y aplicación explícita; los RPC acotan empresa, día y lease de sincronización.",
+    auditControl: "JOB_LEDGER", dataClass: "SENSITIVE_HR",
+    blockers: ["LABOR_MULTI_TENANCY", "HOSTED_OBSERVABILITY"],
+  },
+  {
     source: "src/lib/supabase/middleware.ts",
     domain: "identity", executionIdentity: "SESSION", capability: null, tenantScope: "NONE",
     literalRpcs: ["session_requires_mfa"], dynamicRpcs: [],
