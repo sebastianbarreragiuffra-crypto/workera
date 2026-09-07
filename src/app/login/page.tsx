@@ -65,7 +65,7 @@ function GoogleIcon() {
   );
 }
 
-/** Lee `?error=oauth` para mostrar el mismo tipo de mensaje genérico que el login por contraseña -- nunca detalle interno del proveedor. */
+/** Convierte errores de redirección en mensajes genéricos, sin filtrar detalles internos. */
 function LoginErrorBanner() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
@@ -76,7 +76,9 @@ function LoginErrorBanner() {
         ? "No pudimos comprobar el estado de seguridad de tu cuenta. Intenta nuevamente."
         : error === "invite"
           ? "No pudimos confirmar la invitación. Solicita un nuevo enlace e intenta otra vez."
-        : null;
+          : error === "rate-limit"
+            ? "Demasiados intentos. Espera unos minutos antes de volver a probar."
+            : null;
   if (!message) return null;
   return (
     <p role="alert" className="mt-4 rounded-md border border-critical-border bg-critical-bg px-3 py-2 text-sm text-critical">

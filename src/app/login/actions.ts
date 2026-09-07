@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { acceptCurrentUserInvitations } from "@/lib/platform/invitations";
 import { resolvePostLoginDestination } from "@/lib/auth/mfa-account";
 import { AUTH_FLOW_PATHS, publicAppUrl, safeInternalDestination } from "@/lib/auth/public-origin";
+import { checkSensitiveServerActionRateLimit } from "@/lib/shared/server-action-rate-limit";
 
 export type LoginState = { error: string | null };
 
@@ -16,6 +17,12 @@ export type LoginState = { error: string | null };
  * revela si el email existe o no (sección 49).
  */
 export async function login(_prevState: LoginState, formData: FormData): Promise<LoginState> {
+  const rateLimit = await checkSensitiveServerActionRateLimit("gestora-login-action");
+  if (rateLimit !== "allowed") {
+    return { error: rateLimit === "limited"
+      ? "Demasiados intentos. Espera unos minutos antes de volver a probar."
+      : "No pudimos comprobar el control de seguridad. Intenta nuevamente." };
+  }
   const email = formData.get("email");
   const password = formData.get("password");
   const rawNext = formData.get("next");
@@ -78,6 +85,8 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
  * nativo, no código de esta app.
  */
 export async function loginWithGoogle(formData: FormData) {
+  const rateLimit = await checkSensitiveServerActionRateLimit("gestora-login-action");
+  if (rateLimit !== "allowed") redirect(rateLimit === "limited" ? "/login?error=rate-limit" : "/login?error=security");
   const supabase = await createClient();
   const requestHeaders = await headers();
   const rawNext = formData.get("next");

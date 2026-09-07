@@ -64,7 +64,7 @@ export const SERVER_ACTION_SURFACES = [
     domain: "identity", tenantScope: "NONE", authentication: "SESSION_MFA",
     authorizationEvidence: ["getMfaAccountState", "challengeAndVerify"],
     validation: "ZOD", uploadMaxBytes: null, abuseControl: "AUTH_PROVIDER_UNVERIFIED",
-    auditControl: "MFA_LEDGER", dataClass: "AUTH", blockers: ["HOSTED_AUTH_CONTROLS"],
+    auditControl: "MFA_LEDGER", dataClass: "AUTH", blockers: ["EDGE_RATE_LIMIT", "HOSTED_AUTH_CONTROLS"],
   },
   {
     source: "src/app/seguridad/mfa/actions.ts",
@@ -72,7 +72,7 @@ export const SERVER_ACTION_SURFACES = [
     domain: "identity", tenantScope: "NONE", authentication: "SESSION_MFA",
     authorizationEvidence: ["getMfaAccountState", "mustChallengeBeforeChangingFactors"],
     validation: "ZOD", uploadMaxBytes: null, abuseControl: "AUTH_PROVIDER_UNVERIFIED",
-    auditControl: "MFA_LEDGER", dataClass: "AUTH", blockers: ["HOSTED_AUTH_CONTROLS"],
+    auditControl: "MFA_LEDGER", dataClass: "AUTH", blockers: ["EDGE_RATE_LIMIT", "HOSTED_AUTH_CONTROLS"],
   },
   {
     source: "src/app/(platform)/plataforma/actions.ts",

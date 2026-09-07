@@ -195,7 +195,9 @@ Para cada operación: clave de identidad, ventana, límite propuesto, justificac
   según el hosting y la latencia que se midan.
 - **Comportamiento ante caída del rate limiter**: las entregas y mutaciones de
   Rendiciones, las descargas/exportaciones/mutaciones laborales y el control
-  plane ya son fail-closed. Falta decidirlo para login y borde.
+  plane ya son fail-closed. Login y MFA también cierran ante una respuesta
+  esperada pero inactiva, un bloqueo o un error del SDK de borde; la prueba
+  alojada de ese comportamiento sigue pendiente.
 - **Protección contra bypass**: el rate limiting nunca debe ser la única defensa (ver capas ya implementadas: RLS, guard de sesión, validación de contraseña de Supabase Auth); nunca confiar en un header de IP sin verificar la cadena de confianza del proxy que lo generó.
 - **Encabezados confiables**: cualquier IP usada para limitar debe venir de una fuente verificada por la plataforma de hosting (no aceptar `X-Forwarded-For` arbitrario de un cliente no confiable) — mismo principio que Supabase exige para habilitar `Sb-Forwarded-For`.
 

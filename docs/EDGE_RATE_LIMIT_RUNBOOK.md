@@ -2,9 +2,12 @@
 
 Estado: `IMPLEMENTED_LOCAL_REQUIRES_HOSTED_EVIDENCE`.
 
-La aplicación integra `@vercel/firewall` en `src/proxy.ts` y selecciona sólo
-rutas/métodos sensibles mediante `src/lib/shared/edge-rate-limit.ts`. Los
-contadores pertenecen al WAF de Vercel, no a memoria de la Function. La
+La aplicación integra `@vercel/firewall` en `src/proxy.ts`, selecciona sólo
+rutas/métodos sensibles mediante `src/lib/shared/edge-rate-limit.ts` y vuelve a
+limitar login/MFA dentro de cada Server Action con
+`src/lib/shared/server-action-rate-limit.ts`. Este segundo control no depende
+del pathname invocante: Next.js puede reenviar una acción desde otra página.
+Los contadores pertenecen al WAF de Vercel, no a memoria de la Function. La
 activación real no está versionada en `vercel.json`: Vercel administra estas
 reglas desde Firewall (o su API/Terraform), por lo que este documento es el
 contrato exacto que debe aplicarse y evidenciarse en el proyecto hospedado.
@@ -37,14 +40,21 @@ Fixed Window, clave IP y respuesta `429`.
 
 | ID | Superficie | Límite inicial | Ventana | Motivo |
 |---|---|---:|---:|---|
-| `gestora-login` | `POST /login` (Server Actions de acceso) | 10 | 5 min | Frenar credential stuffing antes de Supabase Auth. |
+| `gestora-login` | `POST /login` | 10 | 5 min | Corte temprano de formularios y requests directos. |
 | `gestora-mfa-challenge` | `POST /login/mfa` | 10 | 5 min | Acotar intentos de desafío MFA además del control de Supabase. |
 | `gestora-mfa-management` | `POST /seguridad/mfa` | 10 | 5 min | Acotar inscripción, confirmación y baja de factores. |
+| `gestora-login-action` | Acciones password/OAuth, dentro de la función | 10 | 5 min | Bloquear credential stuffing aunque Next reenvíe la acción desde otra URL. |
+| `gestora-mfa-challenge-action` | Acción de desafío, dentro de la función | 10 | 5 min | El bucket sigue a la acción y no al pathname aportado por el caller. |
+| `gestora-mfa-management-action` | Acciones de alta/confirmación/baja | 10 | 5 min | Impedir evasión por forwarding y compartir el bucket entre esas mutaciones. |
 | `gestora-auth-callback` | `GET /auth/callback` | 30 | 1 min | Acotar intercambio OAuth sin castigar navegación normal. |
 | `gestora-auth-confirm` | `GET /auth/confirm` | 30 | 1 min | Acotar verificación de enlaces/OTP. |
 | `gestora-meta-verify` | `GET /api/webhooks/meta/expense-receipts` | 20 | 10 min | El desafío es esporádico y público. |
 | `gestora-meta-events` | `POST /api/webhooks/meta/expense-receipts` | 120 | 1 min | Tolera ráfagas del proveedor; la cuota tenant continúa en DB. |
 | `gestora-resend-events` | `POST /api/webhooks/resend/expense-receipts` | 120 | 1 min | Tolera entrega/reintentos del proveedor; la cuota tenant continúa en DB. |
+
+Los tres IDs terminados en `-action` son condiciones programáticas del SDK y
+usan IDs distintos de sus reglas de ruta. Así una solicitud normal consume una
+entrada en dos buckets independientes, no dos entradas del mismo límite.
 
 No crear una regla global para `/_next/*`, assets, páginas públicas de lectura,
 crons con secreto ni rutas privadas ya contenidas por sesión y cuotas de
@@ -53,7 +63,7 @@ con métricas de marcha blanca, sin incluir identificadores personales.
 
 ## Orden de canario
 
-1. Crear las ocho reglas en el proyecto de staging con acción de observación
+1. Crear las once reglas en el proyecto de staging con acción de observación
    (`Log`) y confirmar por 30 minutos que sólo coinciden los IDs esperados.
 2. Desplegar el código con `EDGE_RATE_LIMIT_ENABLED=false` y
    `EDGE_RATE_LIMIT_EXPECT_ENABLED=false`; este estado no consulta el WAF y
@@ -62,10 +72,17 @@ con métricas de marcha blanca, sin incluir identificadores personales.
    `EDGE_RATE_LIMIT_ENABLED=true` sólo en Preview y redesplegar con
    Protection Bypass for Automation y System Environment Variables habilitados,
    tal como exige el SDK de Vercel para Preview.
-4. Por cada ID, enviar `límite` solicitudes permitidas y una adicional. Guardar
-   timestamp UTC, deployment SHA, ID de regla, región, códigos y headers. La
-   adicional debe responder `429`, JSON `{"error":"too_many_requests"}`,
-   `Cache-Control: no-store` y `Retry-After` igual a la ventana en segundos.
+4. Por cada ID, enviar `límite` solicitudes permitidas y una adicional. Para
+   los tres IDs de acciones, repetir una acción válida usando su URL normal y
+   una URL pública distinta (por ejemplo `/offline`) con el mismo action ID;
+   ambas deben consumir el mismo bucket interno. Guardar
+   timestamp UTC, deployment SHA, ID de regla, región, códigos y headers. En
+   las reglas de ruta, la adicional debe responder `429`, JSON
+   `{"error":"too_many_requests"}`, `Cache-Control: no-store` y `Retry-After`
+   igual a la ventana en segundos. En las reglas `-action`, la mutación debe
+   detenerse antes de Auth y devolver el error genérico de demasiados intentos;
+   el protocolo de Server Actions no permite imponer ese status desde el valor
+   serializado de la función.
 5. Repetir desde dos regiones y con dos IP sintéticas: una identidad agotada no
    debe bloquear la otra. Repetir después de vencer la ventana para demostrar
    recuperación.
@@ -73,10 +90,12 @@ con métricas de marcha blanca, sin incluir identificadores personales.
    y `x-vercel-forwarded-for`; Vercel debe reemplazar este último y ninguno debe
    crear buckets alternativos. Un test directo que no pase por Vercel no es
    evidencia válida de este punto.
-7. Verificar que una caída o un ID borrado entrega `503` sólo en las ocho
+7. Verificar que una caída o un ID borrado falla cerrado sólo en las once
    superficies sensibles, mientras assets, salud, navegación y crons siguen
-   operativos. Confirmar que no aparecen IP, email, tokens o payloads en logs.
-8. Promover primero las mismas ocho reglas a producción, verificar que existen,
+   operativos. Las rutas entregan `503`; las acciones devuelven un error
+   genérico antes de tocar Auth. Confirmar que no aparecen IP, email, tokens o
+   payloads en logs.
+8. Promover primero las mismas once reglas a producción, verificar que existen,
    y sólo después activar `EDGE_RATE_LIMIT_ENABLED=true`. Tras el canario,
    fijar también `EDGE_RATE_LIMIT_EXPECT_ENABLED=true`: desde entonces una
    regresión del flag o una ejecución fuera de Vercel falla cerrada. Mantener
@@ -95,11 +114,15 @@ repetir el canario completo antes de reactivar.
 
 El gate `EDGE_RATE_LIMIT` permanece `REQUIRES_HOSTED_EVIDENCE` hasta adjuntar:
 
-- export/captura de las ocho reglas publicadas y su revisión de acceso;
+- export/captura de las once reglas publicadas y su revisión de acceso;
 - resultados 429/`Retry-After`, aislamiento, spoofing, concurrencia,
   multi-región y recuperación del deployment candidato;
 - consulta de telemetría sin PII, alerta operativa y responsable;
 - rollback ensayado y decisión de límites/costo aprobada por Platform/Security.
+
+`readiness:staging-data` comprueba que proveedores y canales riesgosos sigan
+apagados, pero no fija el estado de los flags EDGE: éstos cambian legítimamente
+durante el canario y se validan con la evidencia hospedada de este runbook.
 
 Fuentes oficiales consultadas el 7 de septiembre de 2026:
 
