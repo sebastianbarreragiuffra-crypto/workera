@@ -122,6 +122,12 @@ export const SERVICE_ROLE_CAPABILITIES = {
     authorization: "Operador local con .env.staging; solo conteos HEAD sobre una allowlist fija y nunca retorna filas.",
     resources: ["Conteo agregado de tablas públicas clasificadas para sanear staging"],
   },
+  "workera-roster-status-audit": {
+    consumers: ["src/lib/staging-preflight/workera-roster-status-service.ts"],
+    entrypoints: ["OPERATOR_SCRIPT"],
+    authorization: "Operador local con credenciales de staging; alcance fijo al tenant laboral ARCOTEX y salida exclusivamente agregada.",
+    resources: ["employees SELECT de external_workera_id/source/active, acotado por company_id ARCOTEX"],
+  },
 } as const;
 
 export type ServiceRoleCapability = keyof typeof SERVICE_ROLE_CAPABILITIES;

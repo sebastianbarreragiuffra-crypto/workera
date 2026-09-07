@@ -30,6 +30,31 @@ export interface WorkeraConfig {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+/**
+ * Normaliza la URL base y falla cerrado antes de acercar credenciales a un
+ * transporte inseguro. No se aceptan credenciales embebidas, query ni hash:
+ * el cliente agrega exclusivamente rutas y parámetros conocidos.
+ */
+export function requireSecureWorkeraBaseUrl(value: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new WorkeraConfigurationError("WORKERA_BASE_URL debe ser una URL HTTPS válida.");
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    !parsed.hostname ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new WorkeraConfigurationError("WORKERA_BASE_URL debe ser una URL HTTPS válida sin credenciales, query ni hash.");
+  }
+  return parsed.toString().replace(/\/+$/, "");
+}
+
 function isProductionEnvironment(): boolean {
   return process.env.NODE_ENV === "production";
 }
@@ -43,7 +68,8 @@ function isProductionEnvironment(): boolean {
  */
 export function getWorkeraConfig(): WorkeraConfig {
   const rawProvider = process.env.WORKERA_PROVIDER;
-  const baseUrl = process.env.WORKERA_BASE_URL || null;
+  const rawBaseUrl = process.env.WORKERA_BASE_URL?.trim() || null;
+  const baseUrl = rawBaseUrl ? requireSecureWorkeraBaseUrl(rawBaseUrl) : null;
   const apiUser = process.env.WORKERA_API_USER || null;
   const apiKey = process.env.WORKERA_API_KEY || null;
   const timeoutRaw = process.env.WORKERA_REQUEST_TIMEOUT_MS;
