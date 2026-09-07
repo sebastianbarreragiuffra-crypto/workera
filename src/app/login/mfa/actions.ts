@@ -7,6 +7,7 @@ import { recordMfaEvent } from "@/lib/admin/mfa-audit";
 import { getMfaAccountState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
 import { AUTH_FLOW_PATHS, safeInternalDestination } from "@/lib/auth/public-origin";
+import { checkSensitiveServerActionRateLimit } from "@/lib/shared/server-action-rate-limit";
 
 /**
  * Desafío de segundo factor (sección 6.2 del diseño).
@@ -34,6 +35,15 @@ export async function verifyMfaChallengeAction(
   _prevState: MfaChallengeState,
   formData: FormData
 ): Promise<MfaChallengeState> {
+  const rateLimit = await checkSensitiveServerActionRateLimit("gestora-mfa-challenge-action");
+  if (rateLimit !== "allowed") {
+    return {
+      status: "error",
+      message: rateLimit === "limited"
+        ? "Demasiados intentos. Espera unos minutos antes de volver a probar."
+        : "No pudimos comprobar el control de seguridad. Intenta nuevamente.",
+    };
+  }
   const supabase = await createClient();
   const account = await getMfaAccountState(supabase);
   if (!account) redirect("/login");

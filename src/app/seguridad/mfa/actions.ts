@@ -5,6 +5,7 @@ import { z } from "zod";
 import { recordMfaEvent } from "@/lib/admin/mfa-audit";
 import { getMfaAccountState, getVerifiedMfaSessionState } from "@/lib/auth/mfa-account";
 import { createClient } from "@/lib/supabase/server";
+import { checkSensitiveServerActionRateLimit } from "@/lib/shared/server-action-rate-limit";
 import { normalizeMfaQrCodeDataUri } from "./qr-code";
 
 /**
@@ -97,6 +98,10 @@ async function mustChallengeBeforeChangingFactors(supabase: SessionClient): Prom
 export async function startMfaEnrollmentAction(
   formData: FormData
 ): Promise<MfaEnrollmentState> {
+  const rateLimit = await checkSensitiveServerActionRateLimit("gestora-mfa-management-action");
+  if (rateLimit !== "allowed") return error(rateLimit === "limited"
+    ? "Demasiados intentos. Espera unos minutos antes de volver a probar."
+    : "No pudimos comprobar el control de seguridad. Intenta nuevamente.");
   const supabase = await createClient();
   const account = await getMfaAccountState(supabase);
   if (!account) return error("Tu sesión expiró. Vuelve a iniciar sesión.");
@@ -160,6 +165,10 @@ export async function startMfaEnrollmentAction(
 export async function confirmMfaEnrollmentAction(
   formData: FormData
 ): Promise<MfaEnrollmentState> {
+  const rateLimit = await checkSensitiveServerActionRateLimit("gestora-mfa-management-action");
+  if (rateLimit !== "allowed") return error(rateLimit === "limited"
+    ? "Demasiados intentos. Espera unos minutos antes de volver a probar."
+    : "No pudimos comprobar el control de seguridad. Intenta nuevamente.");
   const supabase = await createClient();
   const account = await getMfaAccountState(supabase);
   if (!account) return error("Tu sesión expiró. Vuelve a iniciar sesión.");
@@ -216,6 +225,10 @@ export async function confirmMfaEnrollmentAction(
 export async function discardMfaFactorAction(
   formData: FormData
 ): Promise<MfaEnrollmentState> {
+  const rateLimit = await checkSensitiveServerActionRateLimit("gestora-mfa-management-action");
+  if (rateLimit !== "allowed") return error(rateLimit === "limited"
+    ? "Demasiados intentos. Espera unos minutos antes de volver a probar."
+    : "No pudimos comprobar el control de seguridad. Intenta nuevamente.");
   const supabase = await createClient();
   const account = await getMfaAccountState(supabase);
   if (!account) return error("Tu sesión expiró. Vuelve a iniciar sesión.");

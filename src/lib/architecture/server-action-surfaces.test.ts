@@ -91,6 +91,12 @@ test("la deuda legacy y la ausencia de rate limit nunca quedan ocultas", () => {
   }
 });
 
+test("las acciones de autenticacion conservan visible la activacion alojada pendiente", () => {
+  for (const surface of SERVER_ACTION_SURFACES.filter((item) => item.domain === "identity")) {
+    assert.ok(surface.blockers.includes("EDGE_RATE_LIMIT"), surface.source);
+  }
+});
+
 test("los limites distribuidos declarados tienen evidencia en la frontera", () => {
   for (const surface of SERVER_ACTION_SURFACES.filter((item) => item.abuseControl === "DATABASE_RATE_LIMIT")) {
     const source = readFileSync(path.join(REPO_ROOT, surface.source), "utf8");

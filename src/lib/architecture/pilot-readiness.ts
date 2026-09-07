@@ -149,10 +149,14 @@ export const READINESS_GATES = [
   {
     id: "EDGE_RATE_LIMIT",
     title: "Rate limit confiable en el borde público",
-    status: "OPEN_CODE",
+    status: "REQUIRES_HOSTED_EVIDENCE",
     owner: "Platform / Security",
-    evidence: ["docs/API_SECURITY_STANDARD.md", "docs/ABUSE_RATE_LIMITING_PLAN.md"],
-    nextAction: "Elegir el borde, su identidad de cliente confiable y probar 429/Retry-After.",
+    evidence: [
+      "src/lib/shared/edge-rate-limit.ts",
+      "src/lib/shared/edge-rate-limit.test.ts",
+      "docs/EDGE_RATE_LIMIT_RUNBOOK.md",
+    ],
+    nextAction: "Publicar las reglas Vercel WAF y ejecutar el canario hospedado, multi-región y rollback.",
   },
   {
     id: "ANTIMALWARE_PROVIDER",
