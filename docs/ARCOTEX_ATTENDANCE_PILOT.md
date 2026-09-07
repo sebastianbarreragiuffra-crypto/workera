@@ -26,6 +26,31 @@ Ejecutar desde un entorno con las credenciales de staging, sin imprimirlas:
 npm run readiness:arcotex-attendance
 ```
 
+### Reparación controlada de estados preservados
+
+Si el preflight detecta eventos vigentes guardados como
+`UNKNOWN_EXTERNAL_STATUS` pero su valor crudo preservado corresponde a
+`ACTIVO`, `INACTIVO` o `MODIFICADO`, se puede renormalizar un solo día sin
+volver a consultar Workera. El comando usa la misma ruta versionada y auditada
+de la sincronización normal; nunca sobrescribe una fila histórica.
+
+Primero simular:
+
+```bash
+npm run repair:arcotex-attendance-statuses -- --date=2026-08-24
+```
+
+Aplicar solo después de revisar que `unsupportedUnknownEvents` sea cero:
+
+```bash
+npm run repair:arcotex-attendance-statuses -- --date=2026-08-24 --apply
+```
+
+El alcance está fijado al slug `arcotex`, exige una fecha calendario exacta y
+se bloquea si existe otra corrida activa para ese día. Tras aplicar, exige que
+no quede ningún estado desconocido vigente antes de cerrar la corrida como
+exitosa.
+
 El control es de solo lectura y emite únicamente fechas, conteos y estados
 agregados. El único resultado que permite abrir la revisión en sombra es
 `READY_FOR_SHADOW_REVIEW`.

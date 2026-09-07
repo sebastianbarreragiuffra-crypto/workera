@@ -22,7 +22,8 @@
     "readiness:report": "tsx scripts/pilot-readiness.mts",
     "readiness:local": "tsx scripts/pilot-readiness.mts --enforce=LOCAL_SYNTHETIC",
     "readiness:staging-data": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/staging-data-inventory.mts",
-    "readiness:arcotex-attendance": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/arcotex-attendance-pilot-preflight.mts"
+    "readiness:arcotex-attendance": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/arcotex-attendance-pilot-preflight.mts",
+    "repair:arcotex-attendance-statuses": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/repair-arcotex-attendance-statuses.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
