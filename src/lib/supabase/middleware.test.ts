@@ -1,12 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import {
+  AUTHORIZED_CRON_PATHS,
   isApiPath,
+  isAuthorizedCronRequest,
   isAuthorizedExpenseAccountingCronRequest,
   isAuthorizedExpenseAccountingWatchdogRequest,
   isAuthorizedExpenseAssistantRetentionCronRequest,
+  isAuthorizedExpenseFileScanCronRequest,
   isAuthorizedExpenseOcrCronRequest,
+  isAuthorizedSupportingDocumentCleanupCronRequest,
   isAuthorizedWorkeraCronRequest,
   isExternalWebhookRequest,
   isPublicPath,
@@ -478,6 +484,7 @@ test("isPublicPath: solo auth y el shell público de la PWA quedan sin sesión",
   assert.equal(isPublicPath("/login"), true);
   assert.equal(isPublicPath("/auth/callback"), true);
   assert.equal(isPublicPath("/auth/confirm"), true);
+  assert.equal(isPublicPath("/api/health/live"), true);
   assert.equal(isPublicPath("/offline"), true);
   assert.equal(isPublicPath("/sw.js"), true);
   assert.equal(isPublicPath("/manifest.webmanifest"), true);
@@ -591,6 +598,33 @@ test("cron: middleware y route handler comparten la MISMA decisión", () => {
         isValidCronSecretHeader(header),
         `deben coincidir para ${JSON.stringify(header)}`
       );
+    }
+  });
+});
+
+test("todos los cron de vercel.json atraviesan la misma frontera exacta del middleware", () => {
+  const manifestPath = path.resolve(import.meta.dirname, "..", "..", "..", "vercel.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    crons?: Array<{ path: string }>;
+  };
+  const configured = (manifest.crons ?? []).map((cron) => cron.path).sort();
+
+  assert.deepEqual(configured, [...AUTHORIZED_CRON_PATHS].sort());
+  withCronSecret(CRON_SECRET_FAKE, () => {
+    for (const cronPath of configured) {
+      assert.equal(isAuthorizedCronRequest(cronRequest({
+        header: `Bearer ${CRON_SECRET_FAKE}`,
+        path: cronPath,
+      })), true, cronPath);
+      assert.equal(isAuthorizedCronRequest(cronRequest({
+        header: `Bearer ${CRON_SECRET_FAKE}`,
+        path: `${cronPath}/extra`,
+      })), false, `${cronPath}/extra`);
+      assert.equal(isAuthorizedCronRequest(cronRequest({
+        header: `Bearer ${CRON_SECRET_FAKE}`,
+        path: cronPath,
+        method: "POST",
+      })), false, `POST ${cronPath}`);
     }
   });
 });
@@ -765,6 +799,68 @@ test("cron OCR: solo GET exacto con Bearer correcto evita el guard de sesión", 
     assert.equal(isAuthorizedExpenseOcrCronRequest(cronRequest({
       header: "Bearer incorrecto",
       path: "/api/jobs/expense-ocr",
+    })), false);
+  });
+});
+
+test("cron de cuarentena: solo GET exacto con Bearer correcto evita el guard de sesión", () => {
+  withCronSecret(CRON_SECRET_FAKE, () => {
+    const header = `Bearer ${CRON_SECRET_FAKE}`;
+    assert.equal(isAuthorizedExpenseFileScanCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-file-scan",
+    })), true);
+    assert.equal(isAuthorizedExpenseFileScanCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-file-scan/extra",
+    })), false);
+    assert.equal(isAuthorizedExpenseFileScanCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-file-scan",
+      method: "POST",
+    })), false);
+  });
+});
+
+test("cron de limpieza documental llega al handler sin consultar una sesión humana", async () => {
+  await new Promise<void>((resolve, reject) => {
+    withCronSecret(CRON_SECRET_FAKE, () => {
+      updateSession(
+        cronRequest({
+          header: `Bearer ${CRON_SECRET_FAKE}`,
+          path: "/api/jobs/supporting-document-cleanup",
+        }),
+        () => ({
+          auth: {
+            async getClaims() {
+              reject(new Error("el bypass no debe consultar getClaims"));
+              return { data: null, error: { message: "unexpected" } };
+            },
+          },
+        })
+      ).then((response) => {
+        assert.equal(response.status, 200);
+        resolve();
+      }, reject);
+    });
+  });
+});
+
+test("cron de limpieza documental no abre subrutas ni otros métodos", () => {
+  withCronSecret(CRON_SECRET_FAKE, () => {
+    const header = `Bearer ${CRON_SECRET_FAKE}`;
+    assert.equal(isAuthorizedSupportingDocumentCleanupCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/supporting-document-cleanup",
+    })), true);
+    assert.equal(isAuthorizedSupportingDocumentCleanupCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/supporting-document-cleanup/extra",
+    })), false);
+    assert.equal(isAuthorizedSupportingDocumentCleanupCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/supporting-document-cleanup",
+      method: "POST",
     })), false);
   });
 });

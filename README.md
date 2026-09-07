@@ -190,5 +190,6 @@ Las instrucciones del ambiente compartido están en
 - [MFA (TOTP) para cuentas privilegiadas](docs/MFA_DESIGN.md)
 - [Runbook de la cuenta OWNER](docs/PLATFORM_OWNER_RUNBOOK.md)
 - [Readiness y marcha blanca](docs/PILOT_READINESS_RUNBOOK.md)
+- [Operación continua y despliegue](docs/PRODUCTION_RUNTIME_RUNBOOK.md)
 - [Decisiones pendientes](docs/DECISIONS_PENDING.md)
 - [Sincronización Workera](docs/WORKERA_SYNC_PHASE6B.md)

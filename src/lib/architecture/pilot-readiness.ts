@@ -199,7 +199,11 @@ export const READINESS_GATES = [
     title: "Telemetría, alertas y paging hospedados",
     status: "REQUIRES_HOSTED_EVIDENCE",
     owner: "SRE / Security",
-    evidence: ["docs/THREAT_MODEL_CURRENT.md"],
+    evidence: [
+      "docs/THREAT_MODEL_CURRENT.md",
+      "docs/PRODUCTION_RUNTIME_RUNBOOK.md",
+      "src/app/api/health/live/route.ts",
+    ],
     nextAction: "Configurar sink, SLI, alertas y demostrar que una falla despierta al responsable.",
   },
   {

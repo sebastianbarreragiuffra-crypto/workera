@@ -10,6 +10,7 @@
 export type RequestSurfaceDomain = "identity" | "platform" | "workforce" | "expenses";
 export type RequestSurfaceKind = "AUTH_CALLBACK" | "USER_API" | "DOWNLOAD" | "CRON_JOB" | "WEBHOOK";
 export type RequestAuthentication =
+  | "PUBLIC"
   | "PUBLIC_PROVIDER_TOKEN"
   | "SESSION"
   | "SESSION_PRIVILEGED_ROLE"
@@ -81,6 +82,13 @@ export interface RequestSurface {
 const MIB = 1024 * 1024;
 
 export const REQUEST_SURFACES = [
+  {
+    source: "src/app/api/health/live/route.ts", route: "/api/health/live", method: "GET", kind: "USER_API",
+    domain: "platform", authentication: "PUBLIC", tenantScope: "NONE",
+    authorization: "Pública por diseño; responde solo disponibilidad del runtime, sin consultar datos ni exponer versión.",
+    mutates: false, maxBodyBytes: null, idempotency: "READ_ONLY", abuseControl: "READ_ONLY_NO_LIMIT",
+    auditControl: "NOT_APPLICABLE", featureFlag: null, dataClass: "PUBLIC", blockers: ["HOSTED_OBSERVABILITY"],
+  },
   {
     source: "src/app/auth/confirm/route.ts", route: "/auth/confirm", method: "GET", kind: "AUTH_CALLBACK",
     domain: "identity", authentication: "PUBLIC_PROVIDER_TOKEN", tenantScope: "NONE",

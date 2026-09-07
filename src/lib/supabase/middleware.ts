@@ -26,6 +26,7 @@ const PUBLIC_PATHS = new Set<string>([
   "/login",
   "/auth/callback",
   "/auth/confirm",
+  "/api/health/live",
   "/offline",
   "/sw.js",
   "/manifest.webmanifest",
@@ -35,6 +36,23 @@ const EXTERNAL_WEBHOOK_METHODS = new Map<string, ReadonlySet<string>>([
   ["/api/webhooks/resend/expense-receipts", new Set(["POST"])],
   ["/api/webhooks/meta/expense-receipts", new Set(["GET", "POST"])],
 ]);
+
+/**
+ * Inventario exacto de endpoints que Vercel puede invocar sin sesión humana.
+ * Se compara contra `vercel.json` en tests para que agregar un cron nuevo sin
+ * actualizar esta frontera falle antes del despliegue.
+ */
+export const AUTHORIZED_CRON_PATHS = [
+  "/api/sync/workera",
+  "/api/jobs/expense-ocr",
+  "/api/jobs/expense-file-scan",
+  "/api/jobs/expense-assistant-retention",
+  "/api/jobs/supporting-document-cleanup",
+  "/api/jobs/expense-accounting",
+  "/api/jobs/expense-accounting-watchdog",
+] as const;
+
+const AUTHORIZED_CRON_PATH_SET = new Set<string>(AUTHORIZED_CRON_PATHS);
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.has(pathname);
@@ -53,6 +71,11 @@ export function isApiPath(pathname: string): boolean {
   return pathname === "/api" || pathname.startsWith("/api/");
 }
 
+export function isAuthorizedCronRequest(request: NextRequest): boolean {
+  if (request.method !== "GET" || !AUTHORIZED_CRON_PATH_SET.has(request.nextUrl.pathname)) return false;
+  return isValidCronSecretHeader(request.headers.get("authorization"));
+}
+
 /**
  * Vercel Cron autentica este endpoint antes de que exista sesión de usuario.
  * Dejarlo pasar aquí solo evita el redirect al login: la autorización real la
@@ -61,31 +84,43 @@ export function isApiPath(pathname: string): boolean {
  */
 export function isAuthorizedWorkeraCronRequest(request: NextRequest): boolean {
   if (request.method !== "GET" || request.nextUrl.pathname !== "/api/sync/workera") return false;
-  return isValidCronSecretHeader(request.headers.get("authorization"));
+  return isAuthorizedCronRequest(request);
 }
 
 /** Mismo bypass acotado para el worker OCR de Rendiciones. */
 export function isAuthorizedExpenseOcrCronRequest(request: NextRequest): boolean {
   if (request.method !== "GET" || request.nextUrl.pathname !== "/api/jobs/expense-ocr") return false;
-  return isValidCronSecretHeader(request.headers.get("authorization"));
+  return isAuthorizedCronRequest(request);
+}
+
+/** Mismo bypass acotado para el worker de cuarentena de comprobantes. */
+export function isAuthorizedExpenseFileScanCronRequest(request: NextRequest): boolean {
+  if (request.method !== "GET" || request.nextUrl.pathname !== "/api/jobs/expense-file-scan") return false;
+  return isAuthorizedCronRequest(request);
+}
+
+/** Mismo bypass acotado para la limpieza de documentos laborales huérfanos. */
+export function isAuthorizedSupportingDocumentCleanupCronRequest(request: NextRequest): boolean {
+  if (request.method !== "GET" || request.nextUrl.pathname !== "/api/jobs/supporting-document-cleanup") return false;
+  return isAuthorizedCronRequest(request);
 }
 
 /** Mismo bypass acotado para el worker durable de salidas contables. */
 export function isAuthorizedExpenseAccountingCronRequest(request: NextRequest): boolean {
   if (request.method !== "GET" || request.nextUrl.pathname !== "/api/jobs/expense-accounting") return false;
-  return isValidCronSecretHeader(request.headers.get("authorization"));
+  return isAuthorizedCronRequest(request);
 }
 
 /** Watchdog separado: observa la cola pero nunca reclama trabajos. */
 export function isAuthorizedExpenseAccountingWatchdogRequest(request: NextRequest): boolean {
   if (request.method !== "GET" || request.nextUrl.pathname !== "/api/jobs/expense-accounting-watchdog") return false;
-  return isValidCronSecretHeader(request.headers.get("authorization"));
+  return isAuthorizedCronRequest(request);
 }
 
 /** Mismo bypass acotado para la purga de historial del asistente. */
 export function isAuthorizedExpenseAssistantRetentionCronRequest(request: NextRequest): boolean {
   if (request.method !== "GET" || request.nextUrl.pathname !== "/api/jobs/expense-assistant-retention") return false;
-  return isValidCronSecretHeader(request.headers.get("authorization"));
+  return isAuthorizedCronRequest(request);
 }
 
 interface AuthClaimsResult {
@@ -220,13 +255,7 @@ export async function updateSession(
   const isPublic = isPublicPath(pathname) || isExternalWebhookRequest(request);
   const isApi = isApiPath(pathname);
 
-  if (
-    isAuthorizedWorkeraCronRequest(request)
-    || isAuthorizedExpenseOcrCronRequest(request)
-    || isAuthorizedExpenseAccountingCronRequest(request)
-    || isAuthorizedExpenseAccountingWatchdogRequest(request)
-    || isAuthorizedExpenseAssistantRetentionCronRequest(request)
-  ) {
+  if (isAuthorizedCronRequest(request)) {
     return responseRef.current;
   }
 
