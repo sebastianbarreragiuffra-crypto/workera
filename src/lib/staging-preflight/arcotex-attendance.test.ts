@@ -19,9 +19,11 @@ function succeededDays(start = "2026-08-24"): AttendancePilotDayObservation[] {
       date: date.toISOString().slice(0, 10),
       successfulSyncRuns: 1,
       rawEvents: index < 6 ? 10 : 0,
+      unresolvedSourceStatuses: 0,
       attendanceRecords: index < 5 ? 8 : 0,
       ruleEngine: {
         status: "SUCCEEDED",
+        inputFresh: true,
         employeesProcessed: 8,
         attendanceDerived: index < 5 ? 8 : 0,
         lateCandidates: 1,
@@ -90,10 +92,27 @@ test("un motor parcial bloquea la revisión en sombra aunque la asistencia ya es
   assert.equal(report.totals?.pendingHumanReview, 8);
 });
 
+test("un éxito obsoleto, con fallos, sin horario o con estados desconocidos nunca da READY", () => {
+  const mutations: Array<(day: AttendancePilotDayObservation) => AttendancePilotDayObservation> = [
+    (day) => ({ ...day, ruleEngine: { ...day.ruleEngine, inputFresh: false } }),
+    (day) => ({ ...day, ruleEngine: { ...day.ruleEngine, failureCount: 1 } }),
+    (day) => ({ ...day, ruleEngine: { ...day.ruleEngine, withoutSchedule: 1 } }),
+    (day) => ({ ...day, unresolvedSourceStatuses: 1 }),
+  ];
+  for (const mutate of mutations) {
+    const days = succeededDays();
+    days[0] = mutate(days[0]);
+    assert.equal(buildArcotexAttendancePilotReport(collectedWeek(days)).outcome, "RULE_ENGINE_INCOMPLETE");
+  }
+});
+
 test("una semana recolectada y procesada queda lista sólo para revisión humana en sombra", () => {
   const report = buildArcotexAttendancePilotReport(collectedWeek(), "2026-09-07T12:00:00.000Z");
   assert.equal(report.outcome, "READY_FOR_SHADOW_REVIEW");
   assert.equal(report.selectedWeek?.start, "2026-08-24");
+  assert.equal(report.totals?.ruleEngineFreshDays, 7);
+  assert.equal(report.totals?.ruleEngineWithoutSchedule, 0);
+  assert.equal(report.totals?.unresolvedSourceStatuses, 0);
   assert.match(report.constraints.join(" "), /decisión sigue siendo humana/i);
   assert.match(report.constraints.join(" "), /No enviar resultados a remuneraciones/i);
 });

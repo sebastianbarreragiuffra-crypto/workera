@@ -27,9 +27,11 @@ export interface AttendancePilotDayObservation {
   readonly date: string;
   readonly successfulSyncRuns: number;
   readonly rawEvents: number;
+  readonly unresolvedSourceStatuses: number;
   readonly attendanceRecords: number;
   readonly ruleEngine: {
     readonly status: RuleEngineDayStatus;
+    readonly inputFresh: boolean;
     readonly employeesProcessed: number;
     readonly attendanceDerived: number;
     readonly lateCandidates: number;
@@ -102,7 +104,10 @@ export interface ArcotexAttendancePilotReport {
     readonly rawEvents: number;
     readonly attendanceRecords: number;
     readonly ruleEngineSucceededDays: number;
+    readonly ruleEngineFreshDays: number;
     readonly ruleEngineFailureCount: number;
+    readonly ruleEngineWithoutSchedule: number;
+    readonly unresolvedSourceStatuses: number;
     readonly pendingHumanReview: number;
   } | null;
   readonly reviewQueue: AttendancePilotReviewQueue | null;
@@ -288,6 +293,7 @@ export function buildArcotexAttendancePilotReport(
     for (const value of [
       day.successfulSyncRuns,
       day.rawEvents,
+      day.unresolvedSourceStatuses,
       day.attendanceRecords,
       day.ruleEngine.employeesProcessed,
       day.ruleEngine.attendanceDerived,
@@ -311,7 +317,10 @@ export function buildArcotexAttendancePilotReport(
   const rawEvents = collection.days.reduce((sum, day) => sum + day.rawEvents, 0);
   const attendanceRecords = collection.days.reduce((sum, day) => sum + day.attendanceRecords, 0);
   const ruleEngineSucceededDays = collection.days.filter((day) => day.ruleEngine.status === "SUCCEEDED").length;
+  const ruleEngineFreshDays = collection.days.filter((day) => day.ruleEngine.inputFresh).length;
   const ruleEngineFailureCount = collection.days.reduce((sum, day) => sum + day.ruleEngine.failureCount, 0);
+  const ruleEngineWithoutSchedule = collection.days.reduce((sum, day) => sum + day.ruleEngine.withoutSchedule, 0);
+  const unresolvedSourceStatuses = collection.days.reduce((sum, day) => sum + day.unresolvedSourceStatuses, 0);
   const pendingHumanReview = collection.reviewQueue.lateArrivals.pending
     + collection.reviewQueue.earlyDepartures.pending
     + collection.reviewQueue.overtime.pending
@@ -322,7 +331,13 @@ export function buildArcotexAttendancePilotReport(
   if (collection.activeEmployees === 0) outcome = "NO_ACTIVE_EMPLOYEES";
   else if (rawEvents === 0) outcome = "NO_COLLECTED_ATTENDANCE";
   else if (attendanceRecords === 0) outcome = "NO_DERIVED_ATTENDANCE";
-  else if (ruleEngineSucceededDays !== 7) outcome = "RULE_ENGINE_INCOMPLETE";
+  else if (
+    ruleEngineSucceededDays !== 7
+    || ruleEngineFreshDays !== 7
+    || ruleEngineFailureCount !== 0
+    || ruleEngineWithoutSchedule !== 0
+    || unresolvedSourceStatuses !== 0
+  ) outcome = "RULE_ENGINE_INCOMPLETE";
   else outcome = "READY_FOR_SHADOW_REVIEW";
 
   return {
@@ -337,7 +352,10 @@ export function buildArcotexAttendancePilotReport(
       rawEvents,
       attendanceRecords,
       ruleEngineSucceededDays,
+      ruleEngineFreshDays,
       ruleEngineFailureCount,
+      ruleEngineWithoutSchedule,
+      unresolvedSourceStatuses,
       pendingHumanReview,
     },
     reviewQueue: collection.reviewQueue,
@@ -367,7 +385,10 @@ export function renderArcotexAttendancePilotReport(report: ArcotexAttendancePilo
       `  - Marcaciones fuente vigentes: ${report.totals.rawEvents}`,
       `  - Registros diarios derivados vigentes: ${report.totals.attendanceRecords}`,
       `  - Motor de reglas completado: ${report.totals.ruleEngineSucceededDays}/7 días`,
+      `  - Motor vigente contra los insumos actuales: ${report.totals.ruleEngineFreshDays}/7 días`,
       `  - Fallos registrados por el motor: ${report.totals.ruleEngineFailureCount}`,
+      `  - Trabajadores sin horario en corridas: ${report.totals.ruleEngineWithoutSchedule}`,
+      `  - Estados fuente sin normalizar: ${report.totals.unresolvedSourceStatuses}`,
       "",
       "Cola para revisión humana:",
       `  - Atrasos pendientes: ${report.reviewQueue.lateArrivals.pending}/${report.reviewQueue.lateArrivals.total}`,
@@ -379,7 +400,7 @@ export function renderArcotexAttendancePilotReport(report: ArcotexAttendancePilo
       "",
       "Detalle diario agregado:",
       ...report.days.map((day) =>
-        `  - ${day.date}: sync=${day.successfulSyncRuns}, fuente=${day.rawEvents}, derivados=${day.attendanceRecords}, reglas=${day.ruleEngine.status}, fallos=${day.ruleEngine.failureCount}`
+        `  - ${day.date}: sync=${day.successfulSyncRuns}, fuente=${day.rawEvents}, desconocidos=${day.unresolvedSourceStatuses}, derivados=${day.attendanceRecords}, reglas=${day.ruleEngine.status}, vigente=${day.ruleEngine.inputFresh}, sin_horario=${day.ruleEngine.withoutSchedule}, fallos=${day.ruleEngine.failureCount}`
       ),
     );
   }
