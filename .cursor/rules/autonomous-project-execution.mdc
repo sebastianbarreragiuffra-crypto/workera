@@ -1,0 +1,11 @@
+---
+description: Ejecutar de forma autónoma el trabajo autorizado dentro de Workera
+alwaysApply: true
+---
+
+# Autonomía dentro de Workera
+
+- El usuario autoriza inspeccionar y modificar archivos, ejecutar validaciones y crear commits necesarios para completar las solicitudes de Workera.
+- No pedir aprobación para pasos rutinarios, reversibles y claramente comprendidos dentro del alcance solicitado.
+- Conservar cambios existentes y coordinar el trabajo paralelo sin sobrescribir trabajo ajeno.
+- Consultar solo cuando falte una decisión funcional indispensable que cambie materialmente el resultado, se requiera autoridad externa o la acción sea destructiva y quede fuera del alcance solicitado.
