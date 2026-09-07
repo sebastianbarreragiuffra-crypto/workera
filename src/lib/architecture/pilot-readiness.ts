@@ -135,8 +135,8 @@ export const READINESS_GATES = [
     title: "Staging saneado y exclusivamente sintético",
     status: "REQUIRES_HOSTED_EVIDENCE",
     owner: "Platform / Privacy",
-    evidence: ["docs/STAGING_ENVIRONMENT.md"],
-    nextAction: "Clasificar los 97 registros existentes y limpiar o reemplazar el ambiente.",
+    evidence: ["docs/STAGING_ENVIRONMENT.md", "scripts/staging-data-inventory.mts"],
+    nextAction: "Ejecutar el inventario vigente, clasificar sus filas y limpiar o reemplazar el ambiente.",
   },
   {
     id: "APPLICATION_RATE_LIMIT",

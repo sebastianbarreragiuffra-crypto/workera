@@ -26,6 +26,13 @@ test("los IDs de gates y etapas son únicos", () => {
   assert.equal(new Set(READINESS_STAGES.map((stage) => stage.id)).size, READINESS_STAGES.length);
 });
 
+test("el gate de saneamiento deriva el conteo del preflight y no congela cifras históricas", () => {
+  const gate = READINESS_GATES.find((item) => item.id === "SYNTHETIC_STAGING_DATA");
+  assert.ok(gate);
+  assert.ok(gate.evidence.includes("scripts/staging-data-inventory.mts"));
+  assert.doesNotMatch(gate.nextAction, /\b\d+\b/);
+});
+
 test("solo desarrollo local sintético está en GO hoy", () => {
   const report = buildReadinessReport();
   assert.equal(report.find((stage) => stage.id === "LOCAL_SYNTHETIC")?.decision, "GO");

@@ -1,8 +1,8 @@
 # Ambiente compartido de staging — arcotex-workera-staging
 
 > **SECURITY HOLD — NO-GO para nuevas pruebas con PII o conectores reales.** Este
-> proyecto contiene 97 registros de empleados y no existe evidencia de que estén
-> anonimizados. Aunque MFA/AAL2 ya está desplegado, todavía no están cerrados
+> proyecto contiene filas de identidad y empleados sin evidencia de que estén
+> anonimizadas. Aunque MFA/AAL2 ya está desplegado, todavía no están cerrados
 > antimalware, backup y restauración DB+Storage, blast radius de `service_role`, incident response ni el
 > paquete legal/privacidad. Hasta sanearlo con datos sintéticos/minimizados o aplicar
 > controles equivalentes a producción, limitar acceso, mantener conectores apagados
@@ -46,19 +46,31 @@ npm run readiness:staging-data
 
 El comando usa `.env.staging`, realiza exclusivamente consultas `HEAD` de
 conteo sobre una allowlist fija y nunca descarga filas, nombres, correos,
-documentos, rutas ni identificadores. También exige que los 15 flags críticos
+documentos, rutas ni identificadores. También exige que los 17 flags críticos
 estén explícitamente en sus valores seguros; depender de un default implícito
 se considera drift operacional.
 
-`REQUIRES_CLASSIFICATION` es el resultado esperado mientras existan los 97
-registros sin evidencia revisada. No significa que sean reales ni sintéticos:
+`REQUIRES_CLASSIFICATION` es el resultado esperado mientras existan filas
+sin evidencia revisada. No significa que sean reales ni sintéticas:
 impide adivinarlo. Privacy/Platform debe clasificar y registrar la disposición
 en un sistema privado; el conteo no autoriza borrar filas, aplicar migraciones
 ni habilitar proveedores. `READY_FOR_SYNTHETIC_SEED` solo indica que las tablas
 clasificadas están vacías y los flags seguros, no que staging completo sea GO.
-- **Datos maestros**: 97 registros de empleados presentes en staging al cierre
-  de la Fase 1. La depuración de posibles duplicados es una tarea de datos y no
-  forma parte del despliegue estructural.
+
+### Último preflight agregado
+
+La ejecución de solo lectura del **7 de septiembre de 2026 a las 14:59 UTC**
+observó 3 empresas, 2 perfiles, 98 empleados y cero filas en documentos,
+aprobaciones médicas o tablas financieras inventariadas. En total, **100 filas
+requieren clasificación**. El archivo local usado por el preflight coincidió
+con 0 de los 17 valores seguros: dos estaban en un valor distinto y quince no
+estaban declarados. El resultado fue `CONFIGURATION_DRIFT`.
+
+Este snapshot solo describe conteos y el archivo local de lanzamiento; no
+demuestra qué valores están activos en Vercel. Antes de sanear datos se deben
+verificar por separado los valores hospedados y volver a ejecutar el preflight
+desde una configuración completa. No corregir el resultado agregando defaults
+sin confirmar el estado real del proyecto.
 
 ## Cómo trabaja PC1 (o cualquiera, día a día)
 
