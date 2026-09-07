@@ -18,32 +18,37 @@ create unique index employees_company_id_rut_key
   on public.employees (company_id, rut)
   where rut is not null;
 
--- El RPC es SECURITY INVOKER: sus policies deben aplicar la misma autoridad
--- empresarial que valida la función. Se conserva la lectura operacional
+-- Las policies conservan la misma autoridad empresarial que validan los RPC.
+-- Se conserva la lectura operacional
 -- legacy para usuarios corporativos, pero la administración deja de heredar
 -- privilegios desde profiles.role de otro tenant.
 drop policy if exists employees_select on public.employees;
 create policy employees_select on public.employees
   for select to authenticated
   using (
+    exists (
+      select 1 from public.companies c
+      where c.id = public.employees.company_id
+        and c.active and c.status = 'ACTIVE' and c.workspace_enabled
+    ) and (
     (
       public.is_corporate_user()
       and public.is_active_company_member(company_id)
     )
     or public.has_company_app_role(company_id, 'ADMIN_RRHH')
-    or public.has_company_app_role(company_id, 'SUPER_ADMIN')
+    or public.has_company_app_role(company_id, 'SUPER_ADMIN'))
   );
 
 drop policy if exists employees_write_admin on public.employees;
 create policy employees_write_admin on public.employees
   for all to authenticated
   using (
-    public.has_company_app_role(company_id, 'ADMIN_RRHH')
-    or public.has_company_app_role(company_id, 'SUPER_ADMIN')
+    exists (select 1 from public.companies c where c.id=public.employees.company_id and c.active and c.status='ACTIVE' and c.workspace_enabled)
+    and (public.has_company_app_role(company_id, 'ADMIN_RRHH') or public.has_company_app_role(company_id, 'SUPER_ADMIN'))
   )
   with check (
-    public.has_company_app_role(company_id, 'ADMIN_RRHH')
-    or public.has_company_app_role(company_id, 'SUPER_ADMIN')
+    exists (select 1 from public.companies c where c.id=public.employees.company_id and c.active and c.status='ACTIVE' and c.workspace_enabled)
+    and (public.has_company_app_role(company_id, 'ADMIN_RRHH') or public.has_company_app_role(company_id, 'SUPER_ADMIN'))
   );
 
 drop policy if exists employee_groups_select on public.employee_groups;
@@ -105,6 +110,7 @@ create policy employee_birthdays_write_admin on public.employee_birthdays
 
 create function public.apply_personnel_roster_import(
   p_company_id uuid,
+  p_confirmed_ruts jsonb,
   p_insert_rows jsonb,
   p_update_rows jsonb,
   p_deactivate_ids jsonb,
@@ -113,7 +119,7 @@ create function public.apply_personnel_roster_import(
 returns jsonb
 language plpgsql
 volatile
-security invoker
+security definer
 set search_path = ''
 as $$
 declare
@@ -139,6 +145,12 @@ declare
   v_deactivated_count integer := 0;
   v_seen_employee_ids uuid[] := array[]::uuid[];
   v_seen_ruts text[] := array[]::text[];
+  v_confirmed_ruts text[] := array[]::text[];
+  v_deactivate_employee_ids uuid[] := array[]::uuid[];
+  v_prior_birth_month smallint;
+  v_prior_birth_day smallint;
+  v_existing_birth_month smallint;
+  v_existing_birth_day smallint;
 begin
   if p_company_id is null then
     raise exception 'La empresa es obligatoria para importar el roster de personal.'
@@ -158,22 +170,49 @@ begin
       using errcode = '42501';
   end if;
 
-  if p_insert_rows is null
+  if not exists (
+    select 1 from public.companies c
+    where c.id = p_company_id
+      and c.active
+      and c.status = 'ACTIVE'
+      and c.workspace_enabled
+  ) then
+    raise exception 'La empresa no tiene un workspace habilitado.' using errcode = '42501';
+  end if;
+
+  if p_confirmed_ruts is null
+     or pg_catalog.jsonb_typeof(p_confirmed_ruts) <> 'array'
+     or pg_catalog.jsonb_array_length(p_confirmed_ruts) = 0
+     or p_insert_rows is null
      or pg_catalog.jsonb_typeof(p_insert_rows) <> 'array'
      or p_update_rows is null
      or pg_catalog.jsonb_typeof(p_update_rows) <> 'array'
      or p_deactivate_ids is null
      or pg_catalog.jsonb_typeof(p_deactivate_ids) <> 'array' then
-    raise exception 'Los bloques insert, update y deactivate deben ser arreglos JSON.'
+    raise exception 'El roster confirmado y los bloques de cambios deben ser arreglos JSON no vacíos.'
       using errcode = '22023';
   end if;
 
-  if pg_catalog.jsonb_array_length(p_insert_rows) > 5000
+  if pg_catalog.jsonb_array_length(p_confirmed_ruts) > 5000
+     or pg_catalog.jsonb_array_length(p_insert_rows) > 5000
      or pg_catalog.jsonb_array_length(p_update_rows) > 5000
      or pg_catalog.jsonb_array_length(p_deactivate_ids) > 5000 then
     raise exception 'El roster supera el máximo de 5000 filas por bloque.'
       using errcode = '54000';
   end if;
+
+  for v_value in select value from pg_catalog.jsonb_array_elements(p_confirmed_ruts)
+  loop
+    if pg_catalog.jsonb_typeof(v_value) <> 'string'
+       or trim(both '"' from v_value::text) !~ '^[0-9]{7,8}-[0-9K]$' then
+      raise exception 'El roster confirmado contiene un RUT inválido.' using errcode = '22023';
+    end if;
+    v_prior_rut := trim(both '"' from v_value::text);
+    if v_prior_rut = any(v_confirmed_ruts) then
+      raise exception 'El roster confirmado repite un RUT.' using errcode = '22023';
+    end if;
+    v_confirmed_ruts := pg_catalog.array_append(v_confirmed_ruts, v_prior_rut);
+  end loop;
 
   -- Valida primero la forma completa. Ninguna clave adicional puede colarse
   -- como una mutación no contemplada (en particular company_id/active/source).
@@ -252,7 +291,7 @@ begin
          where supplied.key not in (
            'id', 'employee_group_id', 'hire_date',
            'first_name', 'last_name', 'display_name',
-           'birth_month', 'birth_day', 'reactivate',
+           'birth_month', 'birth_day', 'prior_birth_month', 'prior_birth_day', 'reactivate',
            'prior_rut', 'prior_source', 'prior_active', 'prior_updated_at'
          )
        )
@@ -284,7 +323,9 @@ begin
        )
        or (v_row ? 'first_name') <> (v_row ? 'last_name')
        or (v_row ? 'first_name') <> (v_row ? 'display_name')
-       or (v_row ? 'birth_month') <> (v_row ? 'birth_day') then
+       or (v_row ? 'birth_month') <> (v_row ? 'birth_day')
+       or (v_row ? 'prior_birth_month') <> (v_row ? 'prior_birth_day')
+       or (v_row ? 'birth_month') <> (v_row ? 'prior_birth_month') then
       raise exception 'Actualización de personal inválida en posición %.', v_position
         using errcode = '22023';
     end if;
@@ -308,7 +349,16 @@ begin
       if pg_catalog.jsonb_typeof(v_row -> 'birth_month') <> 'string'
          or pg_catalog.jsonb_typeof(v_row -> 'birth_day') <> 'string'
          or coalesce(v_row ->> 'birth_month', '') !~ '^([1-9]|1[0-2])$'
-         or coalesce(v_row ->> 'birth_day', '') !~ '^([1-9]|[12][0-9]|3[01])$' then
+         or coalesce(v_row ->> 'birth_day', '') !~ '^([1-9]|[12][0-9]|3[01])$'
+         or pg_catalog.jsonb_typeof(v_row -> 'prior_birth_month') <> 'string'
+         or pg_catalog.jsonb_typeof(v_row -> 'prior_birth_day') <> 'string'
+         or not (
+           (coalesce(v_row ->> 'prior_birth_month', '') = '' and coalesce(v_row ->> 'prior_birth_day', '') = '')
+           or (
+             coalesce(v_row ->> 'prior_birth_month', '') ~ '^([1-9]|1[0-2])$'
+             and coalesce(v_row ->> 'prior_birth_day', '') ~ '^([1-9]|[12][0-9]|3[01])$'
+           )
+         ) then
         raise exception 'Cumpleaños inválido en actualización de posición %.', v_position
           using errcode = '22023';
       end if;
@@ -316,7 +366,8 @@ begin
 
     if v_row ? 'reactivate' then
       if pg_catalog.jsonb_typeof(v_row -> 'reactivate') <> 'string'
-         or v_row ->> 'reactivate' <> 'true' then
+         or v_row ->> 'reactivate' <> 'true'
+         or (v_row ->> 'prior_active')::boolean is distinct from false then
         raise exception 'La reactivación debe ser la marca explícita string true.'
           using errcode = '22023';
       end if;
@@ -327,6 +378,10 @@ begin
       raise exception 'El plan de personal repite un employee id.' using errcode = '22023';
     end if;
     v_seen_employee_ids := pg_catalog.array_append(v_seen_employee_ids, v_id);
+    if (v_row ->> 'prior_rut') = any(v_seen_ruts) then
+      raise exception 'El plan repite un RUT confirmado.' using errcode = '22023';
+    end if;
+    v_seen_ruts := pg_catalog.array_append(v_seen_ruts, v_row ->> 'prior_rut');
   end loop;
 
   v_position := 0;
@@ -369,7 +424,16 @@ begin
       raise exception 'El plan repite o contradice un employee id.' using errcode = '22023';
     end if;
     v_seen_employee_ids := pg_catalog.array_append(v_seen_employee_ids, v_id);
+    v_deactivate_employee_ids := pg_catalog.array_append(v_deactivate_employee_ids, v_id);
   end loop;
+
+  if pg_catalog.cardinality(v_seen_ruts) <> pg_catalog.cardinality(v_confirmed_ruts)
+     or exists (
+       select 1 from pg_catalog.unnest(v_confirmed_ruts) confirmed(rut)
+       where not (confirmed.rut = any(v_seen_ruts))
+     ) then
+    raise exception 'El plan no representa exactamente el roster confirmado.' using errcode = '22023';
+  end if;
 
   -- Conserva el orden global de locks de las fuentes de prenómina y agrega
   -- el fence específico solicitado para cualquier mutación del roster.
@@ -385,6 +449,35 @@ begin
      ) then
     raise exception 'La autorización para importar personal ya no está vigente.'
       using errcode = '42501';
+  end if;
+
+  if not exists (
+    select 1 from public.companies c
+    where c.id = p_company_id
+      and c.active
+      and c.status = 'ACTIVE'
+      and c.workspace_enabled
+  ) then
+    raise exception 'El workspace de la empresa ya no está habilitado.' using errcode = '42501';
+  end if;
+
+  if exists (
+    select 1 from public.employees e
+    where e.company_id = p_company_id
+      and e.source = 'excel_roster'
+      and e.active
+      and (e.rut is null or not (e.rut = any(v_confirmed_ruts)))
+      and not (e.id = any(v_deactivate_employee_ids))
+  ) or exists (
+    select 1 from pg_catalog.unnest(v_deactivate_employee_ids) planned(id)
+    left join public.employees e
+      on e.company_id = p_company_id and e.id = planned.id
+    where e.id is null
+       or e.source <> 'excel_roster'
+       or not e.active
+       or e.rut = any(v_confirmed_ruts)
+  ) then
+    raise exception 'El padrón cambió; vuelve a revisar el archivo completo.' using errcode = '40001';
   end if;
 
   for v_row in select value from pg_catalog.jsonb_array_elements(p_insert_rows)
@@ -493,6 +586,10 @@ begin
       when (v_row ->> 'reactivate') = 'true' then true
       else v_prior_active
     end;
+    v_prior_birth_month := nullif(v_row ->> 'prior_birth_month', '')::smallint;
+    v_prior_birth_day := nullif(v_row ->> 'prior_birth_day', '')::smallint;
+    v_existing_birth_month := null;
+    v_existing_birth_day := null;
 
     select e.*
       into v_employee
@@ -504,6 +601,14 @@ begin
     if not found then
       raise exception 'El plan de actualización quedó obsoleto; vuelve a revisar el archivo.'
         using errcode = '40001';
+    end if;
+
+    if v_row ? 'birth_month' then
+      select eb.birth_month, eb.birth_day
+        into v_existing_birth_month, v_existing_birth_day
+      from public.employee_birthdays eb
+      where eb.employee_id = v_id
+      for update;
     end if;
 
     if v_group_id is not null and not exists (
@@ -545,20 +650,19 @@ begin
       )
       and (
         not (v_row ? 'birth_month')
-        or exists (
-          select 1
-          from public.employee_birthdays eb
-          where eb.employee_id = v_id
-            and eb.birth_month = (v_row ->> 'birth_month')::smallint
-            and eb.birth_day = (v_row ->> 'birth_day')::smallint
-        )
+        or (v_existing_birth_month is not distinct from (v_row ->> 'birth_month')::smallint
+            and v_existing_birth_day is not distinct from (v_row ->> 'birth_day')::smallint)
       );
 
     if not v_target_already_applied then
       if v_employee.rut is distinct from v_prior_rut
          or v_employee.source is distinct from v_prior_source
          or v_employee.active is distinct from v_prior_active
-         or v_employee.updated_at is distinct from v_prior_updated_at then
+         or v_employee.updated_at is distinct from v_prior_updated_at
+         or ((v_row ? 'birth_month') and (
+           v_existing_birth_month is distinct from v_prior_birth_month
+           or v_existing_birth_day is distinct from v_prior_birth_day
+         )) then
         raise exception 'El plan de actualización quedó obsoleto; vuelve a revisar el archivo.'
           using errcode = '40001';
       end if;
@@ -682,13 +786,17 @@ begin
 end;
 $$;
 
-comment on function public.apply_personnel_roster_import(uuid, jsonb, jsonb, jsonb, uuid) is
+comment on function public.apply_personnel_roster_import(uuid, jsonb, jsonb, jsonb, jsonb, uuid) is
   'Aplica atómicamente un roster Excel dentro de una empresa explícita. '
-  'SECURITY INVOKER; exige rol ADMIN_RRHH/SUPER_ADMIN del tenant y valida '
+  'SECURITY DEFINER; exige rol ADMIN_RRHH/SUPER_ADMIN del tenant y valida '
   'precondiciones bajo lock. Excel sólo reactiva filas source=excel_roster '
   'mediante reactivate="true"; jamás reactiva ni desactiva Workera/provisionales.';
 
-revoke all on function public.apply_personnel_roster_import(uuid, jsonb, jsonb, jsonb, uuid)
+revoke all on function public.apply_personnel_roster_import(uuid, jsonb, jsonb, jsonb, jsonb, uuid)
   from public, anon, service_role;
-grant execute on function public.apply_personnel_roster_import(uuid, jsonb, jsonb, jsonb, uuid)
+grant execute on function public.apply_personnel_roster_import(uuid, jsonb, jsonb, jsonb, jsonb, uuid)
   to authenticated;
+
+-- Las mutaciones de padrón de usuarios autenticados pasan exclusivamente por
+-- los RPC atómicos; service_role conserva la integración Workera histórica.
+revoke insert, update, delete on public.employees from authenticated;
