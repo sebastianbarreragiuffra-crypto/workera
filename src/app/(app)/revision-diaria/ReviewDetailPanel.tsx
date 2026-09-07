@@ -161,20 +161,32 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-const PRIMARY_BTN = "rounded-md bg-arcotex-blue px-3 py-1.5 text-sm font-medium text-white hover:bg-arcotex-blue-dark";
-const SECONDARY_BTN = "rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50";
-const UPLOAD_BTN = "rounded-md bg-arcotex-copper px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-arcotex-copper-dark";
+const PRIMARY_BTN =
+  "rounded-md bg-arcotex-blue px-3 py-1.5 text-sm font-medium text-white hover:bg-arcotex-blue-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue";
+const SECONDARY_BTN =
+  "rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue";
+const UPLOAD_BTN =
+  "rounded-md bg-arcotex-copper px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-arcotex-copper-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue";
 const UPLOAD_INPUT = "w-full rounded-md border border-arcotex-copper-border bg-arcotex-copper-light p-1.5 text-xs text-slate-600 file:mr-2 file:cursor-pointer file:rounded file:border-0 file:bg-arcotex-copper file:px-2 file:py-1 file:font-semibold file:text-white hover:file:bg-arcotex-copper-dark";
-const DANGER_BTN = "rounded-md border border-critical-border px-3 py-1.5 text-sm font-medium text-critical hover:bg-critical-bg";
+const DANGER_BTN =
+  "rounded-md border border-critical-border px-3 py-1.5 text-sm font-medium text-critical hover:bg-critical-bg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-critical";
 
-function CommentField({ required = false, placeholder = "Opcional" }: { required?: boolean; placeholder?: string } = {}) {
+function CommentField({
+  required = false,
+  placeholder = "Opcional",
+  inputId,
+}: {
+  required?: boolean;
+  placeholder?: string;
+  inputId: string;
+}) {
   return (
     <div>
-      <label htmlFor="reason" className="text-xs font-medium text-slate-500">
+      <label htmlFor={inputId} className="text-xs font-medium text-slate-500">
         Comentario / Justificación
       </label>
       <textarea
-        id="reason"
+        id={inputId}
         name="reason"
         rows={2}
         className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-700"
@@ -243,7 +255,11 @@ export function ReviewDetailPanel({
                   <input type="hidden" name="lateArrivalRecordId" value={detail.lateArrival.recordId} />
                   <p className="text-xs font-semibold text-amber-900">Veredicto final de RR. HH.</p>
                   <p className="text-xs text-amber-800">Reemplaza la decisión vigente sin borrar su historial.</p>
-                  <CommentField required placeholder="Motivo obligatorio del reemplazo" />
+                  <CommentField
+                    required
+                    inputId={`late-arrival-reason-${detail.employeeId}-${date}`}
+                    placeholder="Motivo obligatorio del reemplazo"
+                  />
                   <div className="flex gap-2">
                     <button type="submit" name="justified" value="true" className={PRIMARY_BTN}>Justificar</button>
                     <button type="submit" name="justified" value="false" className={SECONDARY_BTN}>No justificar</button>
@@ -255,7 +271,7 @@ export function ReviewDetailPanel({
             <form action={decideLateArrivalAction} className="space-y-2 pt-1">
               <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
               <input type="hidden" name="lateArrivalRecordId" value={detail.lateArrival.recordId} />
-              <CommentField />
+              <CommentField inputId={`late-arrival-reason-${detail.employeeId}-${date}`} />
               <div className="flex gap-2">
                 <button type="submit" name="justified" value="true" className={PRIMARY_BTN}>
                   Justificar
@@ -297,7 +313,11 @@ export function ReviewDetailPanel({
                     <span className="text-xs font-medium text-slate-600">Minutos reconocidos por RR. HH.</span>
                     <input type="number" name="approvedMinutes" min={60} max={detail.overtime.candidateMinutes} step={1} defaultValue={detail.overtime.decision.approvedMinutes || detail.overtime.candidateMinutes} required className="mt-1 block w-44 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
                   </label>
-                  <CommentField required placeholder="Motivo obligatorio del reemplazo" />
+                  <CommentField
+                    required
+                    inputId={`overtime-reason-${detail.employeeId}-${date}`}
+                    placeholder="Motivo obligatorio del reemplazo"
+                  />
                   <div className="flex gap-2">
                     <button type="submit" name="action" value="APPROVE" className={PRIMARY_BTN}>Confirmar horas</button>
                     <button type="submit" name="action" value="REJECT" className={DANGER_BTN}>Invalidar horas</button>
@@ -323,7 +343,11 @@ export function ReviewDetailPanel({
                 />
                 <span className="mt-1 block text-xs text-slate-500">El tiempo real se conserva; el tope pagable se aplica después. Para rechazar, este valor se ignora.</span>
               </label>
-              <CommentField required placeholder="Obligatorio para rechazar, reconocer parcialmente o aplicar un tope" />
+              <CommentField
+                required
+                inputId={`overtime-reason-${detail.employeeId}-${date}`}
+                placeholder="Obligatorio para rechazar, reconocer parcialmente o aplicar un tope"
+              />
               <div className="flex gap-2">
                 <button type="submit" name="action" value="APPROVE" className={PRIMARY_BTN}>
                   Aprobar
@@ -361,7 +385,11 @@ export function ReviewDetailPanel({
                   <input type="hidden" name="earlyDepartureRecordId" value={detail.earlyDeparture.recordId} />
                   <p className="text-xs font-semibold text-amber-900">Veredicto final de RR. HH.</p>
                   <p className="text-xs text-amber-800">Reemplaza la decisión vigente sin borrar su historial.</p>
-                  <CommentField required placeholder="Motivo obligatorio del reemplazo" />
+                  <CommentField
+                    required
+                    inputId={`early-departure-reason-${detail.employeeId}-${date}`}
+                    placeholder="Motivo obligatorio del reemplazo"
+                  />
                   <div className="flex flex-wrap gap-2">
                     <button type="submit" formAction={markEarlyDepartureMedicalAction} className={SECONDARY_BTN}>Médico</button>
                     <button type="submit" name="reasonCategory" value="OTHER_JUSTIFIED" className={SECONDARY_BTN}>Justificar</button>
@@ -375,7 +403,7 @@ export function ReviewDetailPanel({
               <HiddenContext employeeId={detail.employeeId} date={date} area={area} />
               <input type="hidden" name="earlyDepartureRecordId" value={detail.earlyDeparture.recordId} />
               <p className="text-sm text-slate-700">¿Salida por atención médica?</p>
-              <CommentField />
+              <CommentField inputId={`early-departure-reason-${detail.employeeId}-${date}`} />
               <div className="flex flex-wrap gap-2">
                 <button type="submit" formAction={markEarlyDepartureMedicalAction} className={SECONDARY_BTN}>
                   Médico
@@ -405,7 +433,7 @@ export function ReviewDetailPanel({
               <input type="hidden" name="absenceRecordId" value={detail.absence.recordId} />
               <input type="hidden" name="startDate" value={date} />
               <p className="text-sm text-slate-700">¿Trabajador con licencia?</p>
-              <CommentField />
+              <CommentField inputId={`absence-reason-${detail.employeeId}-${date}`} />
               <div className="flex gap-2">
                 <button type="submit" className={PRIMARY_BTN}>
                   Sí

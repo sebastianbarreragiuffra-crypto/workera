@@ -35,3 +35,17 @@ test("RR. HH. puede reemplazar atraso, horas extra y salida sin borrar historial
   assert.match(replacementMigration, /set is_current = false/g);
   assert.doesNotMatch(replacementMigration, /is_admin_rrhh\(\)|is_privileged_admin\(\)/);
 });
+
+test("CommentField conecta htmlFor/id con inputId y no usa id fija", () => {
+  const commentFieldMatch = panel.match(
+    /function CommentField\([\s\S]*?\)[\s\S]*?return \([\s\S]*?<div>[\s\S]*?<\/div>\n\s*\);\n\s*\}/,
+  );
+  assert.ok(commentFieldMatch);
+  const commentFieldBlock = commentFieldMatch![0];
+
+  assert.match(commentFieldBlock, /inputId,/);
+  assert.match(commentFieldBlock, /label htmlFor={inputId}/);
+  assert.match(commentFieldBlock, /<textarea[\s\S]*?id={inputId}/);
+  assert.doesNotMatch(commentFieldBlock, /htmlFor="reason"/);
+  assert.doesNotMatch(commentFieldBlock, /id="reason"/);
+});
