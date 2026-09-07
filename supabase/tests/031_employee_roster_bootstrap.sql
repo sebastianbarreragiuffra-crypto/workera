@@ -36,6 +36,7 @@ set local request.jwt.claim.sub = '99200000-0000-0000-0000-000000000002'; -- sup
 
 select throws_ok(
   $$ select public.apply_personnel_roster_import(
+       '0a4c0000-0000-0000-0000-000000000001'::uuid,
        '[{"rut":"22222222-2","first_name":"ANA","last_name":"SOTO","display_name":"ANA SOTO","employee_group_id":"","hire_date":""}]'::jsonb,
        '[]'::jsonb, '[]'::jsonb, '99200000-0000-0000-0000-000000000002'::uuid
      ) $$,
@@ -57,6 +58,7 @@ set local request.jwt.claim.sub = '99200000-0000-0000-0000-000000000001'; -- RRH
 
 select lives_ok(
   $$ select public.apply_personnel_roster_import(
+       '0a4c0000-0000-0000-0000-000000000001'::uuid,
        '[{"rut":"22222222-2","first_name":"ANA","last_name":"SOTO","display_name":"ANA SOTO","employee_group_id":"","hire_date":"","birth_month":"5","birth_day":"20"}]'::jsonb,
        '[]'::jsonb, '[]'::jsonb, '99200000-0000-0000-0000-000000000001'::uuid
      ) $$,
@@ -85,13 +87,16 @@ set local request.jwt.claim.sub = '99200000-0000-0000-0000-000000000001';
 select lives_ok(
   format(
     $$ select public.apply_personnel_roster_import(
+         '0a4c0000-0000-0000-0000-000000000001'::uuid,
          '[]'::jsonb,
-         '[{"id":"%s","employee_group_id":"","hire_date":"2020-01-01"}]'::jsonb,
-         '["%s"]'::jsonb,
+         '[{"id":"%s","employee_group_id":"","hire_date":"2020-01-01","prior_rut":"22222222-2","prior_source":"excel_roster","prior_active":true,"prior_updated_at":"%s"}]'::jsonb,
+         '[{"id":"%s","prior_rut":"11111111-1","prior_source":"excel_roster","prior_active":true,"prior_updated_at":"%s"}]'::jsonb,
          '99200000-0000-0000-0000-000000000001'::uuid
        ) $$,
     (select id from public.employees where external_workera_id = 'EXCEL-22222222-2'),
-    (select id from public.employees where external_workera_id = 'EXCEL-11111111-1')
+    (select updated_at from public.employees where external_workera_id = 'EXCEL-22222222-2'),
+    (select id from public.employees where external_workera_id = 'EXCEL-11111111-1'),
+    (select updated_at from public.employees where external_workera_id = 'EXCEL-11111111-1')
   ),
   'update + desactivación en la misma llamada atómica funciona'
 );

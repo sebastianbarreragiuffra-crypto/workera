@@ -385,10 +385,22 @@ begin
     from public.employees candidate
     where candidate.company_id = p_company_id
       and candidate.source in ('excel_roster', 'local_provisional')
-      and private.normalize_employee_roster_name(
-            candidate.first_name || ' ' || candidate.last_name
-          ) = private.normalize_employee_roster_name(
-            v_employee.first_name || ' ' || v_employee.last_name
+      and pg_catalog.upper(
+            pg_catalog.regexp_replace(
+              pg_catalog.regexp_replace(
+                normalize(pg_catalog.btrim(candidate.first_name || ' ' || candidate.last_name), NFD),
+                '[̀-ͯ]', '', 'g'
+              ),
+              '[[:space:]]+', ' ', 'g'
+            )
+          ) = pg_catalog.upper(
+            pg_catalog.regexp_replace(
+              pg_catalog.regexp_replace(
+                normalize(pg_catalog.btrim(v_employee.first_name || ' ' || v_employee.last_name), NFD),
+                '[̀-ͯ]', '', 'g'
+              ),
+              '[[:space:]]+', ' ', 'g'
+            )
           );
     if v_name_match_count <> 1 then
       raise exception 'La coincidencia por nombre de la promoción Workera dejó de ser única.'
