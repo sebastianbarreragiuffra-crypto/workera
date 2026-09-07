@@ -13,6 +13,8 @@ export const SAFE_STAGING_FLAGS = {
   EXPENSE_ACCOUNTING_PROVIDER: "disabled",
   EXPENSE_ACCOUNTING_EXPORT_ENABLED: "false",
   EXPENSE_ACCOUNTING_MONITOR_EXPECT_ENABLED: "false",
+  EDGE_RATE_LIMIT_ENABLED: "false",
+  EDGE_RATE_LIMIT_EXPECT_ENABLED: "false",
   // Staging ya aplicó las guardas AAL2. Dejar el gate de aplicación apagado
   // sería drift entre capas, no un estado seguro de canario.
   MFA_ENFORCEMENT_ENABLED: "true",

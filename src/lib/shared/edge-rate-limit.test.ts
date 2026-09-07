@@ -8,7 +8,12 @@ import {
   trustedVercelClientIp,
 } from "./edge-rate-limit";
 
-const hosted = { VERCEL: "1", NODE_ENV: "production" };
+const hosted = {
+  VERCEL: "1",
+  NODE_ENV: "production",
+  EDGE_RATE_LIMIT_ENABLED: "true",
+  EDGE_RATE_LIMIT_EXPECT_ENABLED: "true",
+};
 
 function request(path: string, init: RequestInit = {}, ip = "203.0.113.10"): NextRequest {
   const headers = new Headers(init.headers);
@@ -18,6 +23,8 @@ function request(path: string, init: RequestInit = {}, ip = "203.0.113.10"): Nex
 
 test("solo selecciona metodos y rutas sensibles exactos", () => {
   assert.equal(findEdgeRateLimitPolicy(request("/login", { method: "POST" }))?.id, "gestora-login");
+  assert.equal(findEdgeRateLimitPolicy(request("/login/mfa", { method: "POST" }))?.id, "gestora-mfa-challenge");
+  assert.equal(findEdgeRateLimitPolicy(request("/seguridad/mfa", { method: "POST" }))?.id, "gestora-mfa-management");
   assert.equal(findEdgeRateLimitPolicy(request("/login", { method: "GET" })), null);
   assert.equal(findEdgeRateLimitPolicy(request("/api/webhooks/meta/expense-receipts/extra", { method: "POST" })), null);
   assert.equal(findEdgeRateLimitPolicy(request("/_next/static/app.js")), null);
@@ -63,6 +70,9 @@ test("falla cerrado si falta identidad, regla o disponibilidad y se recupera", a
   assert.equal((await enforceEdgeRateLimit(
     request("/auth/confirm"), async () => ({ rateLimited: false, error: "not-found" }), hosted,
   ))?.status, 503);
+  assert.equal((await enforceEdgeRateLimit(
+    request("/auth/confirm"), async () => ({ rateLimited: true, error: "blocked" }), hosted,
+  ))?.status, 503);
 
   let available = false;
   const checker = async () => {
@@ -95,8 +105,29 @@ test("desarrollo local no llama al WAF y cada politica tiene ID unico", async ()
   assert.equal(await enforceEdgeRateLimit(
     request("/login", { method: "POST" }),
     async () => { calls += 1; return { rateLimited: true }; },
-    { VERCEL: "0", NODE_ENV: "test" },
+    { VERCEL: "0", NODE_ENV: "test", EDGE_RATE_LIMIT_ENABLED: "false" },
   ), null);
   assert.equal(calls, 0);
   assert.equal(new Set(EDGE_RATE_LIMIT_POLICIES.map((policy) => policy.id)).size, EDGE_RATE_LIMIT_POLICIES.length);
+});
+
+test("el rollout parte inerte y detecta drift despues de exigirlo", async () => {
+  let calls = 0;
+  const checker = async () => { calls += 1; return { rateLimited: false }; };
+  const sensitive = request("/login", { method: "POST" });
+
+  assert.equal(await enforceEdgeRateLimit(sensitive, checker, {
+    VERCEL: "1",
+    EDGE_RATE_LIMIT_ENABLED: "false",
+    EDGE_RATE_LIMIT_EXPECT_ENABLED: "false",
+  }), null);
+  assert.equal(calls, 0);
+
+  const drift = await enforceEdgeRateLimit(sensitive, checker, {
+    VERCEL: "1",
+    EDGE_RATE_LIMIT_ENABLED: "false",
+    EDGE_RATE_LIMIT_EXPECT_ENABLED: "true",
+  });
+  assert.equal(drift?.status, 503);
+  assert.equal(calls, 0);
 });

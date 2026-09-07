@@ -31,6 +31,8 @@ test("la configuracion de ejemplo mantiene inactivos los proveedores reales", ()
     EXPENSE_ACCOUNTING_EXPORT_ENABLED: "false",
     EXPENSE_ACCOUNTING_PROVIDER: "disabled",
     EXPENSE_ACCOUNTING_MONITOR_EXPECT_ENABLED: "false",
+    EDGE_RATE_LIMIT_ENABLED: "false",
+    EDGE_RATE_LIMIT_EXPECT_ENABLED: "false",
   } as const;
 
   for (const filename of [".env.example", ".env.staging.example"]) {

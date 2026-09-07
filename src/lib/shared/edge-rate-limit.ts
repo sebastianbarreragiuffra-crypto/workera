@@ -12,6 +12,8 @@ export interface EdgeRateLimitPolicy {
 
 export const EDGE_RATE_LIMIT_POLICIES = [
   { id: "gestora-login", method: "POST", pathname: "/login", requestLimit: 10, windowSeconds: 300 },
+  { id: "gestora-mfa-challenge", method: "POST", pathname: "/login/mfa", requestLimit: 10, windowSeconds: 300 },
+  { id: "gestora-mfa-management", method: "POST", pathname: "/seguridad/mfa", requestLimit: 10, windowSeconds: 300 },
   { id: "gestora-auth-callback", method: "GET", pathname: "/auth/callback", requestLimit: 30, windowSeconds: 60 },
   { id: "gestora-auth-confirm", method: "GET", pathname: "/auth/confirm", requestLimit: 30, windowSeconds: 60 },
   { id: "gestora-meta-verify", method: "GET", pathname: "/api/webhooks/meta/expense-receipts", requestLimit: 20, windowSeconds: 600 },
@@ -32,6 +34,8 @@ type RateLimitChecker = (
 interface EdgeEnvironment {
   readonly VERCEL?: string;
   readonly NODE_ENV?: string;
+  readonly EDGE_RATE_LIMIT_ENABLED?: string;
+  readonly EDGE_RATE_LIMIT_EXPECT_ENABLED?: string;
 }
 
 export function findEdgeRateLimitPolicy(request: Pick<NextRequest, "method" | "nextUrl">): EdgeRateLimitPolicy | null {
@@ -41,10 +45,10 @@ export function findEdgeRateLimitPolicy(request: Pick<NextRequest, "method" | "n
 }
 
 /**
- * Vercel overwrites x-forwarded-for, but x-vercel-forwarded-for remains the
- * provider-specific client identity even when another proxy sits in front.
- * We only trust it inside a Vercel deployment and require one canonical IP;
- * caller-controlled forwarding headers never participate in the key.
+ * Vercel provides x-vercel-forwarded-for at its deployment boundary. This is
+ * trustworthy only when clients reach Vercel directly, or when Enterprise
+ * Trusted Proxy is explicitly configured. We require one canonical IP;
+ * generic caller-controlled forwarding headers never participate in the key.
  */
 export function trustedVercelClientIp(headers: Headers, env: EdgeEnvironment = process.env): string | null {
   if (env.VERCEL !== "1") return null;
@@ -84,7 +88,18 @@ export async function enforceEdgeRateLimit(
   env: EdgeEnvironment = process.env,
 ): Promise<NextResponse | null> {
   const policy = findEdgeRateLimitPolicy(request);
-  if (!policy || env.VERCEL !== "1") return null;
+  if (!policy) return null;
+
+  const enabled = env.EDGE_RATE_LIMIT_ENABLED === "true";
+  const expected = env.EDGE_RATE_LIMIT_EXPECT_ENABLED === "true";
+  if (!enabled || env.VERCEL !== "1") {
+    if (!expected) return null;
+    console.error("[edge-rate-limit] control esperado pero inactivo", {
+      event: "edge_rate_limit_inactive_drift",
+      policyId: policy.id,
+    });
+    return unavailableResponse();
+  }
 
   const clientIp = trustedVercelClientIp(request.headers, env);
   if (!clientIp) {
@@ -100,6 +115,13 @@ export async function enforceEdgeRateLimit(
     if (result.error === "not-found") {
       console.error("[edge-rate-limit] regla hospedada no configurada", {
         event: "edge_rate_limit_rule_missing",
+        policyId: policy.id,
+      });
+      return unavailableResponse();
+    }
+    if (result.error === "blocked") {
+      console.error("[edge-rate-limit] chequeo interno bloqueado", {
+        event: "edge_rate_limit_check_blocked",
         policyId: policy.id,
       });
       return unavailableResponse();
