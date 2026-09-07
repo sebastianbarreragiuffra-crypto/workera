@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 220" role="img" aria-labelledby="gestora-preview-title">
+  <title id="gestora-preview-title">Vista previa del logo GESTORA</title>
+  <rect width="660" height="220" rx="28" fill="#0B1F3A"/>
+  <text
+    x="72"
+    y="160"
+    font-family="Inter, Avenir Next, Segoe UI, Arial, sans-serif"
+    font-size="112"
+    font-weight="800"
+    letter-spacing="2"
+  ><tspan fill="#2F9FE5">GEST</tspan><tspan fill="#FFFFFF">ORA</tspan></text>
+</svg>
