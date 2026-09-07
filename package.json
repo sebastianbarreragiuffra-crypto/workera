@@ -23,7 +23,8 @@
     "readiness:local": "tsx scripts/pilot-readiness.mts --enforce=LOCAL_SYNTHETIC",
     "readiness:staging-data": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/staging-data-inventory.mts",
     "audit:workera-roster-status": "node --conditions=react-server --import=tsx scripts/audit-workera-roster-status.mts",
-    "test:workera-roster-audit": "node --conditions=react-server --import=tsx --test scripts/audit-workera-roster-status.test.mts"
+    "test:workera-roster-audit": "node --conditions=react-server --import=tsx --test scripts/audit-workera-roster-status.test.mts",
+    "readiness:arcotex-attendance": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/arcotex-attendance-pilot-preflight.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
