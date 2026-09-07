@@ -4795,12 +4795,14 @@ export type Database = {
         Row: {
           attendance_derived: number
           company_id: string
+          day_input_revision: number
           early_departure_candidates: number
           employees_processed: number
           error_summary: string | null
           failure_count: number
           finished_at: string | null
           id: string
+          input_revision: number
           late_candidates: number
           overtime_candidates: number
           started_at: string
@@ -4813,12 +4815,14 @@ export type Database = {
         Insert: {
           attendance_derived?: number
           company_id?: string
+          day_input_revision?: number
           early_departure_candidates?: number
           employees_processed?: number
           error_summary?: string | null
           failure_count?: number
           finished_at?: string | null
           id?: string
+          input_revision?: number
           late_candidates?: number
           overtime_candidates?: number
           started_at?: string
@@ -4831,12 +4835,14 @@ export type Database = {
         Update: {
           attendance_derived?: number
           company_id?: string
+          day_input_revision?: number
           early_departure_candidates?: number
           employees_processed?: number
           error_summary?: string | null
           failure_count?: number
           finished_at?: string | null
           id?: string
+          input_revision?: number
           late_candidates?: number
           overtime_candidates?: number
           started_at?: string
@@ -5588,6 +5594,33 @@ export type Database = {
       }
     }
     Views: {
+      attendance_rule_engine_day_readiness: {
+        Row: {
+          attendance_derived: number | null
+          company_id: string | null
+          early_departure_candidates: number | null
+          employees_processed: number | null
+          failure_count: number | null
+          finished_at: string | null
+          is_input_fresh: boolean | null
+          late_candidates: number | null
+          overtime_candidates: number | null
+          rule_engine_run_id: string | null
+          started_at: string | null
+          status: string | null
+          without_schedule: number | null
+          work_date: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rule_engine_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attendance_effective_punches: {
         Row: {
           attendance_record_id: string | null

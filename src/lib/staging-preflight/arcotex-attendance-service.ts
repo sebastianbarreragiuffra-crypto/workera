@@ -64,13 +64,10 @@ export async function collectArcotexAttendancePilot(
 ): Promise<ArcotexAttendancePilotCollection> {
   const client = createAdminClient("arcotex-attendance-preflight");
   try {
-    const companySlug = (process.env.ARCOTEX_PILOT_COMPANY_SLUG ?? ARCOTEX_PILOT_COMPANY_SLUG).trim().toLowerCase();
-    if (!/^[a-z0-9-]{1,64}$/.test(companySlug)) throw new SafeQueryFailure("INVALID_COMPANY_SCOPE");
-
     const companyResult = await client
       .from("companies")
       .select("id")
-      .eq("slug", companySlug)
+      .eq("slug", ARCOTEX_PILOT_COMPANY_SLUG)
       .eq("active", true)
       .limit(2);
     if (companyResult.error) throw new SafeQueryFailure(safeErrorCode(companyResult.error.code));
@@ -117,20 +114,23 @@ export async function collectArcotexAttendancePilot(
     const days: AttendancePilotDayObservation[] = await Promise.all(
       datesInRange(selected.range).map(async (date) => {
         const latestRuleResult = await client
-          .from("rule_engine_runs")
-          .select("status, employees_processed, attendance_derived, late_candidates, early_departure_candidates, overtime_candidates, without_schedule, failure_count")
+          .from("attendance_rule_engine_day_readiness")
+          .select("status, employees_processed, attendance_derived, late_candidates, early_departure_candidates, overtime_candidates, without_schedule, failure_count, is_input_fresh")
           .eq("company_id", companyId)
           .eq("work_date", date)
-          .order("started_at", { ascending: false })
-          .order("id", { ascending: false })
           .limit(1)
           .maybeSingle();
         if (latestRuleResult.error) throw new SafeQueryFailure(safeErrorCode(latestRuleResult.error.code));
 
-        const [rawEvents, attendanceRecords] = await Promise.all([
+        const [rawEvents, unresolvedSourceStatuses, attendanceRecords] = await Promise.all([
           requireCount(
             client.from("workera_attendance_events").select("id", { count: "exact", head: true })
               .eq("company_id", companyId).eq("work_date", date).eq("is_current", true),
+          ),
+          requireCount(
+            client.from("workera_attendance_events").select("id", { count: "exact", head: true })
+              .eq("company_id", companyId).eq("work_date", date).eq("is_current", true)
+              .eq("attendance_status", "UNKNOWN_EXTERNAL_STATUS"),
           ),
           requireCount(
             client.from("attendance_records")
@@ -145,10 +145,12 @@ export async function collectArcotexAttendancePilot(
             run.status === "SUCCEEDED" && run.startDate <= date && run.endDate >= date
           ).length,
           rawEvents,
+          unresolvedSourceStatuses,
           attendanceRecords,
           ruleEngine: latestRule
             ? {
               status: ruleStatus(latestRule.status),
+              inputFresh: latestRule.is_input_fresh === true,
               employeesProcessed: safeMetric(latestRule.employees_processed),
               attendanceDerived: safeMetric(latestRule.attendance_derived),
               lateCandidates: safeMetric(latestRule.late_candidates),
@@ -159,6 +161,7 @@ export async function collectArcotexAttendancePilot(
             }
             : {
               status: "MISSING",
+              inputFresh: false,
               employeesProcessed: 0,
               attendanceDerived: 0,
               lateCandidates: 0,

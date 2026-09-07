@@ -424,7 +424,7 @@ export const RPC_CONSUMER_SURFACES = [
     source: "src/lib/staging-preflight/arcotex-attendance-status-repair-service.ts",
     domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", capability: "arcotex-attendance-status-repair",
     tenantScope: "LEGACY_ARCOTEX",
-    literalRpcs: ["begin_workera_sync_run", "finish_workera_sync_run", "upsert_workera_attendance_event"],
+    literalRpcs: ["begin_workera_sync_run", "finish_workera_sync_run", "reclaim_stale_workera_sync_runs", "upsert_workera_attendance_event"],
     dynamicRpcs: [],
     authorization: "Operador local con entorno de staging, slug ARCOTEX fijo y aplicación explícita; los RPC acotan empresa, día y lease de sincronización.",
     auditControl: "JOB_LEDGER", dataClass: "SENSITIVE_HR",
