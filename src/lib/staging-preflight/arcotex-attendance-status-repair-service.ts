@@ -31,6 +31,20 @@ interface RepairSummary {
   readonly targetCounts: Readonly<Record<ArcotexRepairableAttendanceStatus, number>>;
 }
 
+type RepairAdminClient = ReturnType<typeof createAdminClient>;
+type RepairPlan = ReturnType<typeof buildArcotexAttendanceStatusRepairPlan<RepairEventRow>>;
+
+interface RepairServiceDependencies {
+  readonly client?: RepairAdminClient;
+}
+
+type RepairPlanReadResult =
+  | { readonly kind: "PLAN"; readonly plan: RepairPlan }
+  | { readonly kind: "ERROR"; readonly errorCode: string };
+
+const STALE_RUNNING_SECONDS = 900;
+const RUN_CLOSE_UNCONFIRMED = "RUN_CLOSE_UNCONFIRMED";
+
 export type ArcotexAttendanceStatusRepairResult =
   | ({ readonly kind: "PREVIEW" } & RepairSummary)
   | ({ readonly kind: "NO_CHANGES_NEEDED" } & RepairSummary)
@@ -59,7 +73,7 @@ function safeErrorCode(value: unknown): string {
 
 function summaryFor(
   date: string,
-  plan: ReturnType<typeof buildArcotexAttendanceStatusRepairPlan<RepairEventRow>>,
+  plan: RepairPlan,
 ): RepairSummary {
   return {
     date,
@@ -71,6 +85,65 @@ function summaryFor(
   };
 }
 
+async function readRepairPlan(
+  client: RepairAdminClient,
+  companyId: string,
+  date: string,
+): Promise<RepairPlanReadResult> {
+  const eventsResult = await client
+    .from("workera_attendance_events")
+    .select(
+      "employee_id, external_employee_code, attendance_timestamp_raw, attendance_type_code, attendance_type_label, attendance_status, external_attendance_status, origin, origin_code, device_name, checksum",
+      { count: "exact" },
+    )
+    .eq("company_id", companyId)
+    .eq("work_date", date)
+    .eq("is_current", true)
+    .limit(1000);
+  if (eventsResult.error) {
+    return { kind: "ERROR", errorCode: safeErrorCode(eventsResult.error.code) };
+  }
+  if (eventsResult.count === null || eventsResult.count !== eventsResult.data.length) {
+    return { kind: "ERROR", errorCode: "RESULT_LIMIT_EXCEEDED" };
+  }
+  return {
+    kind: "PLAN",
+    plan: buildArcotexAttendanceStatusRepairPlan(eventsResult.data as RepairEventRow[]),
+  };
+}
+
+async function confirmFailedRunClosed(
+  client: RepairAdminClient,
+  params: {
+    readonly companyId: string;
+    readonly syncRunId: string;
+    readonly recordsRead: number;
+    readonly versioned: number;
+    readonly unchanged: number;
+    readonly errorCode: string;
+  },
+): Promise<boolean> {
+  try {
+    const finishResult = await client.rpc("finish_workera_sync_run", {
+      p_company_id: params.companyId,
+      p_sync_run_id: params.syncRunId,
+      p_status: "FAILED",
+      p_records_read: params.recordsRead,
+      p_records_created: 0,
+      p_records_updated: params.versioned,
+      p_records_unchanged: params.unchanged,
+      p_error_summary: {
+        reason: "ARCOTEX_PRESERVED_STATUS_REPAIR_FAILED",
+        code: safeErrorCode(params.errorCode),
+      },
+      p_error_category: "DATABASE",
+    });
+    return !finishResult.error && finishResult.data === true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Renormalización operativa, tenant-scoped y sin consultar nuevamente al
  * proveedor. Cada cambio usa el mismo RPC versionado de la ingesta normal y
@@ -79,10 +152,11 @@ function summaryFor(
 export async function repairArcotexAttendanceStatusesForDate(
   date: string,
   apply: boolean,
+  dependencies: RepairServiceDependencies = {},
 ): Promise<ArcotexAttendanceStatusRepairResult> {
   if (!isIsoCalendarDate(date)) return { kind: "INVALID_DATE", date };
 
-  const client = createAdminClient("arcotex-attendance-status-repair");
+  const client = dependencies.client ?? createAdminClient("arcotex-attendance-status-repair");
   const companyResult = await client
     .from("companies")
     .select("id")
@@ -95,30 +169,30 @@ export async function repairArcotexAttendanceStatusesForDate(
   if ((companyResult.data?.length ?? 0) !== 1) return { kind: "COMPANY_NOT_FOUND", date };
   const companyId = companyResult.data![0].id;
 
-  const eventsResult = await client
-    .from("workera_attendance_events")
-    .select(
-      "employee_id, external_employee_code, attendance_timestamp_raw, attendance_type_code, attendance_type_label, attendance_status, external_attendance_status, origin, origin_code, device_name, checksum",
-      { count: "exact" },
-    )
-    .eq("company_id", companyId)
-    .eq("work_date", date)
-    .eq("is_current", true)
-    .limit(1000);
-  if (eventsResult.error) {
-    return { kind: "QUERY_FAILED", date, errorCode: safeErrorCode(eventsResult.error.code) };
-  }
-  if (eventsResult.count !== eventsResult.data.length) {
-    return { kind: "QUERY_FAILED", date, errorCode: "RESULT_LIMIT_EXCEEDED" };
+  if (!apply) {
+    const previewResult = await readRepairPlan(client, companyId, date);
+    if (previewResult.kind === "ERROR") {
+      return { kind: "QUERY_FAILED", date, errorCode: previewResult.errorCode };
+    }
+    const previewPlan = previewResult.plan;
+    const previewSummary = summaryFor(date, previewPlan);
+    if (previewPlan.unknownEvents === 0) return { kind: "NO_CHANGES_NEEDED", ...previewSummary };
+    if (previewPlan.unsupportedUnknownEvents > 0) {
+      return { kind: "BLOCKED_UNRECOGNIZED_STATUS", ...previewSummary };
+    }
+    return { kind: "PREVIEW", ...previewSummary };
   }
 
-  const plan = buildArcotexAttendanceStatusRepairPlan(eventsResult.data as RepairEventRow[]);
-  const summary = summaryFor(date, plan);
-  if (plan.unknownEvents === 0) return { kind: "NO_CHANGES_NEEDED", ...summary };
-  if (plan.unsupportedUnknownEvents > 0) {
-    return { kind: "BLOCKED_UNRECOGNIZED_STATUS", ...summary };
+  const reclaimResult = await client.rpc("reclaim_stale_workera_sync_runs", {
+    p_company_id: companyId,
+    p_stale_after_seconds: STALE_RUNNING_SECONDS,
+  });
+  if (reclaimResult.error) {
+    return { kind: "QUERY_FAILED", date, errorCode: safeErrorCode(reclaimResult.error.code) };
   }
-  if (!apply) return { kind: "PREVIEW", ...summary };
+  if (!Number.isSafeInteger(reclaimResult.data) || reclaimResult.data < 0) {
+    return { kind: "QUERY_FAILED", date, errorCode: "INVALID_RECLAIM_RESULT" };
+  }
 
   const beginResult = await client.rpc("begin_workera_sync_run", {
     p_company_id: companyId,
@@ -131,8 +205,54 @@ export async function repairArcotexAttendanceStatusesForDate(
   if (beginResult.error) {
     return { kind: "QUERY_FAILED", date, errorCode: safeErrorCode(beginResult.error.code) };
   }
-  if (!beginResult.data) return { kind: "BLOCKED_ACTIVE_RUN", ...summary };
+  if (!beginResult.data) {
+    const blockedResult = await readRepairPlan(client, companyId, date);
+    if (blockedResult.kind === "ERROR") {
+      return { kind: "QUERY_FAILED", date, errorCode: blockedResult.errorCode };
+    }
+    return { kind: "BLOCKED_ACTIVE_RUN", ...summaryFor(date, blockedResult.plan) };
+  }
   const syncRunId = beginResult.data;
+
+  const lockedResult = await readRepairPlan(client, companyId, date);
+  if (lockedResult.kind === "ERROR") {
+    const closed = await confirmFailedRunClosed(client, {
+      companyId,
+      syncRunId,
+      recordsRead: 0,
+      versioned: 0,
+      unchanged: 0,
+      errorCode: lockedResult.errorCode,
+    });
+    return {
+      kind: "QUERY_FAILED",
+      date,
+      errorCode: closed ? lockedResult.errorCode : RUN_CLOSE_UNCONFIRMED,
+    };
+  }
+  const plan = lockedResult.plan;
+  const summary = summaryFor(date, plan);
+
+  if (plan.unsupportedUnknownEvents > 0) {
+    const closed = await confirmFailedRunClosed(client, {
+      companyId,
+      syncRunId,
+      recordsRead: plan.currentEvents,
+      versioned: 0,
+      unchanged: plan.alreadyNormalizedEvents,
+      errorCode: "UNRECOGNIZED_STATUS",
+    });
+    if (!closed) {
+      return {
+        kind: "FAILED",
+        ...summary,
+        errorCode: RUN_CLOSE_UNCONFIRMED,
+        versioned: 0,
+        unchanged: 0,
+      };
+    }
+    return { kind: "BLOCKED_UNRECOGNIZED_STATUS", ...summary };
+  }
 
   let versioned = 0;
   let unchanged = 0;
@@ -185,26 +305,31 @@ export async function repairArcotexAttendanceStatusesForDate(
     });
     if (finishResult.error || finishResult.data !== true) throw new Error("RUN_CLOSE_FAILED");
 
-    return {
-      kind: "APPLIED",
-      ...summary,
-      versioned,
-      unchanged,
-      remainingUnknownEvents: 0,
-    };
+    return plan.unknownEvents === 0
+      ? { kind: "NO_CHANGES_NEEDED", ...summary }
+      : {
+        kind: "APPLIED",
+        ...summary,
+        versioned,
+        unchanged,
+        remainingUnknownEvents: 0,
+      };
   } catch (error) {
     const errorCode = error instanceof Error ? safeErrorCode(error.message) : "REPAIR_FAILED";
-    await client.rpc("finish_workera_sync_run", {
-      p_company_id: companyId,
-      p_sync_run_id: syncRunId,
-      p_status: "FAILED",
-      p_records_read: plan.currentEvents,
-      p_records_created: 0,
-      p_records_updated: versioned,
-      p_records_unchanged: plan.alreadyNormalizedEvents + unchanged,
-      p_error_summary: { reason: "ARCOTEX_PRESERVED_STATUS_REPAIR_FAILED", code: errorCode },
-      p_error_category: "DATABASE",
+    const closed = await confirmFailedRunClosed(client, {
+      companyId,
+      syncRunId,
+      recordsRead: plan.currentEvents,
+      versioned,
+      unchanged: plan.alreadyNormalizedEvents + unchanged,
+      errorCode,
     });
-    return { kind: "FAILED", ...summary, errorCode, versioned, unchanged };
+    return {
+      kind: "FAILED",
+      ...summary,
+      errorCode: closed ? errorCode : RUN_CLOSE_UNCONFIRMED,
+      versioned,
+      unchanged,
+    };
   }
 }
