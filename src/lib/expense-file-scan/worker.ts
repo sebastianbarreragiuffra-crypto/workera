@@ -95,6 +95,7 @@ export async function runExpenseFileScanWorker(
         scanner.name,
         failure.code,
         failure.retryable,
+        failure.retryAfterSeconds,
       );
       summary.failed += 1;
       if (retried) summary.retried += 1;

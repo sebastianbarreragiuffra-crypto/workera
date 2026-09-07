@@ -6,6 +6,7 @@ import {
   isAuthorizedExpenseAccountingCronRequest,
   isAuthorizedExpenseAccountingWatchdogRequest,
   isAuthorizedExpenseAssistantRetentionCronRequest,
+  isAuthorizedExpenseFileScanCronRequest,
   isAuthorizedExpenseOcrCronRequest,
   isAuthorizedWorkeraCronRequest,
   isExternalWebhookRequest,
@@ -766,6 +767,53 @@ test("cron OCR: solo GET exacto con Bearer correcto evita el guard de sesión", 
       header: "Bearer incorrecto",
       path: "/api/jobs/expense-ocr",
     })), false);
+  });
+});
+
+test("cron antimalware: solo GET exacto con Bearer correcto evita el guard de sesión", () => {
+  withCronSecret(CRON_SECRET_FAKE, () => {
+    const header = `Bearer ${CRON_SECRET_FAKE}`;
+    assert.equal(isAuthorizedExpenseFileScanCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-file-scan",
+    })), true);
+    assert.equal(isAuthorizedExpenseFileScanCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-file-scan/extra",
+    })), false);
+    assert.equal(isAuthorizedExpenseFileScanCronRequest(cronRequest({
+      header,
+      path: "/api/jobs/expense-file-scan",
+      method: "POST",
+    })), false);
+    assert.equal(isAuthorizedExpenseFileScanCronRequest(cronRequest({
+      header: "Bearer incorrecto",
+      path: "/api/jobs/expense-file-scan",
+    })), false);
+  });
+});
+
+test("cron antimalware: el bypass llega al handler sin consultar una sesión humana", async () => {
+  await new Promise<void>((resolve, reject) => {
+    withCronSecret(CRON_SECRET_FAKE, () => {
+      updateSession(
+        cronRequest({
+          header: `Bearer ${CRON_SECRET_FAKE}`,
+          path: "/api/jobs/expense-file-scan",
+        }),
+        () => ({
+          auth: {
+            async getClaims() {
+              reject(new Error("el bypass no debe consultar getClaims"));
+              return { data: null, error: { message: "unexpected" } };
+            },
+          },
+        })
+      ).then((response) => {
+        assert.equal(response.status, 200);
+        resolve();
+      }, reject);
+    });
   });
 });
 

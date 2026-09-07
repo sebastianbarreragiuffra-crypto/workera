@@ -13,8 +13,10 @@ export class ExpenseFileScanError extends Error {
     readonly code: ExpenseFileScanErrorCode,
     message: string,
     readonly retryable: boolean,
+    readonly retryAfterSeconds?: number,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "ExpenseFileScanError";
   }
 }

@@ -70,6 +70,12 @@ export function isAuthorizedExpenseOcrCronRequest(request: NextRequest): boolean
   return isValidCronSecretHeader(request.headers.get("authorization"));
 }
 
+/** Mismo bypass acotado para el worker antimalware de la cuarentena. */
+export function isAuthorizedExpenseFileScanCronRequest(request: NextRequest): boolean {
+  if (request.method !== "GET" || request.nextUrl.pathname !== "/api/jobs/expense-file-scan") return false;
+  return isValidCronSecretHeader(request.headers.get("authorization"));
+}
+
 /** Mismo bypass acotado para el worker durable de salidas contables. */
 export function isAuthorizedExpenseAccountingCronRequest(request: NextRequest): boolean {
   if (request.method !== "GET" || request.nextUrl.pathname !== "/api/jobs/expense-accounting") return false;
@@ -223,6 +229,7 @@ export async function updateSession(
   if (
     isAuthorizedWorkeraCronRequest(request)
     || isAuthorizedExpenseOcrCronRequest(request)
+    || isAuthorizedExpenseFileScanCronRequest(request)
     || isAuthorizedExpenseAccountingCronRequest(request)
     || isAuthorizedExpenseAccountingWatchdogRequest(request)
     || isAuthorizedExpenseAssistantRetentionCronRequest(request)

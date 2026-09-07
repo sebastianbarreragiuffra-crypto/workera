@@ -1,8 +1,8 @@
 # Cuarentena de archivos de Rendiciones
 
-Estado: **frontera durable y worker provider-agnostic implementados y probados
-localmente; proveedor antimalware real no seleccionado y conectores externos
-apagados**.
+Estado: **frontera durable, worker provider-agnostic y adapter candidato para
+Cloudmersive Advanced sobre tenant privado implementados localmente; contrato,
+transferencia externa y conectores permanecen sin aprobar y apagados**.
 
 La migración `20260905100000_expense_file_quarantine.sql` cambia el flujo para
 que recibir un archivo no equivalga a confiar en él. Correo y WhatsApp entran
@@ -38,6 +38,14 @@ Existe `FixtureExpenseFileScanner` para canarios sintéticos CLEAN/REJECTED. Su
 configuración exige doble opt-in y rechaza siempre `NODE_ENV=production`; no es
 un antivirus, no permite cerrar el gate y no autoriza habilitar canales reales.
 
+El adapter `CloudmersiveAdvancedScanner` exige un origen HTTPS y un hostname
+aprobado idéntico para el tenant privado,
+rechaza los hosts públicos multi-tenant, usa nombre sintético, timeout y sin
+redirects, limita la respuesta y reduce cualquier detalle del proveedor a códigos
+genéricos. También exige el opt-in separado
+`EXPENSE_FILE_SCAN_EXTERNAL_TRANSFER_APPROVED=true`. Su presencia en código no
+constituye aprobación de privacidad, seguridad ni compras.
+
 ## Defensas independientes
 
 La seguridad no depende de una sola comprobación de UI:
@@ -60,15 +68,20 @@ con el proveedor y el responsable de seguridad.
 Antes de habilitar `EXPENSE_EMAIL_CAPTURE_ENABLED` o
 `EXPENSE_WHATSAPP_CAPTURE_ENABLED` en un ambiente con datos reales se requiere:
 
-- elegir y contratar el scanner/antimalware o CDR;
-- implementar su adapter server-only real con timeout, egress allowlisted y
-  circuit breaker sobre el contrato ya creado;
+- aprobar o descartar el tenant privado candidato, incluyendo DPA,
+  subprocesadores, residencia, retención y SLA;
+- configurar allowlist de egreso y monitoreo compartido; el circuit breaker
+  durable y el requeue operacional de fallos globales siguen pendientes;
 - decidir si cargas web/cámara también migran de `VALIDATED_INTERNAL` a
   cuarentena obligatoria para el alcance del piloto;
 - definir SLA, retención de rechazados y alertas por backlog/fallo terminal;
 - probar canarios limpios e inofensivos de detección en staging aislado.
 
-La prueba pgTAP `072_expense_file_quarantine.sql` cubre las invariantes de base;
+El procedimiento de aprobación y despliegue está en
+`docs/EXPENSE_FILE_SCAN_PROVIDER_RUNBOOK.md`. La prueba pgTAP
+`072_expense_file_quarantine.sql` cubre las invariantes de base;
 las pruebas de worker agregan canarios limpio/rechazado, checksum alterado,
 configuración fail-closed y sanitización de errores. El gate sigue en NO-GO
-hasta conectar y verificar un proveedor real.
+hasta aprobar, conectar y verificar un proveedor real. Además, el gate global
+`ANTIMALWARE_PROVIDER` no puede cerrarse con cobertura exclusiva de Rendiciones:
+los documentos laborales requieren una decisión y cobertura equivalentes.

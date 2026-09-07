@@ -32,6 +32,7 @@ export interface ExpenseFileScanRepository {
     scanner: string,
     resultCode: string,
     retryable: boolean,
+    retryAfterSeconds?: number,
   ): Promise<boolean>;
 }
 
@@ -101,6 +102,7 @@ export class SupabaseExpenseFileScanRepository implements ExpenseFileScanReposit
     scanner: string,
     resultCode: string,
     retryable: boolean,
+    retryAfterSeconds = 30,
   ): Promise<boolean> {
     const { data, error } = await this.supabase.rpc("fail_expense_file_scan", {
       p_capture_id: captureId,
@@ -108,7 +110,7 @@ export class SupabaseExpenseFileScanRepository implements ExpenseFileScanReposit
       p_scanner: scanner,
       p_result_code: resultCode,
       p_retryable: retryable,
-      p_retry_delay_seconds: 30,
+      p_retry_delay_seconds: retryAfterSeconds,
     });
     assertNoError(error, "No se pudo cerrar el escaneo fallido.");
     return Boolean(data);
