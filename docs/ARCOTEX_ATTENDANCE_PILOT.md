@@ -51,6 +51,16 @@ se bloquea si existe otra corrida activa para ese día. Tras aplicar, exige que
 no quede ningún estado desconocido vigente antes de cerrar la corrida como
 exitosa.
 
+Solo después de una reparación exitosa se reejecuta el motor para ese mismo
+día:
+
+```bash
+npm run pilot:arcotex-attendance-day -- --date=2026-08-24
+```
+
+El comando entrega únicamente métricas agregadas y retorna error si la corrida
+no termina en `SUCCEEDED`.
+
 El control es de solo lectura y emite únicamente fechas, conteos y estados
 agregados. El único resultado que permite abrir la revisión en sombra es
 `READY_FOR_SHADOW_REVIEW`.
