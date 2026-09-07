@@ -127,8 +127,14 @@ select is(public.complete_expense_file_scan(
   'REJECTED', 'scanner-test', 'MALWARE'
 )::text, 'REJECTED', 'el escáner puede bloquear sin exponer detalle sensible');
 select is((select security_result_code from public.expense_receipt_captures where id = 'e3000000-0000-0000-0000-000000000703'), 'MALWARE', 'el código sanitizado permite operar el incidente');
-select ok(not public.can_read_expense_capture_path('quarantine/rejected.pdf'), 'un REJECTED nunca se entrega');
 
+reset role;
+set local role authenticated;
+set local request.jwt.claim.sub = 'e3000000-0000-0000-0000-000000000101';
+select ok(not public.can_read_expense_capture_path('quarantine/rejected.pdf'), 'un REJECTED nunca se entrega');
+reset role;
+
+set local role service_role;
 insert into public.expense_receipt_captures (
   id, company_id, uploaded_by, source, storage_path, original_filename, mime_type, file_size, checksum_sha256, external_message_id
 ) values ('e3000000-0000-0000-0000-000000000704', 'e3000000-0000-0000-0000-000000000001', 'e3000000-0000-0000-0000-000000000101', 'EMAIL', 'quarantine/retry.pdf', 'retry.pdf', 'application/pdf', 100, repeat('d',64), 'email-2');

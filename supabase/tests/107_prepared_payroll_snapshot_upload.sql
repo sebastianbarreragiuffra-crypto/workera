@@ -85,7 +85,9 @@ select set_config(
   true
 );
 
-set local role service_role;
+-- El RPC productivo corre como SECURITY DEFINER y conserva el claim del
+-- llamador service_role. El fixture replica esa frontera sin conceder acceso
+-- directo de tablas al rol de servicio.
 set local request.jwt.claim.role = 'service_role';
 select set_config(
   'gestora.payroll_ready_approval',
@@ -95,7 +97,6 @@ select set_config(
 update public.reporting_periods
 set status = 'READY_TO_CLOSE'
 where id = '10700000-0000-4000-8000-000000000010';
-reset role;
 
 insert into public.reporting_period_approvals (
   company_id, reporting_period_id, approved_by,
