@@ -106,7 +106,8 @@ export default async function DailyReviewPage({
   // consulta responde bien, pero `formatDateLong` (línea ~163) exige
   // YYYY-MM-DD y lanza: sin este filtro la página cae con un 500 provocable
   // desde la barra de direcciones.
-  const date = params.fecha && isCalendarDate(params.fecha) ? params.fecha : todayInSantiago();
+  const today = todayInSantiago();
+  const date = params.fecha && isCalendarDate(params.fecha) ? params.fecha : today;
   const supabase = await createClient();
   const workforceCompany = await resolveActiveWorkforceCompany(supabase);
   if (!workforceCompany) redirect("/empresas");
@@ -177,34 +178,47 @@ export default async function DailyReviewPage({
         title="Pendientes"
         subtitle={`${AREA_LABEL[requestedArea]} · ${formatDateLong(date)}`}
         actions={<nav aria-label="Navegación de fecha" className="flex items-center gap-2">
-          <Link href={`/revision-diaria?fecha=${previousDate(date)}&area=${requestedArea}`} aria-label="Día anterior" className="rounded-md border border-slate-300 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50">
+          <Link
+            href={`/revision-diaria?fecha=${previousDate(date)}&area=${requestedArea}`}
+            aria-label="Día anterior"
+            className="rounded-md border border-slate-300 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+          >
             ‹
           </Link>
-          <Link href={`/revision-diaria?fecha=${todayInSantiago()}&area=${requestedArea}`} className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50">
+          <Link
+            href={`/revision-diaria?fecha=${today}&area=${requestedArea}`}
+            className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+            aria-current={date === today ? "page" : undefined}
+          >
             Hoy
           </Link>
-          <Link href={`/revision-diaria?fecha=${nextDate(date)}&area=${requestedArea}`} aria-label="Día siguiente" className="rounded-md border border-slate-300 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50">
+          <Link
+            href={`/revision-diaria?fecha=${nextDate(date)}&area=${requestedArea}`}
+            aria-label="Día siguiente"
+            className="rounded-md border border-slate-300 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+          >
             ›
           </Link>
         </nav>}
       />
 
       {allowedAreas.length > 1 && (
-        <div role="tablist" aria-label="Área" className="flex gap-2">
+        <nav aria-label="Área" className="flex flex-wrap gap-2">
           {allowedAreas.map((area) => (
             <Link
               key={area}
               href={`/revision-diaria?fecha=${date}&area=${area}`}
-              role="tab"
-              aria-selected={area === requestedArea}
+              aria-current={area === requestedArea ? "page" : undefined}
               className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                area === requestedArea ? "bg-arcotex-blue text-white" : "bg-white text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-50"
+                area === requestedArea
+                  ? "bg-arcotex-blue text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+                  : "bg-white text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
               }`}
             >
               {AREA_LABEL[area]}
             </Link>
           ))}
-        </div>
+        </nav>
       )}
 
       <div>

@@ -66,13 +66,47 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </h1>
         <p className="text-sm text-slate-500">Resumen operacional — {formatDateLong(date)}</p>
         <nav aria-label="Período del resumen" className="mt-3 flex flex-wrap items-center gap-2">
-          <a href={`/dashboard?fecha=${today}`} className={`rounded-md border px-3 py-1.5 text-sm ${date === today ? "border-arcotex-blue bg-arcotex-blue text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}>Hoy</a>
-          <a href={`/dashboard?fecha=${previousDate(today)}`} className={`rounded-md border px-3 py-1.5 text-sm ${date === previousDate(today) ? "border-arcotex-blue bg-arcotex-blue text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}>Ayer</a>
-          <a href={`/revision-diaria?fecha=${today}&rango=7`} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">Últimos 7 días</a>
+          <a
+            href={`/dashboard?fecha=${today}`}
+            className={`rounded-md border px-3 py-1.5 text-sm ${
+              date === today
+                ? "border-arcotex-blue bg-arcotex-blue text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+                : "border-slate-300 text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+            }`}
+          >
+            Hoy
+          </a>
+          <a
+            href={`/dashboard?fecha=${previousDate(today)}`}
+            className={`rounded-md border px-3 py-1.5 text-sm ${
+              date === previousDate(today)
+                ? "border-arcotex-blue bg-arcotex-blue text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+                : "border-slate-300 text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+            }`}
+          >
+            Ayer
+          </a>
+          <a
+            href={`/revision-diaria?fecha=${today}&rango=7`}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+          >
+            Últimos 7 días
+          </a>
           <form method="get" className="flex items-center gap-2">
             <label htmlFor="dashboard-date" className="sr-only">Elegir fecha</label>
-            <input id="dashboard-date" type="date" name="fecha" defaultValue={date} className="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-700" />
-            <button type="submit" className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">Ver fecha</button>
+            <input
+              id="dashboard-date"
+              type="date"
+              name="fecha"
+              defaultValue={date}
+              className="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+            />
+            <button
+              type="submit"
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+            >
+              Ver fecha
+            </button>
           </form>
         </nav>
       </div>
