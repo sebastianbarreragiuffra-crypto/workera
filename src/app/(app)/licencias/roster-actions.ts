@@ -10,24 +10,36 @@ import { WorkeraConfigurationError } from "../../../lib/workera/errors";
 import { HttpWorkeraClient } from "../../../lib/workera/http-client";
 import { bootstrapEmployeesFromRoster, type BootstrapRosterResult } from "../../../lib/business-rules/employee-roster-reconciliation";
 import { enforceWorkforceActionRateLimit } from "../../../lib/decisions/workforce-action-rate-limit";
+import { resolveActiveWorkforceCompany } from "../../../lib/tenant/active-workforce-company";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../lib/shared/workforce-constants";
+import { resolvePayrollCompanyRole } from "../../../lib/payroll/payroll-company-role";
 
 /**
  * Server Actions del bootstrap/actualización de roster administrativo
  * (planilla de personal). Privilegiado -- mismo criterio que el resto de
- * escritura de `employees` (RLS `employees_write_admin`, exclusiva de
- * `is_privileged_admin()`): SUPER_ADMIN/ADMIN_RRHH. Nunca supervisores.
+ * escritura de `employees`: el rol se resuelve dentro de la empresa activa
+ * y RLS repite exactamente ese límite. El rol legacy de `profiles` no se
+ * combina con una membresía de otro tenant.
  */
 /** Mismo límite ya usado para el resto de importadores Excel de la app (Nómina/Colaciones) -- ninguna razón para que este sea el único sin tope. */
 const MAX_ROSTER_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 
 async function requireRosterAdmin() {
   const profile = await getCurrentProfile();
-  if (!profile?.role) redirect("/login");
-  if (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH") {
-    throw new Error("Esta operación requiere rol SUPER_ADMIN o ADMIN_RRHH.");
+  if (!profile) redirect("/login");
+  const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
+  const companyRole = await resolvePayrollCompanyRole(
+    supabase,
+    workforceCompany.companyId,
+    ["ADMIN_RRHH", "SUPER_ADMIN"],
+  );
+  if (!companyRole) {
+    throw new Error("Esta operación requiere rol RR. HH. o administrador técnico dentro de la empresa seleccionada.");
   }
-  await enforceWorkforceActionRateLimit(await createClient(), "workforce.roster.manage");
-  return profile;
+  await enforceWorkforceActionRateLimit(supabase, "workforce.roster.manage");
+  return { profile, supabase, companyId: workforceCompany.companyId };
 }
 
 export interface RosterPreviewActionState {
@@ -37,8 +49,7 @@ export interface RosterPreviewActionState {
 }
 
 export async function previewPersonnelRosterAction(_prev: RosterPreviewActionState, formData: FormData): Promise<RosterPreviewActionState> {
-  await requireRosterAdmin();
-  const supabase = await createClient();
+  const { supabase, companyId } = await requireRosterAdmin();
 
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) {
@@ -50,7 +61,7 @@ export async function previewPersonnelRosterAction(_prev: RosterPreviewActionSta
 
   const fileBytes = new Uint8Array(await file.arrayBuffer());
   try {
-    const preview = await computePersonnelRosterPreview(supabase, fileBytes);
+    const preview = await computePersonnelRosterPreview(supabase, fileBytes, companyId);
     if (!preview.ok) {
       return { status: "blocked", message: preview.blockingError ?? "El archivo no pasó la validación.", preview };
     }
@@ -66,8 +77,7 @@ export interface ApplyRosterActionState {
 }
 
 export async function applyPersonnelRosterAction(_prev: ApplyRosterActionState, formData: FormData): Promise<ApplyRosterActionState> {
-  const profile = await requireRosterAdmin();
-  const supabase = await createClient();
+  const { profile, supabase, companyId } = await requireRosterAdmin();
 
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) {
@@ -79,7 +89,7 @@ export async function applyPersonnelRosterAction(_prev: ApplyRosterActionState, 
 
   const fileBytes = new Uint8Array(await file.arrayBuffer());
   try {
-    const result = await applyPersonnelRosterImport(supabase, { fileBytes, actorId: profile.id });
+    const result = await applyPersonnelRosterImport(supabase, { fileBytes, actorId: profile.id, companyId });
     revalidatePath("/empleados");
     revalidatePath("/licencias");
     revalidatePath("/dashboard");
@@ -111,7 +121,7 @@ export async function runWorkeraRosterReconciliationAction(
 ): Promise<WorkeraRosterReconciliationActionState> {
   void _prev;
   void _formData;
-  await requireRosterAdmin();
+  const { supabase, companyId } = await requireRosterAdmin();
 
   let config;
   try {
@@ -139,17 +149,25 @@ export async function runWorkeraRosterReconciliationAction(
     };
   }
 
-  const supabase = await createClient();
+  // Las credenciales Workera actuales pertenecen al conector legacy de
+  // Arcotex. Una selección de tenant en la UI nunca puede redirigir ese
+  // roster global hacia otra empresa.
+  if (companyId !== ARCOTEX_WORKFORCE_COMPANY_ID) {
+    return {
+      status: "error",
+      message: "La integración Workera disponible está vinculada a Arcotex y no puede aplicarse sobre la empresa seleccionada.",
+    };
+  }
   const client = new HttpWorkeraClient({ baseUrl: config.baseUrl, apiUser: config.apiUser, apiKey: config.apiKey, requestTimeoutMs: config.requestTimeoutMs });
 
   try {
-    const result = await bootstrapEmployeesFromRoster(supabase, client);
+    const result = await bootstrapEmployeesFromRoster(supabase, client, companyId);
     revalidatePath("/empleados");
     revalidatePath("/licencias");
     revalidatePath("/dashboard");
     return {
       status: "success",
-      message: `Reconciliación completa: ${result.newlyBootstrapped} nuevos, ${result.promotedFromExcelRoster} promovidos desde el bootstrap de Excel, ${result.alreadyExisting} ya existentes.${result.reconciliationRequired.length > 0 ? ` ${result.reconciliationRequired.length} caso(s) requieren revisión manual.` : ""}`,
+      message: `Reconciliación aplicada de forma atómica: ${result.newlyBootstrapped} nuevos, ${result.promotedToWorkera} promovidos, ${result.alreadyExisting} ya existentes; ${result.statusUpdatedCount} cambio(s) de vigencia, ${result.workeraActiveCount} activos y ${result.workeraInactiveCount} inactivos confirmados por Workera.${result.reconciliationRequired.length > 0 ? ` ${result.reconciliationRequired.length} caso(s) requieren revisión manual.` : ""}`,
       result,
     };
   } catch (err) {

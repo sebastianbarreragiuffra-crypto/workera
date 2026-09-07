@@ -135,6 +135,13 @@ export const RPC_CONSUMER_SURFACES = [
     auditControl: "JOB_LEDGER", dataClass: "SENSITIVE_HR", blockers: ["HOSTED_OBSERVABILITY"],
   },
   {
+    source: "src/lib/business-rules/employee-roster-reconciliation.ts",
+    domain: "workforce", executionIdentity: "SESSION", capability: null,
+    tenantScope: "EXPLICIT_COMPANY", literalRpcs: ["apply_workera_roster_reconciliation"], dynamicRpcs: [],
+    authorization: "Acción RRHH/SUPER_ADMIN resuelve empresa y rol; RPC revalida actor, membresía y tenant antes y después de bloquear.",
+    auditControl: "PARTIAL", dataClass: "SENSITIVE_HR", blockers: ["HOSTED_OBSERVABILITY"],
+  },
+  {
     source: "src/lib/colaciones/discount-workbook-storage.ts",
     domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "LEGACY_ARCOTEX",
     literalRpcs: ["activate_colaciones_discount_workbook"], dynamicRpcs: [],
@@ -180,10 +187,10 @@ export const RPC_CONSUMER_SURFACES = [
   },
   {
     source: "src/lib/employees/personnel-roster-import.ts",
-    domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "LEGACY_ARCOTEX",
+    domain: "workforce", executionIdentity: "SESSION", capability: null, tenantScope: "EXPLICIT_COMPANY",
     literalRpcs: ["apply_personnel_roster_import"], dynamicRpcs: [],
-    authorization: "Acción RRHH y RPC de aplicación transaccional.", auditControl: "PARTIAL",
-    dataClass: "SENSITIVE_HR", blockers: ["LABOR_MULTI_TENANCY", "HOSTED_OBSERVABILITY"],
+    authorization: "Acción RRHH/SUPER_ADMIN resuelve empresa y rol; RPC revalida actor, membresía y tenant y aplica la importación atómicamente.", auditControl: "PARTIAL",
+    dataClass: "SENSITIVE_HR", blockers: ["HOSTED_OBSERVABILITY"],
   },
   {
     source: "src/lib/expense-accounting/repository.ts",

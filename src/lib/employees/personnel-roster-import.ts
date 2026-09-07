@@ -11,7 +11,8 @@ import { mapCargoToGroup, type EmployeeGroupCode } from "./cargo-group-mapping";
  * administrativo -- fuente de MENOR confianza de identidad que Workera
  * (ver `employee-roster-reconciliation.ts`): nunca sobrescribe el nombre de
  * un empleado ya confirmado por Workera, nunca desactiva a un empleado
- * `source='workera'`.
+ * `source='workera'` y tampoco reactiva una baja decidida por Workera o una
+ * ficha provisional. Toda lectura y aplicación exige una empresa explícita.
  *
  * Identidad: RUT normalizado (formato `NNNNNNNN-D`, el mismo que ya exige
  * el CHECK constraint de `employees.rut` desde antes de esta fase). Nunca
@@ -27,6 +28,16 @@ const HEADER_TOKENS = {
   cargo: "cargo",
   fechaNacimiento: "fecha de nacimiento",
 };
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function requireCompanyId(companyId: string): string {
+  const normalized = companyId.trim();
+  if (!UUID_PATTERN.test(normalized)) {
+    throw new Error("El importador de personal requiere una empresa válida.");
+  }
+  return normalized;
+}
 
 function normalizeHeaderCell(value: unknown): string {
   if (typeof value !== "string") return "";
@@ -178,7 +189,13 @@ export function parsePersonnelRosterExcel(fileBytes: Uint8Array): ParsePersonnel
       valid.push(group[0]);
       continue;
     }
-    const distinct = new Set(group.map((r) => `${r.firstName}|${r.lastName}|${r.cargo}`));
+    const distinct = new Set(group.map((r) => JSON.stringify([
+      r.firstName,
+      r.lastName,
+      r.cargo,
+      r.hireDate,
+      r.birthDate,
+    ])));
     if (distinct.size > 1) {
       duplicateRutConflicts.push({ rut, rows: group.map((r) => r.rowNumber) });
     } else {
@@ -200,7 +217,7 @@ export interface PersonnelRosterPreviewRow {
   displayName: string;
   groupCode: EmployeeGroupCode | null;
   status: PersonnelRowStatus;
-  existingSource: "workera" | "excel_roster" | null;
+  existingSource: "workera" | "excel_roster" | "local_provisional" | "other" | null;
 }
 
 export interface PersonnelRosterPreview {
@@ -228,30 +245,92 @@ interface ExistingEmployeeRow {
   last_name: string;
   employee_group_id: string | null;
   hire_date: string | null;
+  updated_at: string;
 }
 
-async function loadReconciliationContext(supabase: SupabaseClient<Database>) {
-  const [{ data: groups, error: groupsError }, { data: employees, error: employeesError }] = await Promise.all([
-    supabase.from("employee_groups").select("id, code"),
-    supabase.from("employees").select("id, rut, active, source, display_name, first_name, last_name, employee_group_id, hire_date"),
+interface ExistingBirthdayRow {
+  employee_id: string;
+  birth_month: number;
+  birth_day: number;
+}
+
+interface PersonnelRosterContext {
+  groupIdByCode: Map<EmployeeGroupCode, string>;
+  employeesByRut: Map<string, ExistingEmployeeRow>;
+  birthdayByEmployeeId: Map<string, ExistingBirthdayRow>;
+  allEmployees: ExistingEmployeeRow[];
+}
+
+async function loadReconciliationContext(
+  supabase: SupabaseClient<Database>,
+  companyId: string,
+): Promise<PersonnelRosterContext> {
+  const [
+    { data: groups, error: groupsError },
+    { data: employees, error: employeesError },
+    { data: birthdays, error: birthdaysError },
+  ] = await Promise.all([
+    supabase.from("employee_groups").select("id, code").eq("company_id", companyId),
+    supabase
+      .from("employees")
+      .select("id, rut, active, source, display_name, first_name, last_name, employee_group_id, hire_date, updated_at")
+      .eq("company_id", companyId),
+    supabase
+      .from("employee_birthdays")
+      .select("employee_id, birth_month, birth_day, employees!inner(company_id)")
+      .eq("employees.company_id", companyId),
   ]);
   if (groupsError) throw new Error(`loadReconciliationContext: fallo leyendo employee_groups: ${groupsError.message}`);
   if (employeesError) throw new Error(`loadReconciliationContext: fallo leyendo employees: ${employeesError.message}`);
+  if (birthdaysError) throw new Error(`loadReconciliationContext: fallo leyendo employee_birthdays: ${birthdaysError.message}`);
 
   const groupIdByCode = new Map((groups ?? []).map((g) => [g.code as EmployeeGroupCode, g.id]));
   const employeesByRut = new Map((employees ?? []).filter((e) => e.rut).map((e) => [e.rut as string, e as ExistingEmployeeRow]));
-  return { groupIdByCode, employeesByRut, allEmployees: (employees ?? []) as ExistingEmployeeRow[] };
+  const birthdayByEmployeeId = new Map((birthdays ?? []).map((birthday) => [
+    birthday.employee_id,
+    birthday as ExistingBirthdayRow,
+  ]));
+  return {
+    groupIdByCode,
+    employeesByRut,
+    birthdayByEmployeeId,
+    allEmployees: (employees ?? []) as ExistingEmployeeRow[],
+  };
 }
 
-function rowChanged(row: ParsedPersonnelRow, existing: ExistingEmployeeRow, resolvedGroupId: string | null): boolean {
+function rowChanged(
+  row: ParsedPersonnelRow,
+  existing: ExistingEmployeeRow,
+  existingBirthday: ExistingBirthdayRow | undefined,
+  resolvedGroupId: string | null,
+): boolean {
   if (existing.employee_group_id !== resolvedGroupId) return true;
   if ((existing.hire_date ?? null) !== (row.hireDate ?? null)) return true;
   if (existing.source === "excel_roster" && existing.display_name !== row.displayName) return true;
+  // Celda vacía significa "sin nueva evidencia": conserva el cumpleaños ya
+  // registrado. Cuando el archivo sí trae fecha, mes/día pasan a ser parte
+  // del plan y deben poder corregirse aunque el resto de la ficha no cambie.
+  if (row.birthDate) {
+    const [, month, day] = row.birthDate.split("-").map(Number);
+    if (!existingBirthday || existingBirthday.birth_month !== month || existingBirthday.birth_day !== day) return true;
+  }
   return false;
 }
 
-export async function computePersonnelRosterPreview(supabase: SupabaseClient<Database>, fileBytes: Uint8Array): Promise<PersonnelRosterPreview> {
-  const parsed = parsePersonnelRosterExcel(fileBytes);
+function existingSourceForPreview(source: string | undefined): PersonnelRosterPreviewRow["existingSource"] {
+  if (!source) return null;
+  if (source === "workera" || source === "excel_roster" || source === "local_provisional") return source;
+  return "other";
+}
+
+function isSupportedPersonnelImportSource(source: string): boolean {
+  return source === "workera" || source === "excel_roster" || source === "local_provisional";
+}
+
+function computePersonnelRosterPreviewFromContext(
+  parsed: ParsePersonnelRosterResult,
+  context: PersonnelRosterContext,
+): PersonnelRosterPreview {
   const problemCount = parsed.issues.length + parsed.duplicateRutConflicts.reduce((sum, c) => sum + c.rows.length, 0);
 
   if (parsed.issues.some((i) => i.reason === "HEADER_NOT_FOUND")) {
@@ -289,21 +368,86 @@ export async function computePersonnelRosterPreview(supabase: SupabaseClient<Dat
     };
   }
 
-  const { groupIdByCode, employeesByRut, allEmployees } = await loadReconciliationContext(supabase);
+  // Este archivo es una foto autoritativa para las filas `excel_roster`: una
+  // ficha activa ausente del conjunto válido se propone para desactivación.
+  // Por eso no es seguro aplicar sólo las filas bien formadas. Una fila con
+  // RUT o identidad inválida podría corresponder justamente a una persona ya
+  // existente y convertir un error de planilla en una baja falsa.
+  if (parsed.issues.length > 0) {
+    return {
+      ok: false,
+      blockingError: `Hay ${parsed.issues.length} fila(s) con campos obligatorios ausentes o RUT inválido. Corrige la planilla antes de continuar.`,
+      totalInFile: parsed.valid.length,
+      newCount: 0,
+      updatedCount: 0,
+      unchangedCount: 0,
+      reactivatedCount: 0,
+      toDeactivateCount: 0,
+      unassignedCount: 0,
+      problemCount,
+      rows: [],
+      toDeactivate: [],
+    };
+  }
+
+  if (parsed.valid.length === 0) {
+    return {
+      ok: false,
+      blockingError: "La planilla no contiene ninguna fila válida de personal. No se aplicará un padrón vacío.",
+      totalInFile: 0,
+      newCount: 0,
+      updatedCount: 0,
+      unchangedCount: 0,
+      reactivatedCount: 0,
+      toDeactivateCount: 0,
+      unassignedCount: 0,
+      problemCount,
+      rows: [],
+      toDeactivate: [],
+    };
+  }
+
+  const unsupportedSourceCount = parsed.valid.reduce((count, row) => {
+    const existing = context.employeesByRut.get(row.rut);
+    return count + (existing && !isSupportedPersonnelImportSource(existing.source) ? 1 : 0);
+  }, 0);
+  if (unsupportedSourceCount > 0) {
+    return {
+      ok: false,
+      blockingError: "Hay trabajadores cuya fuente no puede ser reconciliada por el importador Excel. Revisa el origen antes de continuar.",
+      totalInFile: parsed.valid.length,
+      newCount: 0,
+      updatedCount: 0,
+      unchangedCount: 0,
+      reactivatedCount: 0,
+      toDeactivateCount: 0,
+      unassignedCount: 0,
+      problemCount: problemCount + unsupportedSourceCount,
+      rows: [],
+      toDeactivate: [],
+    };
+  }
 
   const rows: PersonnelRosterPreviewRow[] = parsed.valid.map((row) => {
-    const resolvedGroupId = row.groupCode ? (groupIdByCode.get(row.groupCode) ?? null) : null;
-    const existing = employeesByRut.get(row.rut) ?? null;
+    const resolvedGroupId = row.groupCode ? (context.groupIdByCode.get(row.groupCode) ?? null) : null;
+    const existing = context.employeesByRut.get(row.rut) ?? null;
     let status: PersonnelRowStatus;
     if (!existing) status = "NEW";
-    else if (!existing.active) status = "REACTIVATED";
-    else if (rowChanged(row, existing, resolvedGroupId)) status = "UPDATED";
+    else if (!existing.active && existing.source === "excel_roster") status = "REACTIVATED";
+    else if (rowChanged(row, existing, context.birthdayByEmployeeId.get(existing.id), resolvedGroupId)) status = "UPDATED";
     else status = "UNCHANGED";
-    return { rowNumber: row.rowNumber, rut: row.rut, displayName: row.displayName, groupCode: row.groupCode, status, existingSource: (existing?.source as "workera" | "excel_roster") ?? null };
+    return {
+      rowNumber: row.rowNumber,
+      rut: row.rut,
+      displayName: row.displayName,
+      groupCode: row.groupCode,
+      status,
+      existingSource: existingSourceForPreview(existing?.source),
+    };
   });
 
   const confirmedRuts = new Set(parsed.valid.map((r) => r.rut));
-  const toDeactivate = allEmployees
+  const toDeactivate = context.allEmployees
     .filter((e) => e.source === "excel_roster" && e.active && e.rut && !confirmedRuts.has(e.rut))
     .map((e) => ({ employeeId: e.id, displayName: e.display_name }));
 
@@ -323,6 +467,17 @@ export async function computePersonnelRosterPreview(supabase: SupabaseClient<Dat
   };
 }
 
+export async function computePersonnelRosterPreview(
+  supabase: SupabaseClient<Database>,
+  fileBytes: Uint8Array,
+  companyId: string,
+): Promise<PersonnelRosterPreview> {
+  const normalizedCompanyId = requireCompanyId(companyId);
+  const parsed = parsePersonnelRosterExcel(fileBytes);
+  const context = await loadReconciliationContext(supabase, normalizedCompanyId);
+  return computePersonnelRosterPreviewFromContext(parsed, context);
+}
+
 export interface ApplyPersonnelRosterImportResult {
   insertedCount: number;
   updatedCount: number;
@@ -332,33 +487,42 @@ export interface ApplyPersonnelRosterImportResult {
 
 /**
  * Re-parsea/re-calcula todo desde los bytes reales (nunca confía en los
- * conteos que muestre el cliente) y ejecuta la función atómica. Precedencia
+ * conteos que muestre el cliente), construye el plan desde un único snapshot
+ * de empleados y ejecuta la función atómica. Cada update/baja incluye la
+ * versión previa leída; el RPC la revalida bajo lock y rechaza el plan si quedó
+ * obsoleto. Precedencia
  * de fuentes: para un empleado `source='workera'` ya existente, NUNCA se
  * envían first_name/last_name/display_name en el update -- solo
  * grupo/fecha de ingreso, que Workera no provee (ver comentario en la
  * migración `20260826100000_employee_roster_bootstrap.sql`).
+ * Un update sólo lleva `reactivate='true'` cuando la fila existente proviene
+ * de `excel_roster`; para Workera/provisionales la ausencia del flag obliga al
+ * RPC a conservar `active` tal como estaba.
  */
 export async function applyPersonnelRosterImport(
   supabase: SupabaseClient<Database>,
-  params: { fileBytes: Uint8Array; actorId: string }
+  params: { fileBytes: Uint8Array; actorId: string; companyId: string },
 ): Promise<ApplyPersonnelRosterImportResult> {
-  const preview = await computePersonnelRosterPreview(supabase, params.fileBytes);
+  const normalizedCompanyId = requireCompanyId(params.companyId);
+  const parsed = parsePersonnelRosterExcel(params.fileBytes);
+  const context = await loadReconciliationContext(supabase, normalizedCompanyId);
+  const preview = computePersonnelRosterPreviewFromContext(parsed, context);
   if (!preview.ok) {
     throw new Error(preview.blockingError ?? "El archivo no pasó la validación.");
   }
 
-  const parsed = parsePersonnelRosterExcel(params.fileBytes);
-  const { groupIdByCode, employeesByRut } = await loadReconciliationContext(supabase);
   const statusByRowNumber = new Map(preview.rows.map((r) => [r.rowNumber, r.status]));
 
-  const insertRows: Record<string, string> [] = [];
-  const updateRows: Record<string, string>[] = [];
+  const insertRows: Record<string, string | boolean>[] = [];
+  const updateRows: Record<string, string | boolean>[] = [];
 
   for (const row of parsed.valid) {
     const status = statusByRowNumber.get(row.rowNumber);
-    if (status === "UNCHANGED") continue;
+    if (!status) {
+      throw new Error("El roster cambió mientras se preparaba el plan completo. Vuelve a revisar el archivo.");
+    }
 
-    const resolvedGroupId = row.groupCode ? (groupIdByCode.get(row.groupCode) ?? "") : "";
+    const resolvedGroupId = row.groupCode ? (context.groupIdByCode.get(row.groupCode) ?? "") : "";
     const [birthYear, birthMonth, birthDay] = row.birthDate ? row.birthDate.split("-") : [null, null, null];
 
     if (status === "NEW") {
@@ -375,40 +539,81 @@ export async function applyPersonnelRosterImport(
     }
 
     // UPDATED o REACTIVATED
-    const existing = employeesByRut.get(row.rut);
-    if (!existing) continue;
-    const base: Record<string, string> = {
+    const existing = context.employeesByRut.get(row.rut);
+    if (!existing) {
+      throw new Error("El roster cambió mientras se preparaba la actualización. Vuelve a revisar el archivo.");
+    }
+    const base: Record<string, string | boolean> = {
       id: existing.id,
       employee_group_id: resolvedGroupId,
       hire_date: row.hireDate ?? "",
+      prior_rut: existing.rut ?? "",
+      prior_source: existing.source,
+      prior_active: existing.active,
+      prior_updated_at: existing.updated_at,
     };
     if (existing.source === "excel_roster") {
       base.first_name = row.firstName;
       base.last_name = row.lastName;
       base.display_name = row.displayName;
     }
+    if (status === "REACTIVATED" && existing.source === "excel_roster") {
+      base.reactivate = "true";
+    }
     if (birthMonth && birthDay) {
+      const existingBirthday = context.birthdayByEmployeeId.get(existing.id);
       base.birth_month = String(Number(birthMonth));
       base.birth_day = String(Number(birthDay));
+      base.prior_birth_month = existingBirthday ? String(existingBirthday.birth_month) : "";
+      base.prior_birth_day = existingBirthday ? String(existingBirthday.birth_day) : "";
     }
     void birthYear;
     updateRows.push(base);
   }
 
-  const { error } = await supabase.rpc("apply_personnel_roster_import", {
+  const deactivateRows = preview.toDeactivate.map(({ employeeId }) => {
+    const existing = context.allEmployees.find((employee) => employee.id === employeeId);
+    if (!existing) {
+      throw new Error("El roster cambió mientras se preparaba la desactivación. Vuelve a revisar el archivo.");
+    }
+    return {
+      id: existing.id,
+      prior_rut: existing.rut ?? "",
+      prior_source: existing.source,
+      prior_active: existing.active,
+      prior_updated_at: existing.updated_at,
+    };
+  });
+
+  const rpcArguments = {
+    p_company_id: normalizedCompanyId,
+    p_confirmed_ruts: parsed.valid.map((row) => row.rut),
     p_insert_rows: insertRows,
     p_update_rows: updateRows,
-    p_deactivate_ids: preview.toDeactivate.map((d) => d.employeeId),
+    p_deactivate_ids: deactivateRows,
     p_actor_id: params.actorId,
-  });
+  };
+  const { data, error } = await supabase.rpc("apply_personnel_roster_import", rpcArguments);
   if (error) {
     throw new Error(`applyPersonnelRosterImport: fallo aplicando el roster (nada se guardó, el roster anterior sigue vigente): ${error.message}`);
   }
 
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("applyPersonnelRosterImport: la base no confirmó el resultado de la reconciliación.");
+  }
+  const result = data as Record<string, unknown>;
+  const readCount = (key: string): number => {
+    const value = result[key];
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+      throw new Error("applyPersonnelRosterImport: la base devolvió un resultado inválido.");
+    }
+    return value;
+  };
+
   return {
-    insertedCount: preview.newCount,
-    updatedCount: preview.updatedCount,
-    reactivatedCount: preview.reactivatedCount,
-    deactivatedCount: preview.toDeactivateCount,
+    insertedCount: readCount("inserted_count"),
+    updatedCount: readCount("updated_count"),
+    reactivatedCount: readCount("reactivated_count"),
+    deactivatedCount: readCount("deactivated_count"),
   };
 }

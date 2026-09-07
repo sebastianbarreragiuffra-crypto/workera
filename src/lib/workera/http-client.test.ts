@@ -102,6 +102,29 @@ test("headers de la request son API_USER / API_KEY, con los valores configurados
   assert.equal(capturedHeaders!.get("API_KEY"), TEST_CONFIG.apiKey);
 });
 
+test("HttpWorkeraClient rechaza una base HTTP antes de enviar credenciales", () => {
+  assert.throws(
+    () => new HttpWorkeraClient({ ...TEST_CONFIG, baseUrl: "http://workera.example.test/apiClient/v1" }),
+    WorkeraConfigurationError,
+  );
+});
+
+test("requests Workera prohíben redirects para no reenviar API_USER/API_KEY a otro origen", async () => {
+  let redirectPolicy: RequestRedirect | undefined;
+  await withMockFetch(
+    async (_url, init) => {
+      redirectPolicy = init?.redirect;
+      return jsonResponse(200, VALID_PAYLOAD);
+    },
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await client.getAttendanceEvents({ start: "2026-08-18", end: "2026-08-18" });
+    },
+  );
+
+  assert.equal(redirectPolicy, "error");
+});
+
 test("query params: start/end/page se envían; branchOffice/department/employees/attTypes solo si se pasan", async () => {
   let capturedUrl: string | undefined;
   await withMockFetch(
@@ -643,7 +666,7 @@ test("getAllEmployeeRoster: recorre todas las páginas, no se detiene en page 1"
       const url = new URL(typeof input === "string" ? input : (input as Request).url);
       const page = Number(url.searchParams.get("page"));
       requestedPages.push(page);
-      return jsonResponse(200, { ...VALID_ROSTER_PAYLOAD, page, totalPages: 3, data: [VALID_ROSTER_PAYLOAD.data[0]] });
+      return jsonResponse(200, { ...VALID_ROSTER_PAYLOAD, page, totalPages: 3, pageResult: 1, totalResult: 3, data: [VALID_ROSTER_PAYLOAD.data[0]] });
     },
     async () => {
       const client = new HttpWorkeraClient(TEST_CONFIG);
@@ -660,12 +683,53 @@ test("getAllEmployeeRoster: protección de límite de páginas -> WorkeraValidat
     async (input) => {
       const url = new URL(typeof input === "string" ? input : (input as Request).url);
       const page = Number(url.searchParams.get("page"));
-      return jsonResponse(200, { ...VALID_ROSTER_PAYLOAD, page, totalPages: 1000, data: [VALID_ROSTER_PAYLOAD.data[0]] });
+      return jsonResponse(200, { ...VALID_ROSTER_PAYLOAD, page, totalPages: 1000, pageResult: 1, totalResult: 1000, data: [VALID_ROSTER_PAYLOAD.data[0]] });
     },
     async () => {
       const client = new HttpWorkeraClient(TEST_CONFIG);
       await assert.rejects(() => client.getAllEmployeeRoster({}, { maxPages: 3 }), WorkeraValidationError);
     }
+  );
+});
+
+test("getAllEmployeeRoster: rechaza totalPages/totalResult que cambian entre páginas", async () => {
+  await withMockFetch(
+    async (input) => {
+      const url = new URL(typeof input === "string" ? input : (input as Request).url);
+      const page = Number(url.searchParams.get("page"));
+      return jsonResponse(200, {
+        ...VALID_ROSTER_PAYLOAD,
+        page,
+        totalPages: page === 1 ? 2 : 1,
+        pageResult: 1,
+        totalResult: 2,
+        data: [VALID_ROSTER_PAYLOAD.data[0]],
+      });
+    },
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await assert.rejects(() => client.getAllEmployeeRoster(), WorkeraValidationError);
+    },
+  );
+});
+
+test("getAllEmployeeRoster: rechaza pageResult distinto de la cantidad recibida", async () => {
+  await withMockFetch(
+    async () => jsonResponse(200, { ...VALID_ROSTER_PAYLOAD, pageResult: 99 }),
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await assert.rejects(() => client.getAllEmployeeRoster(), WorkeraValidationError);
+    },
+  );
+});
+
+test("getAllEmployeeRoster: rechaza una cantidad agregada distinta de totalResult", async () => {
+  await withMockFetch(
+    async () => jsonResponse(200, { ...VALID_ROSTER_PAYLOAD, totalResult: 3 }),
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await assert.rejects(() => client.getAllEmployeeRoster(), WorkeraValidationError);
+    },
   );
 });
 
