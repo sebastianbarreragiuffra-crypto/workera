@@ -1,7 +1,10 @@
 import { type NextRequest } from "next/server";
+import { enforceEdgeRateLimit } from "@/lib/shared/edge-rate-limit";
 import { updateSession } from "@/lib/supabase/middleware";
 
 export async function proxy(request: NextRequest) {
+  const limited = await enforceEdgeRateLimit(request);
+  if (limited) return limited;
   return await updateSession(request);
 }
 

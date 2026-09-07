@@ -27,6 +27,7 @@ export type ServerActionAuditControl =
 export type ServerActionBlocker =
   | "ANTIMALWARE_PROVIDER"
   | "APPLICATION_RATE_LIMIT"
+  | "EDGE_RATE_LIMIT"
   | "HOSTED_AUTH_CONTROLS"
   | "HOSTED_OBSERVABILITY"
   | "LABOR_MULTI_TENANCY";
@@ -55,7 +56,7 @@ export const SERVER_ACTION_SURFACES = [
     domain: "identity", tenantScope: "NONE", authentication: "PUBLIC_AUTH_FLOW",
     authorizationEvidence: ["supabase.auth.signInWithPassword", "supabase.auth.signInWithOAuth", "supabase.auth.signOut"],
     validation: "ZOD", uploadMaxBytes: null, abuseControl: "AUTH_PROVIDER_UNVERIFIED",
-    auditControl: "AUTH_PROVIDER", dataClass: "AUTH", blockers: ["HOSTED_AUTH_CONTROLS"],
+    auditControl: "AUTH_PROVIDER", dataClass: "AUTH", blockers: ["EDGE_RATE_LIMIT", "HOSTED_AUTH_CONTROLS"],
   },
   {
     source: "src/app/login/mfa/actions.ts",
