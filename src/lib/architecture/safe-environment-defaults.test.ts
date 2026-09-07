@@ -21,6 +21,8 @@ test("la configuracion de ejemplo mantiene inactivos los proveedores reales", ()
     WORKERA_SYNC_ENABLED: "false",
     EXPENSE_FILE_SCAN_ENABLED: "false",
     EXPENSE_FILE_SCAN_PROVIDER: "disabled",
+    EXPENSE_FILE_SCAN_EXTERNAL_TRANSFER_APPROVED: "false",
+    EXPENSE_FILE_SCAN_MONITOR_EXPECT_ENABLED: "false",
     EXPENSE_FILE_SCAN_ALLOW_FIXTURE: "false",
     SUPPORTING_DOCUMENT_CLEANUP_ENABLED: "false",
     SUPPORTING_DOCUMENT_CLEANUP_MONITOR_EXPECT_ENABLED: "false",

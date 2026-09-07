@@ -159,8 +159,13 @@ export const READINESS_GATES = [
     title: "Antimalware/CDR conectado a cuarentena",
     status: "OPEN_CODE",
     owner: "Security / Expenses",
-    evidence: ["docs/EXPENSE_FILE_QUARANTINE.md", "src/lib/expense-file-scan/worker.ts"],
-    nextAction: "Seleccionar adapter real, definir retención y probar canarios del proveedor en staging aislado.",
+    evidence: [
+      "docs/EXPENSE_FILE_QUARANTINE.md",
+      "docs/EXPENSE_FILE_SCAN_PROVIDER_RUNBOOK.md",
+      "src/lib/expense-file-scan/cloudmersive.ts",
+      "src/lib/expense-file-scan/worker.ts",
+    ],
+    nextAction: "Aprobar tenant/contrato/DPA, implementar breaker y requeue compartidos, cubrir documentos laborales y probar canarios alojados.",
   },
   {
     id: "EXPORT_AUDIT",
