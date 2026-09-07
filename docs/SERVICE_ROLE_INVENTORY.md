@@ -26,6 +26,7 @@ aparezca en los archivos declarados.
 | `expense-bank-import` | Importación bancaria | Sesión y permiso; RPC revalida actor/empresa |
 | `expense-accounting-worker` | Outbox contable | `CRON_SECRET`, flag y RPC fenced sin tablas directas |
 | `expense-assistant-retention` | Purga del asistente | `CRON_SECRET` y una única RPC de retención |
+| `workera-roster-status-audit` | Auditoría local de vigencia Workera | Operador local; sólo lectura mínima y alcance fijo al tenant laboral ARCOTEX |
 
 ## Regla para cambios
 

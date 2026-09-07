@@ -6,9 +6,8 @@ import path from "node:path";
 /**
  * Prueba estática (mismo criterio que `licencias/actions.test.ts` y
  * `admin/app-admin-authorization.test.ts`): las tres Server Actions de
- * roster verifican `requireRosterAdmin()` (SUPER_ADMIN/ADMIN_RRHH,
- * respaldado por RLS `employees_write_admin` -- probado exhaustivamente en
- * `supabase/tests/031_employee_roster_bootstrap.sql`) ANTES de tocar la
+ * roster verifican `requireRosterAdmin()` (rol ADMIN_RRHH/SUPER_ADMIN de la
+ * empresa activa, respaldado nuevamente por RLS) ANTES de tocar la
  * base de datos, y nunca leen un campo forjable del cliente para decidir
  * autorización.
  */
@@ -41,18 +40,46 @@ test("previewPersonnelRosterAction/applyPersonnelRosterAction/runWorkeraRosterRe
   }
 });
 
-test("requireRosterAdmin() exige exactamente SUPER_ADMIN o ADMIN_RRHH -- nunca un supervisor", () => {
+test("requireRosterAdmin() no hereda autoridad desde profiles.role de otro tenant", () => {
   const content = readSource();
   const fnStart = content.indexOf("async function requireRosterAdmin");
-  const fnBody = content.slice(fnStart, fnStart + 400);
-  assert.match(fnBody, /role !== "SUPER_ADMIN" && profile\.role !== "ADMIN_RRHH"/);
-  assert.doesNotMatch(fnBody, /SUPERVISOR/);
+  const fnEnd = content.indexOf("\nexport ", fnStart + 1);
+  const fnBody = content.slice(fnStart, fnEnd === -1 ? undefined : fnEnd);
+  assert.doesNotMatch(fnBody, /profile\.role\s*[!=]/);
+  assert.match(fnBody, /resolvePayrollCompanyRole\(/);
+  assert.match(fnBody, /\["ADMIN_RRHH", "SUPER_ADMIN"\]/);
+});
+
+test("requireRosterAdmin() vuelve a comprobar el rol dentro de la empresa seleccionada", () => {
+  const content = readSource();
+  const fnStart = content.indexOf("async function requireRosterAdmin");
+  const fnEnd = content.indexOf("\nexport ", fnStart + 1);
+  const fnBody = content.slice(fnStart, fnEnd === -1 ? undefined : fnEnd);
+
+  assert.match(fnBody, /resolvePayrollCompanyRole\(/);
+  assert.match(fnBody, /workforceCompany\.companyId/);
+  assert.match(fnBody, /\["ADMIN_RRHH", "SUPER_ADMIN"\]/);
 });
 
 test("las Server Actions de roster nunca leen un campo del formData para decidir autorización (ni role, ni isAdmin)", () => {
   const content = readSource();
   assert.doesNotMatch(content, /formData\.get\(["']role["']\)/);
   assert.doesNotMatch(content, /formData\.get\(["']isAdmin["']\)/);
+});
+
+test("la reconciliación Workera deriva la empresa autorizada en servidor y bloquea aplicar las credenciales Arcotex a otro tenant", () => {
+  const content = readSource();
+  const authStart = content.indexOf("async function requireRosterAdmin");
+  const authEnd = content.indexOf("\nexport ", authStart + 1);
+  const authBody = content.slice(authStart, authEnd === -1 ? undefined : authEnd);
+  const fnStart = content.indexOf("export async function runWorkeraRosterReconciliationAction");
+  const fnEnd = content.indexOf("\nexport ", fnStart + 1);
+  const fnBody = content.slice(fnStart, fnEnd === -1 ? undefined : fnEnd);
+
+  assert.match(authBody, /resolveActiveWorkforceCompany\(supabase\)/);
+  assert.match(fnBody, /companyId !== ARCOTEX_WORKFORCE_COMPANY_ID/);
+  assert.match(fnBody, /bootstrapEmployeesFromRoster\(supabase, client, companyId\)/);
+  assert.doesNotMatch(fnBody, /formData\.get\(["']company/i);
 });
 
 test("runWorkeraRosterReconciliationAction nunca deja escapar WorkeraConfigurationError -- en producción (Vercel) getWorkeraConfig() es fail-closed y LANZA si el provider no es 'http' (auditoría de Vercel readiness: WORKERA_PROVIDER=mock es el valor seguro de staging)", () => {

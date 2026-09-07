@@ -5789,11 +5789,22 @@ export type Database = {
       apply_personnel_roster_import: {
         Args: {
           p_actor_id: string
+          p_company_id: string
+          p_confirmed_ruts: Json
           p_deactivate_ids: Json
           p_insert_rows: Json
           p_update_rows: Json
         }
-        Returns: undefined
+        Returns: Json
+      }
+      apply_workera_roster_reconciliation: {
+        Args: {
+          p_company_id: string
+          p_insert_rows: Json
+          p_promotions: Json
+          p_status_updates: Json
+        }
+        Returns: Json
       }
       apply_schedule_assignment: {
         Args: {

@@ -21,6 +21,7 @@ import {
   WorkeraServerError,
 } from "./errors";
 import { createCorrelationId, logWorkeraEvent } from "./logging";
+import { requireSecureWorkeraBaseUrl } from "./config";
 
 export interface HttpWorkeraClientConfig {
   /** Ej. "https://workera.com/apiClient/v1" (sin slash final). */
@@ -65,7 +66,11 @@ export interface GetAttendanceEventsParams {
  * confirmado — el método real y probado es `getAttendanceEvents`.
  */
 export class HttpWorkeraClient implements WorkeraClient {
-  constructor(private readonly config: HttpWorkeraClientConfig) {}
+  private readonly config: HttpWorkeraClientConfig;
+
+  constructor(config: HttpWorkeraClientConfig) {
+    this.config = { ...config, baseUrl: requireSecureWorkeraBaseUrl(config.baseUrl) };
+  }
 
   async getEmployees(_options?: WorkeraListOptions): Promise<WorkeraListResult<NormalizedEmployee>> {
     void _options;
@@ -111,6 +116,9 @@ export class HttpWorkeraClient implements WorkeraClient {
           API_KEY: this.config.apiKey,
           Accept: "application/json",
         },
+        // Los headers API_USER/API_KEY son personalizados y Node los conserva
+        // incluso en redirects cross-origin. Nunca seguir un 30x con secretos.
+        redirect: "error",
         signal: controller.signal,
       });
     } catch (err) {
@@ -259,6 +267,8 @@ export class HttpWorkeraClient implements WorkeraClient {
     let totalPages = 1;
     let totalResult = 0;
     let pagesFetched = 0;
+    let expectedTotalPages: number | null = null;
+    let expectedTotalResult: number | null = null;
 
     while (currentPage <= totalPages) {
       if (pagesFetched >= maxPages) {
@@ -269,19 +279,44 @@ export class HttpWorkeraClient implements WorkeraClient {
       }
 
       const result = await this.getEmployeeRoster({ ...params, page: currentPage });
-      allEmployees.push(...result.employees);
-      totalPages = result.totalPages;
-      totalResult = result.totalResult;
-      pagesFetched += 1;
-
       if (result.page !== currentPage) {
         throw new WorkeraValidationError(
           `getAllEmployeeRoster: se solicitó page=${currentPage} pero Workera devolvió page=${result.page}.`,
           []
         );
       }
+      if (result.pageResult !== result.employees.length) {
+        throw new WorkeraValidationError(
+          `getAllEmployeeRoster: pageResult=${result.pageResult} no coincide con data.length=${result.employees.length} en page=${currentPage}.`,
+          []
+        );
+      }
+      if (expectedTotalPages === null) {
+        expectedTotalPages = result.totalPages;
+        expectedTotalResult = result.totalResult;
+      } else if (
+        result.totalPages !== expectedTotalPages ||
+        result.totalResult !== expectedTotalResult
+      ) {
+        throw new WorkeraValidationError(
+          `getAllEmployeeRoster: la metadata totalPages/totalResult cambió durante la paginación en page=${currentPage}.`,
+          []
+        );
+      }
+
+      allEmployees.push(...result.employees);
+      totalPages = expectedTotalPages;
+      totalResult = expectedTotalResult ?? 0;
+      pagesFetched += 1;
 
       currentPage += 1;
+    }
+
+    if (allEmployees.length !== totalResult) {
+      throw new WorkeraValidationError(
+        `getAllEmployeeRoster: se recibieron ${allEmployees.length} empleados, pero totalResult declaró ${totalResult}.`,
+        []
+      );
     }
 
     return { employees: allEmployees, pagesFetched, totalResult };

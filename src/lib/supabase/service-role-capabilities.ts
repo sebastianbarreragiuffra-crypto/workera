@@ -134,6 +134,12 @@ export const SERVICE_ROLE_CAPABILITIES = {
     authorization: "Operador local con .env.staging, slug ARCOTEX fijo y --apply explícito; bloquea cualquier estado crudo fuera de la allowlist documentada.",
     resources: ["Lectura de eventos ARCOTEX y RPC versionados begin/upsert/finish de sync para un único día"],
   },
+  "workera-roster-status-audit": {
+    consumers: ["src/lib/staging-preflight/workera-roster-status-service.ts"],
+    entrypoints: ["OPERATOR_SCRIPT"],
+    authorization: "Operador local con credenciales de staging; alcance fijo al tenant laboral ARCOTEX y salida exclusivamente agregada.",
+    resources: ["employees SELECT de external_workera_id/source/active, acotado por company_id ARCOTEX"],
+  },
 } as const;
 
 export type ServiceRoleCapability = keyof typeof SERVICE_ROLE_CAPABILITIES;

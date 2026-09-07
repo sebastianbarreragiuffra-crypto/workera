@@ -69,7 +69,7 @@ test("todo consumidor RPC esta inventariado con sus nombres exactos", () => {
     ...surface.dynamicRpcs,
   ]));
   assert.equal(RPC_CONSUMER_SURFACES.length, 48);
-  assert.equal(registeredNames.length, 121);
+  assert.equal(registeredNames.length, 123);
 });
 
 test("los RPC dinamicos tienen un conjunto cerrado comprobable", () => {
