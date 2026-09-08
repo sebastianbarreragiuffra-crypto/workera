@@ -1,8 +1,10 @@
 # Modelo de accesos — Fase 5D (SUPER_ADMIN + 4 tipos de rol)
 
+> **Documento histórico, no autoridad vigente para decisiones laborales.** El modelo final 2026 limita `SUPER_ADMIN` a administración técnica, lectura y auditoría; no puede aprobar, rechazar, reemplazar decisiones de asistencia ni cerrar/reabrir/aprobar la pre-nómina. Esas facultades empresariales corresponden a la membresía `ADMIN_RRHH`. Las afirmaciones incompatibles que siguen documentan la evolución de la fase y quedaron reemplazadas por `docs/BUSINESS_RULES_GATE_D.md` y las migraciones finales de autoridad laboral.
+
 Estado: `IMPLEMENTED` a nivel de base de datos (RLS) y de backend server-only (gestión de usuarios). Verificado con 39 pruebas pgTAP nuevas (251/251 totales) y las 212 preexistentes sin modificar. **Sin UI todavía** — ver sección final.
 
-**Advertencia obligatoria**: `SUPER_ADMIN` administra **esta aplicación web** (Workera Supervisor App) — usuarios, roles, configuración, correcciones auditadas, cierre/reapertura de períodos. `SUPER_ADMIN` **no es** un administrador de la cuenta de Workera ni de su API — son dos sistemas separados y no deben confundirse (ver sección 7).
+**Advertencia de vigencia**: `SUPER_ADMIN` administra técnicamente **esta aplicación web** (usuarios, roles, configuración, lectura y auditoría). Las migraciones finales retiraron sus facultades empresariales sobre correcciones, decisiones y cierre/reapertura; esas acciones corresponden a `ADMIN_RRHH`. `SUPER_ADMIN` tampoco es administrador de la cuenta de Workera ni de su API.
 
 ## 1. Cuatro TIPOS de rol, no cuatro cuentas hardcodeadas
 
@@ -21,10 +23,15 @@ El enum define **tipos** de acceso — cuántas cuentas existan de cada tipo es 
 
 - `is_super_admin()` — chequeo de identidad exacta: ¿el usuario actual es `SUPER_ADMIN`?
 - `is_admin_rrhh()` — sin cambios: chequeo de identidad exacta, ¿es `ADMIN_RRHH`? Nunca devuelve `true` para un `SUPER_ADMIN` (sería engañoso).
-- `is_privileged_admin()` — **nuevo**, el gate administrativo real: `is_super_admin() OR is_admin_rrhh()`. Reemplaza a `is_admin_rrhh()` en toda policy RLS que antes representaba "acceso administrativo amplio" — `SUPER_ADMIN` hereda automáticamente todo lo que ya tenía `ADMIN_RRHH` en esas tablas, sin duplicar la condición `OR` en cada policy.
-- `can_manage_employee(employee_id)` — redefinido para componer sobre `is_privileged_admin()` en vez de `is_admin_rrhh()` directamente; mismo comportamiento previo para `ADMIN_RRHH`, ahora también compone `SUPER_ADMIN`.
+- `is_privileged_admin()` — helper histórico para administración técnica amplia. No concede por sí solo autoridad laboral en las políticas finales.
+- `can_manage_employee(employee_id)` — la versión vigente ya no compone sobre `is_privileged_admin()`: autoriza decisiones laborales únicamente a `ADMIN_RRHH` o al supervisor del área histórica aplicable.
 
-## 3. Matriz de accesos
+## 3. Matriz histórica de accesos de Fase 5D
+
+La tabla siguiente conserva la evidencia de aquella fase y no debe usarse como
+matriz vigente de decisiones laborales. En la versión final, cualquier `W`
+empresarial de `SUPER_ADMIN` sobre decisiones, correcciones o cierre se considera
+retirado; solo conserva administración técnica, lectura y auditoría.
 
 `R` = lectura amplia · `W` = escritura administrativa amplia · `S` = scoped a su grupo (Producción/Instalación) · `—` = sin acceso vía la aplicación (incluye `SUPER_ADMIN`, cuando aplica)
 
@@ -55,7 +62,7 @@ El enum define **tipos** de acceso — cuántas cuentas existan de cada tipo es 
 - **Borrar `audit_log`**: el trigger `enforce_immutable_columns()` (Fase 3) bloquea `UPDATE`; nunca hubo `GRANT DELETE` (`grants_lockdown`, Fase 3). Ninguno de los dos se tocó en esta fase.
 - **Alterar snapshots históricos de forma destructiva**: `weekly_review_snapshots`/`period_snapshots` siguen sin policy de `UPDATE`/`DELETE` para `authenticated`.
 - **Modificar registros fuente de Workera directamente**: ídem `attendance_records`.
-- **Eliminar historial de decisiones para ocultar cambios**: `overtime_decisions`/`late_arrival_decisions`/`absence_decisions`/`attendance_corrections` siguen siendo append-only (solo `is_current` es mutable, trigger de inmutabilidad ya existente desde Fase 2A/3) — un `SUPER_ADMIN` puede invalidar la vigente (mismo mecanismo que ya tenía `ADMIN_RRHH`), nunca editar ni borrar una fila.
+- **Eliminar historial de decisiones para ocultar cambios**: `overtime_decisions`/`late_arrival_decisions`/`absence_decisions`/`attendance_corrections` siguen siendo append-only. En la versión final solo `ADMIN_RRHH` puede reemplazar o invalidar una decisión vigente; `SUPER_ADMIN` puede auditarla, nunca editarla, borrarla ni invalidarla.
 
 Las correcciones de marcaciones siguen usando exclusivamente `attendance_corrections` (Gate D), preservando `original`/`correction`/`reason`/`actor`/`timestamp`.
 

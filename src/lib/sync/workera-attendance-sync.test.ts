@@ -4,6 +4,8 @@ import { syncWorkeraAttendance } from "./workera-attendance-sync";
 import { HttpWorkeraClient } from "../workera/http-client";
 import type { NormalizedWorkeraAttendanceEvent } from "../workera/types/attendance-event";
 
+const COMPANY_ID = "0a4c0000-0000-0000-0000-000000000001";
+
 /**
  * Mock mínimo de un cliente Supabase estilo PostgREST: cada `.from(table)`
  * arma una cadena `select/insert/update/in/eq/single` y resuelve al hacerle
@@ -13,7 +15,7 @@ import type { NormalizedWorkeraAttendanceEvent } from "../workera/types/attendan
  */
 interface MockCall {
   table: string;
-  op: "select" | "insert" | "update";
+  op: "select" | "insert" | "update" | "rpc";
   payload?: unknown;
   in?: unknown;
   eq?: unknown;
@@ -27,6 +29,12 @@ function createMockSupabase(handlers: {
   eventsUpdate?: (id: unknown, patch: unknown) => { error: { message: string } | null };
   syncRunInsert?: () => { data: { id: string } | null; error: { message: string } | null };
   syncRunUpdate?: (patch: unknown) => { error: { message: string } | null };
+  syncRunBegin?: (args: Record<string, unknown>) => { data: string | null; error: { message: string } | null };
+  syncRunFinish?: (args: Record<string, unknown>) => { data: boolean; error: { message: string } | null };
+  eventUpsert?: (args: Record<string, unknown>) => {
+    data: "INSERTED" | "VERSIONED" | "UNCHANGED" | null;
+    error: { message: string } | null;
+  };
 }) {
   const calls: MockCall[] = [];
 
@@ -89,16 +97,30 @@ function createMockSupabase(handlers: {
       single() {
         return builder;
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      then(onResolve: any) {
+      then(onResolve: (value: ReturnType<typeof resolve>) => unknown) {
         onResolve(resolve());
       },
     };
     return builder;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { from: (table: string) => makeBuilder(table) as any, calls };
+  return {
+    from: (table: string) => makeBuilder(table),
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      calls.push({ table: `rpc:${name}`, op: "rpc", payload: args });
+      if (name === "begin_workera_sync_run") {
+        return handlers.syncRunBegin?.(args) ?? { data: "mock-sync-run-id", error: null };
+      }
+      if (name === "finish_workera_sync_run") {
+        return handlers.syncRunFinish?.(args) ?? { data: true, error: null };
+      }
+      if (name === "upsert_workera_attendance_event") {
+        return handlers.eventUpsert?.(args) ?? { data: "INSERTED", error: null };
+      }
+      return { data: null, error: { message: `RPC inesperado: ${name}` } };
+    },
+    calls,
+  };
 }
 
 function fakeEvent(overrides: Partial<NormalizedWorkeraAttendanceEvent> = {}): NormalizedWorkeraAttendanceEvent {
@@ -144,7 +166,7 @@ test("rango > 1 día: BLOCKED_RANGE_TOO_LARGE, cero llamadas a Workera", async (
   } as unknown as HttpWorkeraClient;
 
   const result = await syncWorkeraAttendance(
-    { startDate: "2026-08-01", endDate: "2026-08-05" },
+    { companyId: COMPANY_ID, startDate: "2026-08-01", endDate: "2026-08-05" },
     { workeraClient, supabaseAdmin: createMockSupabase({}) as never }
   );
 
@@ -157,12 +179,18 @@ test("evento con employee.code vacío: BLOCKED_UNRESOLVED_EMPLOYEES, cero escrit
   const mock = createMockSupabase({});
 
   const result = await syncWorkeraAttendance(
-    { startDate: "2026-08-18", endDate: "2026-08-18" },
+    { companyId: COMPANY_ID, startDate: "2026-08-18", endDate: "2026-08-18" },
     { workeraClient: fakeWorkeraClient(events), supabaseAdmin: mock as never }
   );
 
   assert.equal(result.status, "BLOCKED_UNRESOLVED_EMPLOYEES");
-  assert.equal(mock.calls.filter((c) => c.op === "insert" || c.op === "update").length, 0);
+  assert.equal(
+    mock.calls.filter(
+      (c) => (c.op === "insert" || c.op === "update") && c.table !== "sync_runs"
+    ).length,
+    0
+  );
+  assert.ok(mock.calls.some((c) => c.table === "rpc:finish_workera_sync_run"));
 });
 
 test("dry run: calcula wouldInsert/wouldVersion/wouldUnchanged, CERO escrituras reales", async () => {
@@ -172,7 +200,7 @@ test("dry run: calcula wouldInsert/wouldVersion/wouldUnchanged, CERO escrituras 
   });
 
   const result = await syncWorkeraAttendance(
-    { startDate: "2026-08-18", endDate: "2026-08-18", dryRun: true },
+    { companyId: COMPANY_ID, startDate: "2026-08-18", endDate: "2026-08-18", dryRun: true },
     { workeraClient: fakeWorkeraClient(events), supabaseAdmin: mock as never }
   );
 
@@ -200,7 +228,7 @@ test("empleado nuevo: bootstrap crea fila en employees con campos mínimos, nunc
   });
 
   const result = await syncWorkeraAttendance(
-    { startDate: "2026-08-18", endDate: "2026-08-18" },
+    { companyId: COMPANY_ID, startDate: "2026-08-18", endDate: "2026-08-18" },
     { workeraClient: fakeWorkeraClient(events), supabaseAdmin: mock as never }
   );
 
@@ -218,7 +246,10 @@ test("idempotencia: segunda corrida con el mismo evento vigente lo clasifica UNC
       data: [
         {
           id: "existing-1",
+          employee_id: "emp-1",
           external_fingerprint: "WORKERA|90000017|2026-08-18T07:30:00|0|",
+          attendance_type_label: "ENTRADA",
+          attendance_status: "ACTIVO",
           external_attendance_status: "Activo",
           checksum: "ABC123",
           device_name: "SISTEMA",
@@ -232,7 +263,7 @@ test("idempotencia: segunda corrida con el mismo evento vigente lo clasifica UNC
   });
 
   const result = await syncWorkeraAttendance(
-    { startDate: "2026-08-18", endDate: "2026-08-18", dryRun: true },
+    { companyId: COMPANY_ID, startDate: "2026-08-18", endDate: "2026-08-18", dryRun: true },
     { workeraClient: fakeWorkeraClient(events), supabaseAdmin: mock as never }
   );
 
@@ -249,7 +280,10 @@ test("evento MODIFICADO (mismo fingerprint, distinto attendanceStatus): se clasi
       data: [
         {
           id: "existing-1",
+          employee_id: "emp-1",
           external_fingerprint: "WORKERA|90000017|2026-08-18T07:30:00|0|",
+          attendance_type_label: "ENTRADA",
+          attendance_status: "ACTIVO",
           external_attendance_status: "Activo", // distinto al evento fetcheado (Modificado)
           checksum: "ABC123",
           device_name: "SISTEMA",
@@ -263,7 +297,7 @@ test("evento MODIFICADO (mismo fingerprint, distinto attendanceStatus): se clasi
   });
 
   const result = await syncWorkeraAttendance(
-    { startDate: "2026-08-18", endDate: "2026-08-18", dryRun: true },
+    { companyId: COMPANY_ID, startDate: "2026-08-18", endDate: "2026-08-18", dryRun: true },
     { workeraClient: fakeWorkeraClient(events), supabaseAdmin: mock as never }
   );
 
@@ -272,17 +306,19 @@ test("evento MODIFICADO (mismo fingerprint, distinto attendanceStatus): se clasi
   assert.equal(result.wouldInsert, 0);
 });
 
-test("versionado real: marca la fila anterior is_current=false antes de insertar la nueva versión", async () => {
+test("versionado real: delega retiro + nueva versión al RPC transaccional", async () => {
   const events = [fakeEvent({ externalAttendanceStatus: "Modificado" })];
-  const updateCalls: { id: unknown; patch: unknown }[] = [];
-  const insertedRows: unknown[] = [];
+  const upsertCalls: Record<string, unknown>[] = [];
   const mock = createMockSupabase({
     employeesSelect: () => ({ data: [{ id: "emp-1", external_workera_id: "90000017" }], error: null }),
     eventsSelect: () => ({
       data: [
         {
           id: "existing-1",
+          employee_id: "emp-1",
           external_fingerprint: "WORKERA|90000017|2026-08-18T07:30:00|0|",
+          attendance_type_label: "ENTRADA",
+          attendance_status: "ACTIVO",
           external_attendance_status: "Activo",
           checksum: "ABC123",
           device_name: "SISTEMA",
@@ -293,31 +329,26 @@ test("versionado real: marca la fila anterior is_current=false antes de insertar
       ],
       error: null,
     }),
-    eventsUpdate: (id, patch) => {
-      updateCalls.push({ id, patch });
-      return { error: null };
+    syncRunBegin: () => ({ data: "sr-1", error: null }),
+    eventUpsert: (args) => {
+      upsertCalls.push(args);
+      return { data: "VERSIONED", error: null };
     },
-    eventsInsert: (rows) => {
-      insertedRows.push(...(rows as unknown[]));
-      return { error: null };
-    },
-    syncRunInsert: () => ({ data: { id: "sr-1" }, error: null }),
   });
 
   const result = await syncWorkeraAttendance(
-    { startDate: "2026-08-18", endDate: "2026-08-18" },
+    { companyId: COMPANY_ID, startDate: "2026-08-18", endDate: "2026-08-18" },
     { workeraClient: fakeWorkeraClient(events), supabaseAdmin: mock as never }
   );
 
   assert.equal(result.status, "SUCCEEDED");
   assert.equal(result.versioned, 1);
-  assert.equal(updateCalls.length, 1);
-  assert.equal(updateCalls[0].id, "existing-1");
-  assert.deepEqual(updateCalls[0].patch, { is_current: false });
-  assert.equal((insertedRows[0] as { source_version: number }).source_version, 2);
+  assert.equal(upsertCalls.length, 1);
+  assert.equal(upsertCalls[0].p_sync_run_id, "sr-1");
+  assert.equal(upsertCalls[0].p_company_id, COMPANY_ID);
 });
 
-test("fallo de red de Workera: FAILED, cero llamadas a Supabase", async () => {
+test("fallo de red de Workera: FAILED y ledger causal cerrado", async () => {
   const workeraClient = {
     getAllAttendanceEvents: async () => {
       throw new Error("ECONNREFUSED");
@@ -326,12 +357,15 @@ test("fallo de red de Workera: FAILED, cero llamadas a Supabase", async () => {
   const mock = createMockSupabase({});
 
   const result = await syncWorkeraAttendance(
-    { startDate: "2026-08-18", endDate: "2026-08-18" },
+    { companyId: COMPANY_ID, startDate: "2026-08-18", endDate: "2026-08-18" },
     { workeraClient, supabaseAdmin: mock as never }
   );
 
   assert.equal(result.status, "FAILED");
-  assert.equal(mock.calls.length, 0);
+  assert.deepEqual(
+    mock.calls.filter((call) => call.op === "rpc").map((call) => call.table),
+    ["rpc:begin_workera_sync_run", "rpc:finish_workera_sync_run"]
+  );
 });
 
 test("fallo de schema/validación de Workera: FAILED, mensaje preservado, cero escrituras", async () => {
@@ -343,13 +377,14 @@ test("fallo de schema/validación de Workera: FAILED, mensaje preservado, cero e
   const mock = createMockSupabase({});
 
   const result = await syncWorkeraAttendance(
-    { startDate: "2026-08-18", endDate: "2026-08-18" },
+    { companyId: COMPANY_ID, startDate: "2026-08-18", endDate: "2026-08-18" },
     { workeraClient, supabaseAdmin: mock as never }
   );
 
   assert.equal(result.status, "FAILED");
   assert.match(result.errorMessage ?? "", /inválido/);
   assert.equal(mock.calls.filter((c) => c.op === "insert" || c.op === "update").length, 0);
+  assert.ok(mock.calls.some((c) => c.table === "rpc:finish_workera_sync_run"));
 });
 
 test("fallo persistiendo eventos: sync_run termina FAILED, no SUCCEEDED parcial", async () => {
@@ -358,22 +393,22 @@ test("fallo persistiendo eventos: sync_run termina FAILED, no SUCCEEDED parcial"
   const mock = createMockSupabase({
     employeesSelect: () => ({ data: [{ id: "emp-1", external_workera_id: "90000017" }], error: null }),
     eventsSelect: () => ({ data: [], error: null }),
-    syncRunInsert: () => ({ data: { id: "sr-1" }, error: null }),
-    eventsInsert: () => ({ error: { message: "constraint violation" } }),
-    syncRunUpdate: (patch) => {
-      syncRunUpdates.push(patch);
-      return { error: null };
+    syncRunBegin: () => ({ data: "sr-1", error: null }),
+    eventUpsert: () => ({ data: null, error: { message: "constraint violation" } }),
+    syncRunFinish: (args) => {
+      syncRunUpdates.push(args);
+      return { data: true, error: null };
     },
   });
 
   const result = await syncWorkeraAttendance(
-    { startDate: "2026-08-18", endDate: "2026-08-18" },
+    { companyId: COMPANY_ID, startDate: "2026-08-18", endDate: "2026-08-18" },
     { workeraClient: fakeWorkeraClient(events), supabaseAdmin: mock as never }
   );
 
   assert.equal(result.status, "FAILED");
   assert.equal(syncRunUpdates.length, 1);
-  assert.equal((syncRunUpdates[0] as { status: string }).status, "FAILED");
+  assert.equal((syncRunUpdates[0] as { p_status: string }).p_status, "FAILED");
 });
 
 test("employee.code solo con espacios en blanco se trata igual que vacío: BLOCKED_UNRESOLVED_EMPLOYEES", async () => {
@@ -381,12 +416,13 @@ test("employee.code solo con espacios en blanco se trata igual que vacío: BLOCK
   const mock = createMockSupabase({});
 
   const result = await syncWorkeraAttendance(
-    { startDate: "2026-08-18", endDate: "2026-08-18" },
+    { companyId: COMPANY_ID, startDate: "2026-08-18", endDate: "2026-08-18" },
     { workeraClient: fakeWorkeraClient(events), supabaseAdmin: mock as never }
   );
 
   assert.equal(result.status, "BLOCKED_UNRESOLVED_EMPLOYEES");
   assert.equal(mock.calls.filter((c) => c.op === "insert" || c.op === "update").length, 0);
+  assert.ok(mock.calls.some((c) => c.table === "rpc:finish_workera_sync_run"));
 });
 
 test("mismo employee.code repetido en 2 eventos del día: identidad se resuelve una sola vez, bootstrap crea 1 sola fila (no duplica employees)", async () => {
@@ -406,7 +442,7 @@ test("mismo employee.code repetido en 2 eventos del día: identidad se resuelve 
   });
 
   const result = await syncWorkeraAttendance(
-    { startDate: "2026-08-18", endDate: "2026-08-18" },
+    { companyId: COMPANY_ID, startDate: "2026-08-18", endDate: "2026-08-18" },
     { workeraClient: fakeWorkeraClient(events), supabaseAdmin: mock as never }
   );
 
@@ -421,7 +457,7 @@ test("mismo employee.code repetido en 2 eventos del día: identidad se resuelve 
 test("PII: unresolvedEmployeeCodes nunca contiene nombre/apellido/RUT, solo un marcador genérico", async () => {
   const events = [fakeEvent({ employeeExternalId: "", employee: { ...fakeEvent().employee, code: "" } })];
   const result = await syncWorkeraAttendance(
-    { startDate: "2026-08-18", endDate: "2026-08-18" },
+    { companyId: COMPANY_ID, startDate: "2026-08-18", endDate: "2026-08-18" },
     { workeraClient: fakeWorkeraClient(events), supabaseAdmin: createMockSupabase({}) as never }
   );
 

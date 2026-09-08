@@ -90,7 +90,8 @@ sin entender primero qué frontera protegía.
 ### Paso C — sanear staging antes de cualquier dato nuevo
 
 - Mantener el SECURITY HOLD de `docs/STAGING_ENVIRONMENT.md`.
-- Inventariar los 97 registros existentes sin copiar PII a logs, issues o chat.
+- Inventariar las filas existentes sin copiar PII a logs, issues o chat; el
+  conteo cambia con cada carga y nunca debe quedar fijado en el runbook.
 - Obtener autorización para eliminar/anonimizar o aplicar controles equivalentes
   a producción. Conservar evidencia del criterio y del resultado, no el dataset.
 - Usar cuentas personales de prueba y roles mínimos; nunca compartir una cuenta

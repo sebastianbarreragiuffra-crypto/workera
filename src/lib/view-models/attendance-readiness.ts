@@ -93,7 +93,7 @@ export async function getAttendanceReadiness(
   const areas = areasVisibleToRole(callerRole);
 
   const [boards, pendingLicenses, latestRuleEngineRun] = await Promise.all([
-    Promise.all(areas.map((area) => getDailyReview(supabase, callerRole, area, cutoffDate))),
+    Promise.all(areas.map((area) => getDailyReview(supabase, callerRole, area, cutoffDate, normalizedCompanyId))),
     listMedicalLicenses(supabase, { onlyPending: true }),
     supabase
       .from("rule_engine_runs")
@@ -110,7 +110,11 @@ export async function getAttendanceReadiness(
   }
 
   const absenceEmployeeIds = new Set<string>();
+  const activeEmployeeIds = new Set<string>();
   for (const board of boards) {
+    for (const entry of [...board.requiresReview, ...board.noIssues]) {
+      activeEmployeeIds.add(entry.employeeId);
+    }
     for (const entry of board.requiresReview) {
       if (entry.categories.includes("ABSENCE")) absenceEmployeeIds.add(entry.employeeId);
     }
@@ -139,6 +143,7 @@ export async function getAttendanceReadiness(
 
   // Una licencia pendiente cuyo período todavía no llega al corte no bloquea el corte actual.
   for (const license of pendingLicenses) {
+    if (!activeEmployeeIds.has(license.employeeId)) continue;
     if (license.proposedStartDate > cutoffDate) continue;
     blockers.push({
       key: `LICENSE:${license.approvalId}`,

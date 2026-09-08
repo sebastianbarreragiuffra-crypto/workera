@@ -15,17 +15,17 @@ create temporary table expected_grants (
 
 insert into expected_grants (table_name, privileges) values
   ('attendance_effective_punches', array['SELECT']),
-  ('supporting_documents', array['SELECT', 'UPDATE']),
+  ('supporting_documents', array['SELECT']),
   ('supporting_documents_metadata', array['SELECT']),
-  ('employee_time_control_policies', array['DELETE', 'INSERT', 'SELECT', 'UPDATE']),
+  ('employee_time_control_policies', array['SELECT']),
   ('early_departure_records', array['SELECT']),
-  ('early_departure_decisions', array['INSERT', 'SELECT', 'UPDATE']),
+  ('early_departure_decisions', array['INSERT', 'SELECT']),
   ('employee_birthdays', array['DELETE', 'INSERT', 'SELECT', 'UPDATE']),
   ('suppliers', array['DELETE', 'INSERT', 'SELECT', 'UPDATE']),
   ('payroll_batches', array['INSERT', 'SELECT']),
   ('payroll_batch_items', array['INSERT', 'SELECT']),
   ('supplier_master_imports', array['INSERT', 'SELECT', 'UPDATE']),
-  ('medical_license_approvals', array['SELECT', 'UPDATE']),
+  ('medical_license_approvals', array['SELECT']),
   ('colaciones_discount_workbooks', array['INSERT', 'SELECT', 'UPDATE']),
   ('companies', array['SELECT']),
   ('company_memberships', array['SELECT']);

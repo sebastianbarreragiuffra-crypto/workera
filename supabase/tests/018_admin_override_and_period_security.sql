@@ -45,16 +45,16 @@ values (
 set local role authenticated;
 set local request.jwt.claim.sub = '32000000-0000-0000-0000-000000000002';
 
--- USING(is_admin_rrhh()) simple no genera excepción para un no-admin: la fila
--- queda fuera del conjunto visible para UPDATE y la sentencia "vive" afectando
--- 0 filas (comportamiento estándar de Postgres RLS).
-select lives_ok(
+-- Las decisiones son append-only para clientes; ni siquiera se concede UPDATE.
+select throws_ok(
   format(
     $$ update public.overtime_decisions set is_current = false where overtime_record_id = %L $$,
     (select id from public.overtime_records where employee_id =
        (select id from public.employees where external_workera_id = 'TEST3-ADMIN-OT-001'))
   ),
-  'el UPDATE no truena (0 filas afectadas por RLS)'
+  '42501',
+  null,
+  'SUPERVISOR_PRODUCTION no tiene UPDATE directo sobre decisiones'
 );
 select is(
   (select is_current from public.overtime_decisions where overtime_record_id =
@@ -66,28 +66,32 @@ select is(
 
 reset role;
 
--- 2) ADMIN_RRHH SÍ puede hacerlo (REVIEW/OVERRIDE, sección 7/8) — la decisión
--- original NO se borra, queda is_current=false como historial.
+-- 2) ADMIN_RRHH tampoco puede invalidar con UPDATE directo. El reemplazo
+-- autorizado es un INSERT atómico que preserva historial.
 set local role authenticated;
 set local request.jwt.claim.sub = '32000000-0000-0000-0000-000000000001';
+set local request.jwt.claim.aal = 'aal2';
+set local request.jwt.claims = '{"sub":"32000000-0000-0000-0000-000000000001","aal":"aal2"}';
 
-select lives_ok(
+select throws_ok(
   format(
     $$ update public.overtime_decisions set is_current = false where overtime_record_id = %L $$,
     (select id from public.overtime_records where employee_id =
        (select id from public.employees where external_workera_id = 'TEST3-ADMIN-OT-001'))
   ),
-  'ADMIN_RRHH puede invalidar una OvertimeDecision para permitir una revisión (REVIEW/OVERRIDE)'
+  '42501',
+  null,
+  'ADMIN_RRHH no puede eludir el reemplazo atómico con UPDATE directo'
 );
 
 reset role;
 
 select is(
-  (select count(*)::int from public.overtime_decisions where overtime_record_id =
+  (select is_current from public.overtime_decisions where overtime_record_id =
      (select id from public.overtime_records where employee_id =
         (select id from public.employees where external_workera_id = 'TEST3-ADMIN-OT-001'))),
-  1,
-  'la decisión original NO se borró — sigue existiendo como historial (is_current=false)'
+  true,
+  'el UPDATE directo fallido deja vigente la decisión original'
 );
 
 -- 3) ReportingPeriod: solo ADMIN_RRHH puede abrir/cerrar/reabrir.
@@ -104,11 +108,10 @@ select throws_ok(
 
 reset role;
 
-set local role authenticated;
-set local request.jwt.claim.sub = '32000000-0000-0000-0000-000000000001';
-
+-- Fixture de infraestructura: se crea como dueño; las mutaciones autenticadas
+-- se prueban por separado debajo.
 insert into public.reporting_periods (period_start, period_end, status)
-values (date '2026-08-01', date '2026-08-31', 'READY_TO_CLOSE');
+values (date '2026-08-01', date '2026-08-31', 'OPEN');
 
 reset role;
 
@@ -122,22 +125,26 @@ select lives_ok(
 );
 select is(
   (select status::text from public.reporting_periods where period_start = date '2026-08-01'),
-  'READY_TO_CLOSE',
-  'SUPERVISOR_PRODUCTION NO logra cerrar el ReportingPeriod (regla obligatoria, sección 18 — sigue READY_TO_CLOSE)'
+  'OPEN',
+  'SUPERVISOR_PRODUCTION NO logra cerrar el ReportingPeriod (regla obligatoria, sección 18 — sigue OPEN)'
 );
 
 reset role;
 
 set local role authenticated;
 set local request.jwt.claim.sub = '32000000-0000-0000-0000-000000000001';
+set local request.jwt.claim.aal = 'aal2';
+set local request.jwt.claims = '{"sub":"32000000-0000-0000-0000-000000000001","aal":"aal2"}';
 
-select lives_ok(
+select throws_ok(
   format(
     $$ update public.reporting_periods set status = 'CLOSED', closed_by = %L
        where period_start = date '2026-08-01' $$,
     '32000000-0000-0000-0000-000000000001'
   ),
-  'ADMIN_RRHH puede cerrar el ReportingPeriod, con closed_by = auth.uid()'
+  '42501',
+  null,
+  'ADMIN_RRHH tampoco puede cerrar directo: el cierre exige snapshot verificado'
 );
 
 reset role;

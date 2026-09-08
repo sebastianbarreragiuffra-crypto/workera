@@ -64,6 +64,8 @@ const SERVICE_ROLE_DIRECTORIES = [
   "expense-email",
   "expense-whatsapp",
   "supporting-document-cleanup",
+  "payroll-close",
+  "payroll-workbook",
   "staging-preflight",
 ];
 

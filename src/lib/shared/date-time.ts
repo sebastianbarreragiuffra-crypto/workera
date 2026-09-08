@@ -40,6 +40,20 @@ export function isCalendarDate(date: string): boolean {
   return instant.getUTCFullYear() === year && instant.getUTCMonth() === month - 1 && instant.getUTCDate() === day;
 }
 
+/** Rango lunes-domingo ISO en el dominio calendario sintético UTC. */
+export function currentIsoWeekRange(date: string): { start: string; end: string } {
+  if (!isCalendarDate(date)) throw new RangeError(`Fecha calendario inválida: ${date}`);
+  const [year, month, day] = date.split("-").map(Number);
+  const instant = Date.UTC(year, month - 1, day);
+  const dayOfWeek = new Date(instant).getUTCDay();
+  const isoDayOfWeek = dayOfWeek === 0 ? 7 : dayOfWeek;
+  const start = new Date(instant - (isoDayOfWeek - 1) * 86_400_000);
+  const end = new Date(start.getTime() + 6 * 86_400_000);
+  const encode = (value: Date) =>
+    `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`;
+  return { start: encode(start), end: encode(end) };
+}
+
 export function formatCalendarDate(
   date: string,
   options: SantiagoFormatOptions = { dateStyle: "short" }

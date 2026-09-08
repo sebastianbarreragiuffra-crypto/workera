@@ -6,7 +6,8 @@ import { getCurrentProfile } from "../../../../lib/auth/session";
 import { runRuleEngineWithServiceRole } from "../../../../lib/rule-engine/service";
 import { createClient } from "../../../../lib/supabase/server";
 import { enforceWorkforceActionRateLimit } from "../../../../lib/decisions/workforce-action-rate-limit";
-import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../../lib/tenant/legacy-workforce";
+import { resolveActiveWorkforceCompany } from "../../../../lib/tenant/active-workforce-company";
+import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
 
 /**
  * Disparo manual del motor de reglas (MB-2).
@@ -30,12 +31,20 @@ export async function processAttendanceDayAction(
   formData: FormData
 ): Promise<ProcessDayActionState> {
   const profile = await getCurrentProfile();
-  if (!profile?.role) redirect("/login");
-  if (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH") {
+  if (!profile) redirect("/login");
+  const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
+  const workforceRole = await resolvePayrollCompanyRole(
+    supabase,
+    workforceCompany.companyId,
+    ["SUPER_ADMIN", "ADMIN_RRHH"],
+  );
+  if (!workforceRole) {
     return { status: "error", message: "Esta operación requiere rol SUPER_ADMIN o ADMIN_RRHH." };
   }
   try {
-    await enforceWorkforceActionRateLimit(await createClient(), "workforce.rule_engine.run");
+    await enforceWorkforceActionRateLimit(supabase, "workforce.rule_engine.run");
   } catch (err) {
     return { status: "error", message: err instanceof Error ? err.message : "Acción bloqueada por seguridad." };
   }
@@ -47,7 +56,7 @@ export async function processAttendanceDayAction(
 
   try {
     const outcome = await runRuleEngineWithServiceRole(date, {
-      companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+      companyId: workforceCompany.companyId,
       triggeredBy: "MANUAL",
       triggeredByProfile: profile.id,
     });

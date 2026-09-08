@@ -53,6 +53,7 @@ export function Sidebar({
   roleLabel,
   areaLabel,
   platformHref,
+  companyName,
 }: {
   sections: NavSection[];
   weeklyReview: PeriodWindow | null;
@@ -61,6 +62,7 @@ export function Sidebar({
   roleLabel: string;
   areaLabel: string | null;
   platformHref?: string | null;
+  companyName: string;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
@@ -79,7 +81,7 @@ export function Sidebar({
       <div className="flex items-center gap-2 px-4 py-4">
         <ArcotexLogo inverse className="h-9 w-24 shrink-0" />
         <div className={`min-w-0 ${expandedContentClass}`}>
-          <div className="text-sm font-bold tracking-wide text-white">ARCOTEX</div>
+          <div className="truncate text-sm font-bold tracking-wide text-white">{companyName}</div>
           <div className="truncate text-[10px] font-medium uppercase tracking-wider text-slate-400">Control de asistencia</div>
         </div>
         <button
@@ -105,6 +107,12 @@ export function Sidebar({
             la URL, y el paso 1 del rollout de MFA depende de que la gente pueda
             llegar sola. Se muestra a todos: quien no exige segundo factor
             igual puede inscribir uno. */}
+        <Link
+          href="/empresas"
+          className="mt-2 block text-xs font-medium text-slate-400 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        >
+          Cambiar empresa
+        </Link>
         <Link
           href="/seguridad/mfa"
           className="mt-2 block text-xs font-medium text-slate-400 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"

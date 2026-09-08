@@ -26,10 +26,11 @@ select ok(
   '"?" (tarjeta no marcada) tiene requires_review = true'
 );
 
--- 4) "R" NO tiene requires_review forzado (regla pendiente, no inventada)
+-- 4) "R" solo permanece como clave histórica: está inactivo y no puede
+--    asignarse de nuevo. La exportación lo presenta como pendiente rojo.
 select ok(
-  not (select requires_review from public.attendance_statuses where code = 'R'),
-  '"R" (recuperan horas) no fuerza requires_review (regla pendiente de confirmación)'
+  not (select active from public.attendance_statuses where code = 'R'),
+  '"R" permanece para historia, pero está inactivo para nuevas asignaciones'
 );
 
 -- 5) attendance_status_records: inserción manual requiere created_by

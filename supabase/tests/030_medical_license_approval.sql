@@ -7,7 +7,7 @@
 create extension if not exists pgtap;
 
 begin;
-select plan(35);
+select plan(36);
 
 -- Desde la etapa F de MFA (docs/MFA_DESIGN.md sección 7), los RPC sensibles
 -- llaman a `enforce_mfa_for_privileged()`. Las sesiones de esta prueba ejercen
@@ -82,17 +82,21 @@ select throws_ok(
   'otro ADMIN_RRHH (no marcado aprobador) NO puede rechazar vía la función'
 );
 
--- RLS en UPDATE filtra filas silenciosamente (no lanza excepción vía SQL
--- crudo, semántica estándar de Postgres) -- lo que realmente prueba que está
--- bloqueado es que la fila queda intacta después del intento.
-update public.medical_license_approvals set status = 'APPROVED', approved_by = auth.uid(), approved_at = now(),
-  confirmed_start_date = date '2026-08-20', confirmed_end_date = date '2026-08-22'
-  where id = '99100000-0000-0000-0000-0000000000e1';
+-- La tabla no tiene UPDATE para sesiones: nadie puede saltarse MFA, suplantar
+-- approved_by ni omitir la creación atómica de los códigos L.
+select throws_ok(
+  $$ update public.medical_license_approvals
+     set status = 'APPROVED', approved_by = auth.uid(), approved_at = now(),
+         confirmed_start_date = date '2026-08-20', confirmed_end_date = date '2026-08-22'
+     where id = '99100000-0000-0000-0000-0000000000e1' $$,
+  '42501', null,
+  'otro ADMIN_RRHH no puede aprobar con UPDATE directo: el privilegio está revocado'
+);
 
 select is(
   (select status::text from public.medical_license_approvals where id = '99100000-0000-0000-0000-0000000000e1'),
   'PENDING_RRHH_APPROVAL',
-  'otro ADMIN_RRHH tampoco puede aprobar con un UPDATE directo -- RLS filtra la fila, el intento no tiene efecto'
+  'el UPDATE directo rechazado no cambió la licencia pendiente'
 );
 
 reset role;

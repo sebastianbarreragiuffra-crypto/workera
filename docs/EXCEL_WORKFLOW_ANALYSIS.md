@@ -7,19 +7,20 @@ Estado histórico: este documento comenzó como análisis funcional/técnico. La
 ## Estado vigente de la exportación (2026-09-05)
 
 - Se genera `.xlsx` desde cero, sin reutilizar el archivo con nombres reales como plantilla. Así las altas nuevas no dependen de las filas disponibles en una copia histórica.
-- La primera hoja es `RESUMEN`, orientada a quien liquida remuneraciones; la segunda conserva la matriz diaria conocida, con 8 filas por persona.
-- `RESUMEN` concentra los controles que afectan el pago: faltas, vacaciones, licencias, permisos, atrasos, salidas anticipadas, HH50/HH100 y fechas por revisar. Una marcación incompleta, una ausencia/licencia aún disputada o sin documento, un atraso/salida sin decisión, una hora extra pendiente, la ausencia de una corrida del motor o una última corrida distinta de `SUCCEEDED` impiden que la persona aparezca como `Sin pendientes`.
+- El libro actual contiene exactamente tres hojas visibles: `RESUMEN_NOMINA`, `CONTROL_PENDIENTES` y `MATRIZ_DIARIA_SABANA`, más `_GESTORA_TECNICA` en estado `veryHidden` para la importación segura. La sábana usa una fila por persona y fechas en columnas.
+- `RESUMEN_NOMINA` concentra los controles que afectan el pago: faltas, vacaciones, licencias, permisos, atrasos, salidas anticipadas, HH50/HH100 y fechas por revisar. Una marcación incompleta, una ausencia/licencia aún disputada o sin documento, un atraso/salida sin decisión, una hora extra pendiente, la ausencia de una corrida del motor o una última corrida distinta de `SUCCEEDED` impiden que la persona aparezca como `Sin pendientes`.
 - El ciclo de pago confirmado es 16 del mes anterior al 15 del mes pagado.
 - La fórmula confirmada del total de Asistencia es `MAX(0, base menos Faltas menos Licencia)` (`L` y `L-M` juntas); Vacaciones se informa aparte y no se descuenta en esa fórmula. El `MAX` evita resultados negativos ante licencias de calendario que incluyen fines de semana.
 - HH50 de sábado, HH100 de domingo/feriado y licencias en días no hábiles se conservan. Los totales de tiempo usan `[h]:mm:ss` para no reiniciarse al superar 24 horas.
 - Las consultas se paginan para no perder registros por el límite de 1.000 filas de PostgREST. Un error al cargar feriados detiene la descarga en vez de generar cifras silenciosamente incorrectas.
 - Las exenciones de control horario se resuelven por fecha desde `employee_time_control_policies`: conservan la base pagada, dejan la marcación en blanco y no crean falsos pendientes.
-- La fila VIATICOS se mantiene por familiaridad, pero queda vacía hasta que exista una fuente autorizada.
-- Un período de pago no cerrado o con decisiones pendientes se identifica como `BORRADOR`/`REVISAR` dentro del archivo.
-- Un período cerrado se presenta como una vista de control de los datos actuales. Todavía no existe un snapshot inmutable de cierre y el archivo lo declara expresamente para no prometer una inmutabilidad inexistente.
+- La versión final no contiene viáticos: no aparecen en encabezados, fórmulas ni importes. El bono diario de horas extra se presenta separado como `Bono HE automático`.
+- El estado empresarial mostrado usa únicamente `BLOQUEADO`, `REVISAR`, `LISTO PARA REVISIÓN RR. HH.`, `APROBADO POR RR. HH.` o `CERRADO`; los pendientes críticos impiden presentarlo como listo.
+- Un período cerrado se descarga desde su snapshot privado e inmutable, verificando hash y tamaño; no se regenera desde tablas vivas.
 - Solo se liquidan decisiones cuyo candidato calculado sigue vigente. El historial se conserva para auditoría, pero una marcación corregida o retirada no continúa sumando atrasos, salidas, horas extra ni bonos en el Excel.
 - La exportación lee la última corrida antes y después de cargar los datos. Si la corrida cambia durante esa ventana, la fecha queda para revisión: no se presenta una lectura potencialmente mezclada como lista para pagar.
 - El archivo ya recibe `companyId` explícito y todas sus consultas operativas quedan acotadas a ese tenant. La ruta de asistencia actual continúa siendo el módulo workforce legado de Arcotex. Antes de habilitar esta descarga para otras empresas falta agregar `company_id` a `reporting_periods`; hoy el cierre 16-15 sigue siendo global.
+- Cada versión aceptada conserva y permite recuperar exactamente sus fórmulas, formato y estructura, mientras los ajustes empresariales reconocidos se reaplican al período. Aún no existe el flujo seguro para escoger y aplicar `Actualizar también la ficha` ni para promover un diseño/fórmula sanitizado a períodos futuros; por eso ninguna modificación se propaga automáticamente fuera del período.
 
 La recomendación histórica de convertir el `.xls` en una plantilla maestra quedó **reemplazada** por esta generación determinista. El archivo histórico sigue sirviendo únicamente como referencia visual y funcional.
 
@@ -49,7 +50,7 @@ Método: lectura del archivo con SheetJS (Node.js) en modo solo-lectura, ya que 
 5. `Atrasos` — duración `hh:mm:ss` por día, total en C = `SUM(...)`
 6. `HH 50%` — duración `hh:mm:ss` por día (horas extra al 50% de recargo), total en C = `SUM(...)`
 7. `HH 100%` — total en C, normalmente sin desglose diario visible en las filas muestreadas
-8. `VIATICOS` — monto en `$` por día, total en C = `SUM(...)`. Es un dato de **asignación monetaria de traslado**, no estrictamente de asistencia/horas extra — `NEEDS_BUSINESS_CONFIRMATION`: ¿está dentro del alcance de esta aplicación, o pertenece a otro proceso administrativo?
+8. `VIATICOS` — fila observada únicamente en el libro histórico usado como referencia. Está expresamente fuera de la pre-nómina 2026 y no se replica en el archivo actual.
 
 **Ambigüedad detectada — NEEDS_BUSINESS_CONFIRMATION:** varios trabajadores (ej. "BERRIOS CARLOS") tienen **dos filas `HH 50%` seguidas más una fila `TOTAL 50%`**, en vez del bloque estándar de una sola fila `HH 50%`. No es evidente si esto representa dos categorías distintas de horas extra al 50% (ej. entre semana vs. sábado), un error de plantilla, o una corrección manual que quedó duplicada. No debe asumirse ninguna interpretación sin confirmarlo con quien arma la planilla hoy.
 
@@ -91,7 +92,7 @@ A diferencia del ejemplo conceptual planteado en el encargo, el archivo real **n
 | Atrasos (tardanza) | Igual que horas extra: número final ya "decidido", con comentarios como respaldo narrativo, no como campo de decisión | Comentarios de trabajadores justificando atrasos (cita médica, etc.) adjuntos a la celda de atraso del día |
 | Vacaciones / Licencia | Aparece como dato ya confirmado (código `V`/`L` en el día), sin distinguir "Workera/reloj control lo informó" de "RRHH lo verificó" | No se observó ningún caso de vacaciones/licencia en disputa en la muestra revisada |
 | Observaciones | `SUPERVISOR_DECISION` / `ADMIN_DECISION`, pero como **comentario de celda**, no como columna | Todos los 374 comentarios son de este tipo |
-| Totales por columna C (Asistencia, Faltas, Vacaciones, Licencia, Atrasos, HH 50%, HH 100%, VIATICOS) | `DERIVED_BY_SYSTEM` (dentro del propio Excel) | Confirmado con fórmulas reales: `SUM(D:AH)` por fila, y `Asistencia = días_período − Vacaciones − Licencia` |
+| Totales por columna C del archivo histórico (incluía VIATICOS) | `DERIVED_BY_SYSTEM` (dentro del Excel histórico) | Referencia descriptiva solamente. La versión 2026 elimina viáticos y separa valor original, ajuste autorizado y valor final. |
 
 **Conclusión clave de esta sección:** el ejemplo conceptual del encargo (`Horas extra registradas → AUTOMATIC_FROM_WORKERA`, `Horas extra aprobadas → SUPERVISOR_DECISION`) **no se cumple hoy en el proceso real** — hoy solo existe **un** número final de horas extra por trabajador/día, ya negociado por email/comentario entre el trabajador, RRHH y presumiblemente el supervisor, sin que el archivo conserve el valor "crudo" original de forma separada. Esto no es un defecto del Excel que haya que replicar; es exactamente el problema que `PRE_FASE2_WORKERA_VALIDATION.md` (sección 8, `original_workera_value ≠ supervisor_decision`) ya anticipó como riesgo y por eso nuestra aplicación debe mejorar este punto, no copiarlo.
 
@@ -228,7 +229,7 @@ Justificación:
 1. ¿El ciclo de "período" de estas planillas es realmente de ~6 semanas a caballo entre dos meses, o son dos períodos de pago independientes combinados en una sola hoja por conveniencia?
 2. ¿Qué significan los 7 colores de relleno usados sobre las celdas de datos? Sin esto no podemos decidir si son un dato a migrar o solo estética.
 3. ¿Por qué algunos trabajadores tienen dos filas `HH 50%` + una fila `TOTAL 50%`? ¿Es una categoría real (ej. entre semana vs. sábado) o una inconsistencia de la plantilla?
-4. ¿`VIATICOS` debe quedar dentro del alcance de esta aplicación, o es un proceso administrativo aparte que no debería mezclarse con horas extra/asistencia?
+4. ~~¿`VIATICOS` debe quedar dentro del alcance?~~ Resuelto: no existen viáticos en esta versión y no se mezclan con asistencia ni con el bono diario.
 5. ¿Quién tiene autoridad real hoy para decidir "se descuenta o no" una marcación — es el supervisor directo, o es RRHH (Andrea Cáceres) quien centraliza esa decisión por email? Esto determina quién debe tener el botón de aprobar/rechazar en nuestra app.
 6. Cuando una celda de asistencia está vacía (sin código), ¿siempre significa "el trabajador aún no ingresaba a la empresa" o puede significar también "dato faltante que hay que completar"? Es necesario para decidir si "día sin estado" es `BLOCKING` o `WARNING` en todos los casos.
 7. ¿Existen ya reglas legales/internas fijas de cuántos minutos de atraso se toleran antes de descontar, o es siempre criterio caso a caso (como sugieren los comentarios)?

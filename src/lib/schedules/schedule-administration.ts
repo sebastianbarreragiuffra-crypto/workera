@@ -12,11 +12,11 @@ import type { AreaCode } from "../access/scope";
  * un solo candidato de atraso/salida anticipada/horas extra. Este módulo es el
  * llamador real que faltaba.
  *
- * Toda escritura pasa por las RPC de `20260901140000_schedule_administration.sql`,
- * que aportan atomicidad (cerrar la vigente + insertar la nueva). La
- * autorización sigue siendo la RLS `is_privileged_admin()` de cada tabla, no
- * un chequeo de esta capa -- por eso las escrituras usan el cliente de sesión,
- * nunca el admin client.
+ * Toda escritura pasa por RPC: además de atomicidad (cerrar la vigente +
+ * insertar la nueva), `20260906170000_schedule_tenant_versioning.sql` vuelve
+ * las asignaciones append-only para la sesión y valida ADMIN_RRHH + MFA +
+ * empresa dentro de SQL. Esta capa usa siempre el cliente de sesión, nunca el
+ * admin client.
  *
  * La lectura del tablero es deliberadamente BULK (3 consultas fijas) en vez de
  * llamar `resolveEffectiveSchedule` por empleado (3 consultas × 44 = 132). El
@@ -50,6 +50,7 @@ export interface ScheduleAdminRow {
   workScheduleId: string | null;
   workScheduleName: string | null;
   effectiveFrom: string | null;
+  rrhhConfirmedAt: string | null;
 }
 
 export interface ScheduleAdminBoard {
@@ -137,6 +138,7 @@ export interface RawAssignmentRow {
   employee_id: string;
   work_schedule_id: string;
   effective_from: string;
+  rrhh_confirmed_at?: string | null;
   work_schedules: { name: string } | { name: string }[] | null;
 }
 
@@ -176,6 +178,7 @@ export function buildScheduleAdminRows(
       workScheduleId: assignment?.work_schedule_id ?? null,
       workScheduleName: unwrapEmbed(assignment?.work_schedules ?? null)?.name ?? null,
       effectiveFrom: assignment?.effective_from ?? null,
+      rrhhConfirmedAt: assignment?.rrhh_confirmed_at ?? null,
     };
   });
 }
@@ -185,7 +188,8 @@ export function buildScheduleAdminRows(
 
 export async function getScheduleAdminBoard(
   supabase: SupabaseClient<Database>,
-  date: string
+  date: string,
+  companyId: string
 ): Promise<ScheduleAdminBoard> {
   const vigentFilter = `effective_to.is.null,effective_to.gte.${date}`;
 
@@ -193,19 +197,27 @@ export async function getScheduleAdminBoard(
     supabase
       .from("employees")
       .select("id, display_name, employee_groups!employees_company_group_fkey(code)")
+      .eq("company_id", companyId)
       .eq("active", true)
       .order("display_name"),
     supabase
       .from("schedule_assignments")
-      .select("employee_id, work_schedule_id, effective_from, work_schedules(name)")
+      .select("employee_id, work_schedule_id, effective_from, rrhh_confirmed_at, work_schedules(name)")
+      .eq("company_id", companyId)
       .lte("effective_from", date)
       .or(vigentFilter),
     supabase
       .from("employee_time_control_policies")
-      .select("employee_id, policy_code, legal_basis")
+      .select("employee_id, policy_code, legal_basis, employees!inner(company_id)")
+      .eq("employees.company_id", companyId)
       .lte("effective_from", date)
       .or(vigentFilter),
-    supabase.from("work_schedules").select("id, name, work_schedule_rules(day_of_week, scheduled_start, scheduled_end)").order("name"),
+    supabase
+      .from("work_schedules")
+      .select("id, name, work_schedule_rules(day_of_week, scheduled_start, scheduled_end)")
+      .eq("company_id", companyId)
+      .eq("active", true)
+      .order("name"),
   ]);
 
   if (employeesRes.error) throw new Error(`getScheduleAdminBoard: fallo leyendo employees: ${employeesRes.error.message}`);
@@ -306,7 +318,7 @@ export async function clearTimeControlExemption(
 
 export async function upsertWorkSchedule(
   supabase: SupabaseClient<Database>,
-  params: { scheduleId: string | null; name: string; rules: WorkScheduleRule[] }
+  params: { companyId: string; scheduleId: string | null; name: string; rules: WorkScheduleRule[] }
 ): Promise<string> {
   const { data, error } = await supabase.rpc("upsert_work_schedule", {
     // La función SQL acepta NULL explícitamente (crea un horario nuevo en
@@ -314,6 +326,7 @@ export async function upsertWorkSchedule(
     // el generador de tipos de Supabase no puede inferir esa nulabilidad
     // desde un parámetro `uuid` plano, así que el tipo generado queda
     // `string` no-nullable aunque el comportamiento real sí acepte null.
+    p_company_id: params.companyId,
     p_schedule_id: params.scheduleId as string,
     p_name: params.name,
     p_rules: params.rules.map((r) => ({

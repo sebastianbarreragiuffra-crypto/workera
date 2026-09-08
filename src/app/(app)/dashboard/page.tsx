@@ -13,7 +13,8 @@ import { UpcomingEventsCard } from "../../../components/dashboard/UpcomingEvents
 import { WeekSummaryCard } from "../../../components/dashboard/WeekSummaryCard";
 import { DescargarAsistenciaCard } from "../../../components/dashboard/DescargarAsistenciaCard";
 import { AttendanceReadinessCard } from "../../../components/dashboard/AttendanceReadinessCard";
-import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../../lib/tenant/legacy-workforce";
+import { resolveActiveWorkforceCompany } from "../../../lib/tenant/active-workforce-company";
+import { resolvePayrollCompanyRole } from "../../../lib/payroll/payroll-company-role";
 
 const AREA_LABEL: Record<"PRODUCTION" | "INSTALLATION" | "ADMINISTRATION", string> = {
   PRODUCTION: "Producción",
@@ -23,7 +24,7 @@ const AREA_LABEL: Record<"PRODUCTION" | "INSTALLATION" | "ADMINISTRATION", strin
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const profile = await getCurrentProfile();
-  if (!profile?.role) redirect("/login");
+  if (!profile) redirect("/login");
 
   const today = todayInSantiago();
   const params = await searchParams;
@@ -33,13 +34,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // cualquiera puede provocar desde la barra de direcciones.
   const date = requestedDate && isCalendarDate(requestedDate) ? requestedDate : today;
   const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
+  const workforceRole = await resolvePayrollCompanyRole(
+    supabase,
+    workforceCompany.companyId,
+    ["ADMIN_RRHH", "SUPER_ADMIN", "SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"],
+  );
+  if (!workforceRole) redirect("/acceso-pendiente");
 
   let dashboard;
   let readiness;
   try {
     [dashboard, readiness] = await Promise.all([
-      getDashboardForRole(supabase, profile.role, date),
-      getAttendanceReadiness(supabase, profile.role, ARCOTEX_WORKFORCE_COMPANY_ID),
+      getDashboardForRole(supabase, workforceRole, date, workforceCompany.companyId),
+      getAttendanceReadiness(supabase, workforceRole, workforceCompany.companyId),
     ]);
   } catch {
     return <ErrorState retryHref="/dashboard" />;
@@ -57,13 +66,47 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </h1>
         <p className="text-sm text-slate-500">Resumen operacional — {formatDateLong(date)}</p>
         <nav aria-label="Período del resumen" className="mt-3 flex flex-wrap items-center gap-2">
-          <a href={`/dashboard?fecha=${today}`} className={`rounded-md border px-3 py-1.5 text-sm ${date === today ? "border-arcotex-blue bg-arcotex-blue text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}>Hoy</a>
-          <a href={`/dashboard?fecha=${previousDate(today)}`} className={`rounded-md border px-3 py-1.5 text-sm ${date === previousDate(today) ? "border-arcotex-blue bg-arcotex-blue text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}>Ayer</a>
-          <a href={`/revision-diaria?fecha=${today}&rango=7`} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">Últimos 7 días</a>
+          <a
+            href={`/dashboard?fecha=${today}`}
+            className={`rounded-md border px-3 py-1.5 text-sm ${
+              date === today
+                ? "border-arcotex-blue bg-arcotex-blue text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+                : "border-slate-300 text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+            }`}
+          >
+            Hoy
+          </a>
+          <a
+            href={`/dashboard?fecha=${previousDate(today)}`}
+            className={`rounded-md border px-3 py-1.5 text-sm ${
+              date === previousDate(today)
+                ? "border-arcotex-blue bg-arcotex-blue text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+                : "border-slate-300 text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+            }`}
+          >
+            Ayer
+          </a>
+          <a
+            href={`/revision-diaria?fecha=${today}&rango=7`}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+          >
+            Últimos 7 días
+          </a>
           <form method="get" className="flex items-center gap-2">
             <label htmlFor="dashboard-date" className="sr-only">Elegir fecha</label>
-            <input id="dashboard-date" type="date" name="fecha" defaultValue={date} className="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-700" />
-            <button type="submit" className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">Ver fecha</button>
+            <input
+              id="dashboard-date"
+              type="date"
+              name="fecha"
+              defaultValue={date}
+              className="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+            />
+            <button
+              type="submit"
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+            >
+              Ver fecha
+            </button>
           </form>
         </nav>
       </div>
@@ -71,7 +114,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <KpiRow kpis={dashboard.kpis} date={date} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {dashboard.kind === "ADMIN" && <DescargarAsistenciaCard />}
+        {dashboard.kind === "ADMIN" && <DescargarAsistenciaCard role={workforceRole as "SUPER_ADMIN" | "ADMIN_RRHH"} />}
         <AttendanceReadinessCard readiness={readiness} />
       </div>
 

@@ -20,7 +20,7 @@ test("ADMIN_RRHH ve gestión de RRHH pero NO gestión de SUPER_ADMIN", () => {
   assert.ok(!items.some((i) => i.label === "Configuración"));
 });
 
-test("Horarios es visible para RRHH/SUPER_ADMIN y nunca para supervisores (escribe tablas con RLS is_privileged_admin())", () => {
+test("Horarios es visible para RRHH y auditoría SUPER_ADMIN, nunca para supervisores (solo RRHH puede mutar)", () => {
   for (const role of ["SUPER_ADMIN", "ADMIN_RRHH"] as const) {
     assert.ok(getNavItemsForRole(role).some((i) => i.label === "Horarios" && i.href === "/configuracion/horarios"));
   }

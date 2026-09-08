@@ -6,6 +6,8 @@ import { SectionCard } from "../../../../components/shell/SectionCard";
 import { Badge, type BadgeTone } from "../../../../components/shell/Badge";
 import { todayInSantiago, previousDate, formatDateTimeInSantiago } from "../../../../lib/view-models/date-utils";
 import { ProcessDayCard } from "./ProcessDayCard";
+import { resolveActiveWorkforceCompany } from "../../../../lib/tenant/active-workforce-company";
+import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
 
 const STATUS_TONE: Record<string, BadgeTone> = {
   SUCCEEDED: "positive",
@@ -21,15 +23,23 @@ const STATUS_TONE: Record<string, BadgeTone> = {
  */
 export default async function MotorDeReglasPage() {
   const profile = await getCurrentProfile();
-  if (!profile?.role) redirect("/login");
-  if (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH") redirect("/dashboard");
+  if (!profile) redirect("/login");
 
   const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
+  const workforceRole = await resolvePayrollCompanyRole(
+    supabase,
+    workforceCompany.companyId,
+    ["SUPER_ADMIN", "ADMIN_RRHH"],
+  );
+  if (!workforceRole) redirect("/dashboard");
   const { data: runs } = await supabase
     .from("rule_engine_runs")
     .select(
       "id, work_date, status, triggered_by, started_at, finished_at, employees_processed, late_candidates, early_departure_candidates, overtime_candidates, without_schedule, failure_count, error_summary"
     )
+    .eq("company_id", workforceCompany.companyId)
     .order("started_at", { ascending: false })
     .limit(15);
 

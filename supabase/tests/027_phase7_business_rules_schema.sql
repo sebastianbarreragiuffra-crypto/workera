@@ -14,12 +14,12 @@ insert into public.profiles (id, display_name, role) values
   ('96000000-0000-0000-0000-000000000002', 'Fixture 7 Supervisor Prod', 'SUPERVISOR_PRODUCTION'),
   ('96000000-0000-0000-0000-000000000003', 'Fixture 7 Supervisor Install', 'SUPERVISOR_INSTALLATION');
 
-insert into public.employees (id, external_workera_id, first_name, last_name, display_name, employee_group_id)
+insert into public.employees (id, external_workera_id, first_name, last_name, display_name, employee_group_id, hire_date)
 values
   ('96000000-0000-0000-0000-00000000a001', 'S7-PROD-001', 'Fixture', 'Prod7', 'Fixture Prod7',
-    (select id from public.employee_groups where code = 'PRODUCTION')),
+    (select id from public.employee_groups where code = 'PRODUCTION'), date '2026-08-01'),
   ('96000000-0000-0000-0000-00000000a002', 'S7-INSTALL-001', 'Fixture', 'Install7', 'Fixture Install7',
-    (select id from public.employee_groups where code = 'INSTALLATION'));
+    (select id from public.employee_groups where code = 'INSTALLATION'), date '2026-08-01');
 
 -- ---------------------------------------------------------------------------
 -- 1) employee_time_control_policies
@@ -220,20 +220,15 @@ select lives_ok(
 );
 
 -- ---------------------------------------------------------------------------
--- 7) Inmutabilidad: is_current es la única columna mutable en las tablas
---    nuevas. early_departure_records no tiene NINGÚN grant de escritura para
---    `authenticated` (ni siquiera ADMIN_RRHH) -- se prueba directamente
---    contra service_role, la única vía de escritura, para llegar realmente
---    al trigger de inmutabilidad (mismo patrón que 025 con
---    workera_attendance_events).
+-- 7) Las tablas fuente/decisión son append-only para roles de aplicación.
 reset role;
 set local role service_role;
 
 select throws_ok(
   $$ update public.early_departure_records set detected_minutes = 999 where id = '96000000-0000-0000-0000-00000000d001' $$,
-  'P0001',
+  '42501',
   null,
-  'early_departure_records es inmutable salvo is_current, incluso para service_role'
+  'service_role no puede actualizar directamente early_departure_records'
 );
 
 reset role;
@@ -242,9 +237,9 @@ set local request.jwt.claim.sub = '96000000-0000-0000-0000-000000000001'; -- ADM
 
 select throws_ok(
   $$ update public.early_departure_decisions set payroll_minutes = 0 where early_departure_record_id = '96000000-0000-0000-0000-00000000d001' and is_current $$,
-  'P0001',
+  '42501',
   null,
-  'early_departure_decisions es inmutable salvo is_current'
+  'ADMIN_RRHH no puede actualizar directamente early_departure_decisions'
 );
 
 select * from finish();

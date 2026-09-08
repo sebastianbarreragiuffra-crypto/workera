@@ -4,18 +4,23 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../lib/auth/session";
+import { assertSecondFactorForPrivileged } from "../../../lib/auth/mfa-account";
 import {
   createReportingPeriod,
   transitionReportingPeriod,
   type ReportingPeriodStatus,
 } from "../../../lib/periods/reporting-periods";
 import { enforceWorkforceActionRateLimit } from "../../../lib/decisions/workforce-action-rate-limit";
+import { closePayrollPeriodWithSnapshot } from "../../../lib/payroll/payroll-period-close";
+import { approvePayrollPeriodReady } from "../../../lib/payroll/payroll-period-approval";
+import { resolveActiveWorkforceCompany } from "../../../lib/tenant/active-workforce-company";
+import { resolvePayrollCompanyRole } from "../../../lib/payroll/payroll-company-role";
 
 /**
  * Server Actions de administración de períodos (MB-7). Cliente de SESIÓN
  * siempre: la RLS `reporting_periods_insert_admin` / `_update_admin`
- * (is_privileged_admin()) es el gate real. El chequeo de rol de acá solo da
- * un mensaje claro.
+ * (`is_admin_rrhh()`) es el gate real. SUPER_ADMIN conserva auditoría
+ * técnica, pero el veredicto final y la reapertura pertenecen solo a RR. HH.
  */
 
 export interface PeriodActionState {
@@ -28,12 +33,21 @@ const VALID_STATUSES: ReportingPeriodStatus[] = ["OPEN", "IN_REVIEW", "READY_TO_
 
 async function requirePeriodAdmin() {
   const profile = await getCurrentProfile();
-  if (!profile?.role) redirect("/login");
-  if (profile.role !== "SUPER_ADMIN" && profile.role !== "ADMIN_RRHH") {
-    throw new Error("Esta operación requiere rol SUPER_ADMIN o ADMIN_RRHH.");
+  if (!profile) redirect("/login");
+  const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
+  const payrollRole = await resolvePayrollCompanyRole(
+    supabase,
+    workforceCompany.companyId,
+    ["ADMIN_RRHH"],
+  );
+  if (payrollRole !== "ADMIN_RRHH") {
+    throw new Error("Solo RR. HH. puede crear, cambiar, cerrar o reabrir un período de pago.");
   }
-  await enforceWorkforceActionRateLimit(await createClient(), "workforce.periods.manage");
-  return profile;
+  await assertSecondFactorForPrivileged(supabase);
+  await enforceWorkforceActionRateLimit(supabase, "workforce.periods.manage");
+  return { profile, supabase, payrollRole, companyId: workforceCompany.companyId };
 }
 
 function toError(err: unknown, fallback: string): PeriodActionState {
@@ -46,7 +60,7 @@ function revalidate() {
 }
 
 export async function createPeriodAction(_prev: PeriodActionState, formData: FormData): Promise<PeriodActionState> {
-  await requirePeriodAdmin();
+  const { supabase, companyId } = await requirePeriodAdmin();
   try {
     const periodStart = String(formData.get("periodStart") ?? "").trim();
     const periodEnd = String(formData.get("periodEnd") ?? "").trim();
@@ -54,8 +68,11 @@ export async function createPeriodAction(_prev: PeriodActionState, formData: For
       throw new Error("Las fechas del período no son válidas.");
     }
 
-    const supabase = await createClient();
-    await createReportingPeriod(supabase, { periodStart, periodEnd });
+    await createReportingPeriod(supabase, {
+      companyId,
+      periodStart,
+      periodEnd,
+    });
     revalidate();
     return { status: "success", message: `Período ${periodStart} al ${periodEnd} creado (abierto).` };
   } catch (err) {
@@ -64,7 +81,7 @@ export async function createPeriodAction(_prev: PeriodActionState, formData: For
 }
 
 export async function transitionPeriodAction(_prev: PeriodActionState, formData: FormData): Promise<PeriodActionState> {
-  const profile = await requirePeriodAdmin();
+  const { profile, supabase, payrollRole, companyId } = await requirePeriodAdmin();
   try {
     const periodId = String(formData.get("periodId") ?? "");
     const from = String(formData.get("from") ?? "") as ReportingPeriodStatus;
@@ -75,13 +92,45 @@ export async function transitionPeriodAction(_prev: PeriodActionState, formData:
       throw new Error("Parámetros de transición inválidos.");
     }
 
-    const supabase = await createClient();
-    await transitionReportingPeriod(supabase, { periodId, from, to, actorId: profile.id, reopenReason });
+    if (to === "CLOSED") {
+      if (from !== "READY_TO_CLOSE") {
+        throw new Error("El cierre solo puede iniciarse desde Aprobado por RR. HH.");
+      }
+      await closePayrollPeriodWithSnapshot(supabase, {
+        companyId,
+        reportingPeriodId: periodId,
+        // requirePeriodAdmin ya redujo la identidad; el RPC vuelve a derivar
+        // rol, membresía y MFA desde la sesión antes de confirmar el cierre.
+        callerRole: payrollRole,
+      });
+    } else if (to === "READY_TO_CLOSE") {
+      if (from !== "IN_REVIEW" && from !== "REOPENED") {
+        throw new Error("La aprobación final solo puede iniciarse desde En revisión o Reabierto.");
+      }
+      await approvePayrollPeriodReady(supabase, {
+        actorId: profile.id,
+        companyId,
+        reportingPeriodId: periodId,
+        from,
+        callerRole: payrollRole,
+      });
+    } else {
+      await transitionReportingPeriod(supabase, {
+        companyId,
+        periodId,
+        from,
+        to,
+        actorId: profile.id,
+        reopenReason,
+      });
+    }
     revalidate();
 
     const msg =
       to === "CLOSED"
-        ? "Período cerrado. Ya no se pueden corregir marcaciones de esas fechas."
+        ? "Período cerrado con snapshot Excel exacto y auditable. Ya no se pueden corregir marcaciones de esas fechas."
+        : to === "READY_TO_CLOSE"
+          ? "Pre-nómina conciliada y aprobada expresamente por RR. HH."
         : to === "REOPENED"
           ? "Período reabierto."
           : "Estado del período actualizado.";

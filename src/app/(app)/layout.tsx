@@ -7,7 +7,8 @@ import { getNavSectionsForRole, roleLabel } from "../../components/shell/nav-con
 import { getPeriodStatus } from "../../lib/view-models/dashboard-view";
 import { todayInSantiago } from "../../lib/view-models/date-utils";
 import { listExpenseCompaniesFromClient } from "../../lib/expenses/access";
-import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../../lib/tenant/legacy-workforce";
+import { resolveActiveWorkforceCompany } from "../../lib/tenant/active-workforce-company";
+import { resolvePayrollCompanyRole } from "../../lib/payroll/payroll-company-role";
 
 const AREA_LABEL: Record<"SUPERVISOR_PRODUCTION" | "SUPERVISOR_INSTALLATION", string> = {
   SUPERVISOR_PRODUCTION: "Producción",
@@ -23,13 +24,22 @@ const AREA_LABEL: Record<"SUPERVISOR_PRODUCTION" | "SUPERVISOR_INSTALLATION", st
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const profile = await getCurrentProfile();
-  if (!profile || !profile.role || !profile.active) {
+  if (!profile || !profile.active) {
     redirect("/login");
   }
 
   const supabase = await createClient();
-  const [periodStatus, platformMembership, expenseCompanies, workforceMembership] = await Promise.all([
-    getPeriodStatus(supabase, todayInSantiago()),
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
+  const workforceRole = await resolvePayrollCompanyRole(
+    supabase,
+    workforceCompany.companyId,
+    ["ADMIN_RRHH", "SUPER_ADMIN", "SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"],
+  );
+  if (!workforceRole) redirect("/");
+
+  const [periodStatus, platformMembership, expenseCompanies] = await Promise.all([
+    getPeriodStatus(supabase, todayInSantiago(), workforceCompany.companyId),
     supabase
       .from("platform_memberships")
       .select("user_id")
@@ -37,32 +47,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       .eq("active", true)
       .maybeSingle(),
     listExpenseCompaniesFromClient(supabase, profile.id),
-    supabase
-      .from("company_memberships")
-      .select("company_id, companies!inner(id)")
-      .eq("user_id", profile.id)
-      .eq("company_id", ARCOTEX_WORKFORCE_COMPANY_ID)
-      .eq("active", true)
-      .eq("companies.active", true)
-      .eq("companies.status", "ACTIVE")
-      .eq("companies.workspace_enabled", true)
-      .maybeSingle(),
   ]);
-
-  if (workforceMembership.error || !workforceMembership.data) {
-    redirect("/");
-  }
 
   const expensesHref = expenseCompanies.length > 1
     ? "/rendiciones"
     : expenseCompanies[0]
       ? `/empresas/${expenseCompanies[0].slug}/rendiciones`
       : null;
-  const sections = getNavSectionsForRole(profile.role, {
+  const sections = getNavSectionsForRole(workforceRole, {
     expensesHref,
   });
   const areaLabel =
-    profile.role === "SUPERVISOR_PRODUCTION" || profile.role === "SUPERVISOR_INSTALLATION" ? AREA_LABEL[profile.role] : null;
+    workforceRole === "SUPERVISOR_PRODUCTION" || workforceRole === "SUPERVISOR_INSTALLATION" ? AREA_LABEL[workforceRole] : null;
 
   return (
     <div className="flex h-full min-h-screen bg-background">
@@ -71,9 +67,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         weeklyReview={periodStatus.weeklyReview}
         reportingPeriod={periodStatus.reportingPeriod}
         displayName={profile.display_name}
-        roleLabel={roleLabel(profile.role)}
+        roleLabel={roleLabel(workforceRole)}
         areaLabel={areaLabel}
         platformHref={platformMembership.data ? "/plataforma" : null}
+        companyName={workforceCompany.companyName}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />

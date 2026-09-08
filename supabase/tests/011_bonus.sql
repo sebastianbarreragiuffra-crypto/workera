@@ -71,19 +71,14 @@ values (
   (select op.id from public.overtime_policies op join public.employee_groups eg on eg.id = op.employee_group_id
      where eg.code = 'PRODUCTION' and op.day_of_week = 2)
 );
--- Gate D (segundo hardening): PRODUCTION + lunes-viernes + HH50 con
--- candidato >= 60 min queda sujeto al selector binario {0,60,120} — 90 min
--- aprobados ya no es un valor válido de decisión. Se usa 60 aprobado / 30
--- rechazado (PARTIALLY_APPROVED, suma = candidato 90) en su lugar, que
--- coincide exactamente con la propuesta automática de la ventana 60-114 (sin
--- motivo obligatorio) y preserva el mismo objetivo de la prueba: un
--- approved_minutes por debajo del umbral de 120 no debe generar bono.
+-- Los 90 minutos se aprueban exactos, sin selector binario ni redondeo. Al
+-- quedar bajo el umbral de 120 no deben generar bono.
 insert into public.overtime_decisions
   (overtime_record_id, approved_minutes, rejected_minutes, decision_status, decided_by)
 values (
   (select id from public.overtime_records where employee_id =
      (select id from public.employees where external_workera_id = 'TEST2B-EMP-BONUS-001') and work_date = date '2026-08-11'),
-  60, 30, 'PARTIALLY_APPROVED',
+  90, 0, 'FULLY_APPROVED',
   (select id from public.profiles where display_name = 'Fixture Decisor Bonus')
 );
 
@@ -101,7 +96,7 @@ select throws_ok(
   ),
   'P0001',
   null,
-  'employee_daily_bonuses: approved=60 (< 120) es rechazado por el trigger de validación -> NO BONUS'
+  'employee_daily_bonuses: approved=90 (< 120) es rechazado por el trigger de validación -> NO BONUS'
 );
 
 -- Caso 3: monto que no coincide con la política vigente debe rechazarse

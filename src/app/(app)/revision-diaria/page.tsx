@@ -12,6 +12,8 @@ import { CaseCard } from "./CaseCard";
 import { PageHeader } from "../../../components/shell/PageHeader";
 import { FilterBar, type FilterOption } from "../../../components/shell/FilterBar";
 import { SearchInput } from "../../../components/shell/SearchInput";
+import { resolvePayrollCompanyRole } from "../../../lib/payroll/payroll-company-role";
+import { resolveActiveWorkforceCompany } from "../../../lib/tenant/active-workforce-company";
 
 const AREA_LABEL: Record<AreaCode, string> = {
   PRODUCTION: "Producción",
@@ -97,15 +99,25 @@ export default async function DailyReviewPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const profile = await getCurrentProfile();
-  if (!profile?.role) redirect("/login");
+  if (!profile) redirect("/login");
 
   const params = await searchParams;
   // `fecha` viene de la URL. Postgres acepta "2026-8-17" sin ceros y la
   // consulta responde bien, pero `formatDateLong` (línea ~163) exige
   // YYYY-MM-DD y lanza: sin este filtro la página cae con un 500 provocable
   // desde la barra de direcciones.
-  const date = params.fecha && isCalendarDate(params.fecha) ? params.fecha : todayInSantiago();
-  const allowedAreas = areasVisibleToRole(profile.role);
+  const today = todayInSantiago();
+  const date = params.fecha && isCalendarDate(params.fecha) ? params.fecha : today;
+  const supabase = await createClient();
+  const workforceCompany = await resolveActiveWorkforceCompany(supabase);
+  if (!workforceCompany) redirect("/empresas");
+  const workforceRole = await resolvePayrollCompanyRole(
+    supabase,
+    workforceCompany.companyId,
+    ["ADMIN_RRHH", "SUPER_ADMIN", "SUPERVISOR_PRODUCTION", "SUPERVISOR_INSTALLATION"],
+  );
+  if (!workforceRole) redirect("/acceso-pendiente");
+  const allowedAreas = areasVisibleToRole(workforceRole);
   // Un área desconocida cae al área por defecto del rol, en vez de propagarse
   // hasta `assertAreaAccessAllowed` y mostrar "no tienes acceso" por un typo.
   const requestedArea = parseAreaCode(params.area) ?? allowedAreas[0];
@@ -115,7 +127,7 @@ export default async function DailyReviewPage({
   const feedback = params.hecho;
 
   try {
-    assertAreaAccessAllowed(profile.role, requestedArea);
+    assertAreaAccessAllowed(workforceRole, requestedArea);
   } catch (err) {
     if (err instanceof AreaAccessError) {
       return <ErrorState message="No tienes acceso a esta área." retryHref="/revision-diaria" />;
@@ -123,11 +135,9 @@ export default async function DailyReviewPage({
     throw err;
   }
 
-  const supabase = await createClient();
-
   let board;
   try {
-    board = await getDailyReviewBoard(supabase, profile.role, requestedArea, date);
+    board = await getDailyReviewBoard(supabase, workforceRole, requestedArea, date, workforceCompany.companyId);
   } catch {
     return <ErrorState retryHref={`/revision-diaria?fecha=${date}&area=${requestedArea}`} />;
   }
@@ -146,7 +156,7 @@ export default async function DailyReviewPage({
   let detail = null;
   if (selectedEmployeeId) {
     try {
-      detail = await getDailyReviewDetail(supabase, profile.role, selectedEmployeeId, date);
+      detail = await getDailyReviewDetail(supabase, workforceRole, selectedEmployeeId, date);
     } catch {
       detail = null;
     }
@@ -168,34 +178,47 @@ export default async function DailyReviewPage({
         title="Pendientes"
         subtitle={`${AREA_LABEL[requestedArea]} · ${formatDateLong(date)}`}
         actions={<nav aria-label="Navegación de fecha" className="flex items-center gap-2">
-          <Link href={`/revision-diaria?fecha=${previousDate(date)}&area=${requestedArea}`} aria-label="Día anterior" className="rounded-md border border-slate-300 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50">
+          <Link
+            href={`/revision-diaria?fecha=${previousDate(date)}&area=${requestedArea}`}
+            aria-label="Día anterior"
+            className="rounded-md border border-slate-300 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+          >
             ‹
           </Link>
-          <Link href={`/revision-diaria?fecha=${todayInSantiago()}&area=${requestedArea}`} className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50">
+          <Link
+            href={`/revision-diaria?fecha=${today}&area=${requestedArea}`}
+            className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+            aria-current={date === today ? "page" : undefined}
+          >
             Hoy
           </Link>
-          <Link href={`/revision-diaria?fecha=${nextDate(date)}&area=${requestedArea}`} aria-label="Día siguiente" className="rounded-md border border-slate-300 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50">
+          <Link
+            href={`/revision-diaria?fecha=${nextDate(date)}&area=${requestedArea}`}
+            aria-label="Día siguiente"
+            className="rounded-md border border-slate-300 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+          >
             ›
           </Link>
         </nav>}
       />
 
       {allowedAreas.length > 1 && (
-        <div role="tablist" aria-label="Área" className="flex gap-2">
+        <nav aria-label="Área" className="flex flex-wrap gap-2">
           {allowedAreas.map((area) => (
             <Link
               key={area}
               href={`/revision-diaria?fecha=${date}&area=${area}`}
-              role="tab"
-              aria-selected={area === requestedArea}
+              aria-current={area === requestedArea ? "page" : undefined}
               className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                area === requestedArea ? "bg-arcotex-blue text-white" : "bg-white text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-50"
+                area === requestedArea
+                  ? "bg-arcotex-blue text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
+                  : "bg-white text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-arcotex-blue"
               }`}
             >
               {AREA_LABEL[area]}
             </Link>
           ))}
-        </div>
+        </nav>
       )}
 
       <div>
@@ -268,7 +291,12 @@ export default async function DailyReviewPage({
                 ← Volver a la lista
               </Link>
               {detail ? (
-                <ReviewDetailPanel detail={detail} date={date} area={requestedArea} />
+                <ReviewDetailPanel
+                  detail={detail}
+                  date={date}
+                  area={requestedArea}
+                  canOverrideDecisions={workforceRole === "ADMIN_RRHH"}
+                />
               ) : (
                 <ErrorState message="No pudimos cargar el detalle de este trabajador." retryHref={`/revision-diaria?fecha=${date}&area=${requestedArea}`} />
               )}

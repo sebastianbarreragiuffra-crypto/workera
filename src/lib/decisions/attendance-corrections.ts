@@ -18,10 +18,9 @@ import { nextDate } from "../view-models/date-utils";
  *
  * Este módulo no reimplementa ninguna de esas validaciones: las deja fallar en
  * la base y traduce el error a algo que el supervisor pueda entender. Usa
- * siempre el cliente de SESIÓN, nunca el admin: la RLS
- * `attendance_corrections_insert` exige `corrected_by = auth.uid() AND
- * can_manage_employee(employee_id)`, así que el alcance por área lo sigue
- * aplicando la base.
+ * siempre el cliente de SESIÓN, nunca el admin. El RPC deriva el autor desde
+ * auth.uid(), valida el hecho exacto y reemplaza la versión vigente dentro de
+ * una sola transacción; así un fallo nunca deja el hecho sin corrección actual.
  *
  * El dato crudo de Workera NUNCA se toca: la corrección es una fila aparte que
  * se superpone vía `attendance_effective_punches`.
@@ -47,7 +46,6 @@ export interface SubmitAttendanceCorrectionInput {
    */
   correctedClockOutNextDay?: boolean;
   reason: string;
-  correctedBy: string;
 }
 
 export interface SubmitAttendanceCorrectionResult {
@@ -94,41 +92,25 @@ export async function submitAttendanceCorrection(
     throw new Error("El motivo de la corrección es obligatorio.");
   }
 
-  // Versionado no destructivo, igual que el resto del esquema: la corrección
-  // anterior se conserva como historial, nunca se sobrescribe.
-  const { error: supersedeError } = await supabase
-    .from("attendance_corrections")
-    .update({ is_current: false })
-    .eq("attendance_record_id", input.attendanceRecordId)
-    .eq("is_current", true);
-  if (supersedeError) {
-    throw new Error(`submitAttendanceCorrection: fallo versionando la corrección anterior: ${describeConstraintFailure(supersedeError.message)}`);
-  }
+  const { data, error } = await supabase.rpc("replace_attendance_correction", {
+    p_attendance_record_id: input.attendanceRecordId,
+    p_employee_id: input.employeeId,
+    p_work_date: input.workDate,
+    p_corrected_clock_in: input.correctedClockIn
+      ? santiagoWallClockToInstant(input.workDate, input.correctedClockIn).toISOString()
+      : null,
+    p_corrected_clock_out: input.correctedClockOut
+      ? santiagoWallClockToInstant(
+          input.correctedClockOutNextDay ? nextDate(input.workDate) : input.workDate,
+          input.correctedClockOut
+        ).toISOString()
+      : null,
+    p_reason: input.reason.trim(),
+  });
 
-  const { data, error } = await supabase
-    .from("attendance_corrections")
-    .insert({
-      attendance_record_id: input.attendanceRecordId,
-      employee_id: input.employeeId,
-      work_date: input.workDate,
-      corrected_clock_in: input.correctedClockIn
-        ? santiagoWallClockToInstant(input.workDate, input.correctedClockIn).toISOString()
-        : null,
-      corrected_clock_out: input.correctedClockOut
-        ? santiagoWallClockToInstant(
-            input.correctedClockOutNextDay ? nextDate(input.workDate) : input.workDate,
-            input.correctedClockOut
-          ).toISOString()
-        : null,
-      reason: input.reason.trim(),
-      corrected_by: input.correctedBy,
-    })
-    .select("id")
-    .single();
-
-  if (error || !data) {
+  if (error || typeof data !== "string") {
     throw new Error(describeConstraintFailure(error?.message ?? "no se pudo registrar la corrección."));
   }
 
-  return { correctionId: data.id };
+  return { correctionId: data };
 }

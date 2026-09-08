@@ -5,7 +5,7 @@ import { getCurrentProfile } from "@/lib/auth/session";
 import { listExpenseCompaniesFromClient } from "@/lib/expenses/access";
 import { createClient } from "@/lib/supabase/server";
 import { resolveActiveCompany } from "@/lib/tenant/resolve-active-company";
-import { hasLegacyWorkforceWorkspace } from "@/lib/tenant/legacy-workforce";
+import { isOperationalWorkforceMembership } from "@/lib/tenant/active-workforce-company";
 
 export default async function CompanyHomePage({ params }: { params: Promise<{ companySlug: string }> }) {
   const profile = await getCurrentProfile();
@@ -26,7 +26,7 @@ export default async function CompanyHomePage({ params }: { params: Promise<{ co
   if (!membership) notFound();
 
   const expensesEnabled = expenseCompanies.some((company) => company.id === membership.companyId);
-  const workforceEnabled = hasLegacyWorkforceWorkspace(membership);
+  const workforceEnabled = isOperationalWorkforceMembership(membership);
 
   return (
     <div className="min-h-screen bg-background">
@@ -49,7 +49,7 @@ export default async function CompanyHomePage({ params }: { params: Promise<{ co
               </Link>
             )}
             {workforceEnabled && (
-              <Link href="/dashboard" className="rounded-xl border border-slate-200 p-5 hover:border-arcotex-blue">
+              <Link href={`/empresas/${membership.companySlug}/personas`} className="rounded-xl border border-slate-200 p-5 hover:border-arcotex-blue">
                 <h2 className="font-semibold text-slate-950">Personas y asistencia</h2>
                 <p className="mt-1 text-sm text-slate-600">Workspace laboral habilitado para esta empresa.</p>
               </Link>

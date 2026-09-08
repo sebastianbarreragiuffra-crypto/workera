@@ -26,18 +26,22 @@ export {
  * cuando existe un período en estado CLOSED que cubra esa fecha.
  *
  * Todo pasa por el cliente de SESIÓN (nunca admin): la RLS
- * `reporting_periods_insert_admin` / `_update_admin` (is_privileged_admin())
- * es el gate real. Al cerrar/reabrir hay que setear `closed_by`/`reopened_by`
- * = el usuario actual EN EL MISMO update, porque la policy lo exige en su
- * `with_check`.
+ * `reporting_periods_insert_admin` / `_update_admin` (`is_admin_rrhh()`)
+ * es el gate real. La reapertura atribuye `reopened_by` al usuario actual;
+ * el cierre queda reservado al RPC que crea el snapshot en la misma
+ * transacción.
  *
  * Ciclo de estados (enum `reporting_period_status`):
  *   OPEN -> IN_REVIEW -> READY_TO_CLOSE -> CLOSED
  *   CLOSED -> REOPENED (con motivo obligatorio) -> ... -> CLOSED de nuevo
+ *
+ * `CLOSED` no se escribe desde este helper genérico: requiere el protocolo
+ * de snapshot exacto (`closePayrollPeriodWithSnapshot`) y su RPC atómico.
  */
 
 interface RawPeriod {
   id: string;
+  company_id: string;
   period_start: string;
   period_end: string;
   status: ReportingPeriodStatus;
@@ -49,6 +53,7 @@ interface RawPeriod {
 function toPeriod(r: RawPeriod): ReportingPeriod {
   return {
     id: r.id,
+    companyId: r.company_id,
     periodStart: r.period_start,
     periodEnd: r.period_end,
     status: r.status,
@@ -79,10 +84,14 @@ function nextPayrollYearMonth(lastEnd: string | null): string {
   return `${nextYear}-${String(nextMonth).padStart(2, "0")}`;
 }
 
-export async function getReportingPeriodsBoard(supabase: SupabaseClient<Database>): Promise<ReportingPeriodsBoard> {
+export async function getReportingPeriodsBoard(
+  supabase: SupabaseClient<Database>,
+  companyId: string,
+): Promise<ReportingPeriodsBoard> {
   const { data, error } = await supabase
     .from("reporting_periods")
-    .select("id, period_start, period_end, status, closed_at, reopened_at, reopen_reason")
+    .select("id, company_id, period_start, period_end, status, closed_at, reopened_at, reopen_reason")
+    .eq("company_id", companyId)
     .order("period_start", { ascending: false });
 
   if (error) throw new Error(`getReportingPeriodsBoard: fallo leyendo reporting_periods: ${error.message}`);
@@ -114,11 +123,11 @@ function translateError(message: string): string {
 
 export async function createReportingPeriod(
   supabase: SupabaseClient<Database>,
-  input: { periodStart: string; periodEnd: string }
+  input: { companyId: string; periodStart: string; periodEnd: string }
 ): Promise<{ id: string }> {
   const { data, error } = await supabase
     .from("reporting_periods")
-    .insert({ period_start: input.periodStart, period_end: input.periodEnd, status: "OPEN" })
+    .insert({ company_id: input.companyId, period_start: input.periodStart, period_end: input.periodEnd, status: "OPEN" })
     .select("id")
     .single();
 
@@ -128,19 +137,22 @@ export async function createReportingPeriod(
 
 export async function transitionReportingPeriod(
   supabase: SupabaseClient<Database>,
-  input: { periodId: string; from: ReportingPeriodStatus; to: ReportingPeriodStatus; actorId: string; reopenReason?: string | null }
+  input: { companyId: string; periodId: string; from: ReportingPeriodStatus; to: ReportingPeriodStatus; actorId: string; reopenReason?: string | null }
 ): Promise<void> {
   if (!ALLOWED_TRANSITIONS[input.from].includes(input.to)) {
     throw new Error(`Transición no permitida: ${statusLabel(input.from)} -> ${statusLabel(input.to)}.`);
+  }
+  if (input.to === "CLOSED" || input.to === "READY_TO_CLOSE") {
+    throw new Error(
+      input.to === "CLOSED"
+        ? "Cerrar un período exige generar y confirmar su snapshot Excel exacto."
+        : "Aprobar un período exige recalcular pendientes y registrar la evidencia conciliada de RR. HH.",
+    );
   }
 
   type PeriodPatch = Database["public"]["Tables"]["reporting_periods"]["Update"];
   const patch: PeriodPatch = { status: input.to };
 
-  if (input.to === "CLOSED") {
-    patch.closed_by = input.actorId;
-    patch.closed_at = new Date().toISOString();
-  }
   if (input.to === "REOPENED") {
     const reason = (input.reopenReason ?? "").trim();
     if (!reason) throw new Error("Reabrir un período cerrado exige un motivo.");
@@ -155,6 +167,7 @@ export async function transitionReportingPeriod(
     .from("reporting_periods")
     .update(patch)
     .eq("id", input.periodId)
+    .eq("company_id", input.companyId)
     .eq("status", input.from)
     .select("id");
 

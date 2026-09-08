@@ -17,6 +17,7 @@ import {
 import { generateOvertimeCandidate, type GenerateOvertimeCandidateStatus } from "./overtime-confirmation";
 import type { BirthdayContext } from "./birthday";
 import { loadHolidaySet } from "./holidays";
+import { resolveEffectiveEmployeeGroup } from "./effective-employee-group";
 
 /**
  * Orquestador del motor de reglas (MB-2) -- la pieza que faltaba entre la
@@ -48,6 +49,8 @@ import { loadHolidaySet } from "./holidays";
 export interface ProcessAttendanceDayOptions {
   /** Tenant raíz de la corrida. Obligatorio porque este motor usa service_role y no hereda RLS de una sesión. */
   companyId: string;
+  /** Lease exacto de `rule_engine_runs`; todos los RPC de escritura lo revalidan. */
+  ruleEngineRunId: string;
   /** Acota a un área. Sin esto, procesa a todos los trabajadores activos. */
   areaCode?: AreaCode;
   /** Acota a trabajadores puntuales -- lo usa la re-derivación tras corregir una marcación. */
@@ -139,8 +142,50 @@ function chunksOf<T>(values: T[], size = ID_BATCH_SIZE): T[][] {
 
 interface EmployeeScopeRow {
   id: string;
+  active?: boolean;
   hire_date?: string | null;
   employee_groups: { code: string } | { code: string }[] | null;
+}
+
+async function loadInactiveEmployeesWithFacts(
+  supabase: SupabaseClient<Database>,
+  companyId: string,
+  date: string,
+  employeeIds: string[]
+): Promise<Set<string>> {
+  if (employeeIds.length === 0) return new Set();
+  const [rawPages, attendancePages] = await Promise.all([
+    Promise.all(
+      chunksOf(employeeIds).map((ids) =>
+        fetchAllPages<{ employee_id: string }>("processAttendanceDay: fallo comprobando marcaciones inactivas", (from, to) =>
+          supabase
+            .from("workera_attendance_events")
+            .select("employee_id")
+            .eq("company_id", companyId)
+            .eq("work_date", date)
+            .eq("is_current", true)
+            .in("employee_id", ids)
+            .order("employee_id")
+            .range(from, to) as unknown as PromiseLike<PageResponse<{ employee_id: string }>>
+        )
+      )
+    ),
+    Promise.all(
+      chunksOf(employeeIds).map((ids) =>
+        fetchAllPages<{ employee_id: string }>("processAttendanceDay: fallo comprobando asistencia inactiva", (from, to) =>
+          supabase
+            .from("attendance_records")
+            .select("employee_id")
+            .eq("work_date", date)
+            .eq("is_current", true)
+            .in("employee_id", ids)
+            .order("employee_id")
+            .range(from, to) as unknown as PromiseLike<PageResponse<{ employee_id: string }>>
+        )
+      )
+    ),
+  ]);
+  return new Set([...rawPages.flat(2), ...attendancePages.flat(2)].map((row) => row.employee_id));
 }
 
 async function loadEmployeesInScope(
@@ -156,29 +201,38 @@ async function loadEmployeesInScope(
       fetchAllPages<EmployeeScopeRow>("processAttendanceDay: fallo listando employees", (from, to) => {
         let query = supabase
           .from("employees")
-          .select("id, hire_date, employee_groups!employees_company_group_fkey(code)")
+          .select("id, active, hire_date, employee_groups!employees_company_group_fkey(code)")
           .eq("company_id", options.companyId);
         // La corrida completa procesa el padrón activo. Un reproceso explícito
         // también debe aceptar a una persona hoy inactiva: sus hechos
         // históricos pueden necesitar corrección para finiquito/remuneración.
         if (ids) query = query.in("id", ids);
-        else query = query.eq("active", true);
         return query.order("id").range(from, to) as unknown as PromiseLike<PageResponse<EmployeeScopeRow>>;
       })
     )
   );
 
   // Nunca deriva jornadas anteriores al ingreso, incluso en un rerun manual.
-  const rows = pages.flat().filter((row) => !row.hire_date || row.hire_date <= date);
+  let rows = pages.flat().filter((row) => !row.hire_date || row.hire_date <= date);
+  if (!options.employeeIds) {
+    const inactiveIds = rows.filter((row) => row.active === false).map((row) => row.id);
+    const inactiveWithFacts = await loadInactiveEmployeesWithFacts(
+      supabase,
+      options.companyId,
+      date,
+      inactiveIds
+    );
+    rows = rows.filter((row) => row.active !== false || inactiveWithFacts.has(row.id));
+  }
   if (!options.areaCode) return rows.map((r) => r.id);
 
-  return rows
-    .filter((r) => {
-      const group = r.employee_groups as { code: string } | { code: string }[] | null;
-      const code = Array.isArray(group) ? group[0]?.code : group?.code;
-      return code === options.areaCode;
-    })
-    .map((r) => r.id);
+  const historicalGroups = await Promise.all(
+    rows.map(async (row) => ({
+      id: row.id,
+      group: await resolveEffectiveEmployeeGroup(supabase, row.id, date, options.companyId),
+    }))
+  );
+  return historicalGroups.filter((row) => row.group.code === options.areaCode).map((row) => row.id);
 }
 
 /**
@@ -276,6 +330,8 @@ async function loadBirthdays(
  */
 async function applyDailyStatus(
   supabase: SupabaseClient<Database>,
+  companyId: string,
+  ruleEngineRunId: string,
   date: string,
   targets: { employeeId: string; code: "P" | "?" }[]
 ): Promise<number> {
@@ -285,62 +341,25 @@ async function applyDailyStatus(
   if (catalogError) throw new Error(`applyDailyStatus: fallo leyendo attendance_statuses: ${catalogError.message}`);
   const idByCode = new Map((catalog ?? []).map((s) => [s.code, s.id]));
 
-  type CurrentStatusRow = {
-    id: string;
-    employee_id: string;
-    attendance_status_id: string;
-    source: string;
-    source_version: number;
-  };
-  const existingPages = await Promise.all(
-    chunksOf([...new Set(targets.map((target) => target.employeeId))]).map((ids) =>
-      fetchAllPages<CurrentStatusRow>("applyDailyStatus: fallo leyendo attendance_status_records", (from, to) =>
-        supabase
-          .from("attendance_status_records")
-          .select("id, employee_id, attendance_status_id, source, source_version")
-          .in("employee_id", ids)
-          .eq("work_date", date)
-          .eq("is_current", true)
-          .order("employee_id")
-          .order("id")
-          .range(from, to) as unknown as PromiseLike<PageResponse<CurrentStatusRow>>
-      )
-    )
-  );
-
-  const currentByEmployee = new Map(existingPages.flat().map((r) => [r.employee_id, r]));
   let written = 0;
 
   for (const target of targets) {
     const statusId = idByCode.get(target.code);
     if (!statusId) continue;
-
-    const current = currentByEmployee.get(target.employeeId);
-
-    // Fila puesta por una persona o por Workera: intocable.
-    if (current && current.source !== "system") continue;
-    // Ya dice lo mismo: no versionar por versionar.
-    if (current && current.attendance_status_id === statusId) continue;
-
-    if (current) {
-      const { error } = await supabase.from("attendance_status_records").update({ is_current: false }).eq("id", current.id);
-      if (error) throw new Error(`applyDailyStatus: fallo versionando el código anterior: ${error.message}`);
-    }
-
-    const { error } = await supabase.from("attendance_status_records").insert({
-      employee_id: target.employeeId,
-      work_date: date,
-      attendance_status_id: statusId,
-      source: "system",
-      // `source_hash` es NOT NULL y describe el dato que originó la fila. Para
-      // una marca del motor eso es exactamente el código derivado: dos
-      // corridas que concluyen lo mismo producen el mismo hash, que es la
-      // señal de "nada cambió" del resto del esquema.
-      source_hash: createHash("sha256").update(`SYSTEM|${target.employeeId}|${date}|${target.code}`).digest("hex"),
-      source_version: (current?.source_version ?? 0) + 1,
+    const { data, error } = await supabase.rpc("replace_system_attendance_status", {
+      p_company_id: companyId,
+      p_rule_engine_run_id: ruleEngineRunId,
+      p_employee_id: target.employeeId,
+      p_work_date: date,
+      p_attendance_status_id: statusId,
+      // El hash describe exactamente la conclusión del motor. El RPC calcula
+      // y versiona el historial en la misma transacción.
+      p_source_hash: createHash("sha256")
+        .update(`SYSTEM|${target.employeeId}|${date}|${target.code}`)
+        .digest("hex"),
     });
-    if (error) throw new Error(`applyDailyStatus: fallo insertando el código diario: ${error.message}`);
-    written += 1;
+    if (error) throw new Error(`applyDailyStatus: fallo publicando el código diario: ${error.message}`);
+    if (data === true) written += 1;
   }
 
   return written;
@@ -353,6 +372,7 @@ export async function processAttendanceDay(
   deps: ProcessAttendanceDayDeps = DEFAULT_DEPS
 ): Promise<ProcessAttendanceDayResult> {
   const companyId = requireCompanyId(options.companyId);
+  const ruleEngineRunId = requireRuleEngineRunId(options.ruleEngineRunId);
   const employeeIds = await loadEmployeesInScope(supabase, date, { ...options, companyId });
   const birthdays = await loadBirthdays(supabase, employeeIds);
   // Se carga ANTES del bucle a propósito: una corrección solo puede existir
@@ -372,7 +392,14 @@ export async function processAttendanceDay(
 
   for (const employeeId of employeeIds) {
     try {
-      const derived = await deps.deriveDailyAttendanceRecord(supabase, employeeId, date, isHoliday);
+      const derived = await deps.deriveDailyAttendanceRecord(
+        supabase,
+        employeeId,
+        date,
+        companyId,
+        isHoliday,
+        ruleEngineRunId
+      );
 
       // Sin `attendanceRecordId` no hay nada sobre lo que generar candidatos:
       // exento, día libre, o sin horario asignado. No es un error.
@@ -400,12 +427,20 @@ export async function processAttendanceDay(
       // de omitir esos generadores se retira cualquier candidato que hubiera
       // quedado vigente cuando la jornada todavía no estaba marcada feriado.
       if (isHoliday) {
-        await deps.retireCurrentLateArrivalCandidate(supabase, employeeId, date);
-        await deps.retireCurrentEarlyDepartureCandidate(supabase, employeeId, date);
+        await deps.retireCurrentLateArrivalCandidate(supabase, employeeId, date, companyId, ruleEngineRunId);
+        await deps.retireCurrentEarlyDepartureCandidate(supabase, employeeId, date, companyId, ruleEngineRunId);
       }
       const lateArrival = isHoliday
         ? null
-        : await deps.generateLateArrivalCandidate(supabase, employeeId, date, derived.attendanceRecordId, clockIn);
+        : await deps.generateLateArrivalCandidate(
+            supabase,
+            employeeId,
+            date,
+            derived.attendanceRecordId,
+            clockIn,
+            companyId,
+            ruleEngineRunId
+          );
       const earlyDeparture = isHoliday
         ? null
         : await deps.generateEarlyDepartureCandidate(
@@ -414,7 +449,9 @@ export async function processAttendanceDay(
             date,
             derived.attendanceRecordId,
             clockOut,
-            birthdays.get(employeeId) ?? null
+            birthdays.get(employeeId) ?? null,
+            companyId,
+            ruleEngineRunId
           );
       const overtime = await deps.generateOvertimeCandidate(
         supabase,
@@ -423,7 +460,9 @@ export async function processAttendanceDay(
         derived.attendanceRecordId,
         clockOut,
         clockIn,
-        isHoliday
+        isHoliday,
+        companyId,
+        ruleEngineRunId
       );
 
       // MB-4: día laboral con marcación -> P; sin ninguna marcación -> "?".
@@ -462,7 +501,7 @@ export async function processAttendanceDay(
   // cola de revisión.
   let statusesWritten = 0;
   try {
-    statusesWritten = await applyDailyStatus(supabase, date, statusTargets);
+    statusesWritten = await applyDailyStatus(supabase, companyId, ruleEngineRunId, date, statusTargets);
   } catch (err) {
     failures.push({ employeeId: "(código diario)", message: err instanceof Error ? err.message : "error desconocido" });
   }
@@ -512,6 +551,14 @@ function requireCompanyId(companyId: string | undefined): string {
   return normalized;
 }
 
+function requireRuleEngineRunId(runId: string | undefined): string {
+  const normalized = runId?.trim();
+  if (!normalized) {
+    throw new Error("processAttendanceDay: ruleEngineRunId es obligatorio para publicar resultados.");
+  }
+  return normalized;
+}
+
 /**
  * Envuelve `processAttendanceDay` con la bitácora y el control de concurrencia.
  * El índice único parcial `rule_engine_runs_no_concurrent_running_key` impide
@@ -529,11 +576,18 @@ export async function runRuleEngineForDate(
     companyId: string;
     triggeredBy: "CRON" | "MANUAL";
     triggeredByProfile?: string | null;
-    options?: Omit<ProcessAttendanceDayOptions, "companyId">;
     deps?: ProcessAttendanceDayDeps;
   }
 ): Promise<RuleEngineRunOutcome> {
   const companyId = requireCompanyId(params.companyId);
+  // Una fila SUCCEEDED es evidencia autoritativa para READY_TO_CLOSE. Por
+  // eso este entrypoint registrado nunca admite un subconjunto: employeeIds,
+  // areaCode o incluso un arreglo vacío podrían hacer pasar por completa una
+  // corrida parcial. processAttendanceDay conserva esos filtros únicamente
+  // para pruebas/utilidades que no escriben el ledger autoritativo.
+  if ("options" in params) {
+    throw new Error("runRuleEngineForDate: una corrida registrada debe procesar el día completo.");
+  }
   const { error: reclaimError } = await supabase.rpc("reclaim_stale_rule_engine_runs", {
     p_company_id: companyId,
     p_stale_after_seconds: STALE_RUNNING_SECONDS,
@@ -542,88 +596,98 @@ export async function runRuleEngineForDate(
     throw new Error(`runRuleEngineForDate: fallo recuperando corridas abandonadas: ${reclaimError.message}`);
   }
 
-  const { data: run, error: runError } = await supabase
-    .from("rule_engine_runs")
-    .insert({
-      company_id: companyId,
-      work_date: date,
-      status: "RUNNING",
-      triggered_by: params.triggeredBy,
-      triggered_by_profile: params.triggeredByProfile ?? null,
-    })
-    .select("id")
-    .single();
+  const { data: runId, error: runError } = await supabase.rpc("begin_attendance_rule_engine_run", {
+    p_company_id: companyId,
+    p_work_date: date,
+    p_triggered_by: params.triggeredBy,
+    p_triggered_by_profile: params.triggeredByProfile ?? null,
+  });
 
   if (runError) {
-    if (runError.code === "23505") {
-      return { status: "ALREADY_RUNNING", runId: null, date, result: null, errorSummary: null };
-    }
     throw new Error(`runRuleEngineForDate: fallo abriendo la corrida: ${runError.message}`);
+  }
+  if (typeof runId !== "string") {
+    return { status: "ALREADY_RUNNING", runId: null, date, result: null, errorSummary: null };
   }
 
   try {
     const result = await processAttendanceDay(
       supabase,
       date,
-      { ...(params.options ?? {}), companyId },
+      { companyId, ruleEngineRunId: runId },
       params.deps ?? DEFAULT_DEPS
     );
     const status = result.failures.length > 0 ? "PARTIAL" : "SUCCEEDED";
 
-    const { data: finishedRun, error: finishError } = await supabase
-      .from("rule_engine_runs")
-      .update({
-        status,
-        finished_at: new Date().toISOString(),
-        employees_processed: result.employeesProcessed,
-        attendance_derived: result.attendanceDerived,
-        late_candidates: result.lateCandidates,
-        early_departure_candidates: result.earlyDepartureCandidates,
-        overtime_candidates: result.overtimeCandidates,
-        without_schedule: result.withoutSchedule,
-        failure_count: result.failures.length,
-        error_summary:
-          result.failures.length > 0
-            ? `${result.failures.length} trabajador(es) fallaron; primero: ${result.failures[0].message.slice(0, 200)}`
-            : null,
-      })
-      .eq("id", run.id)
-      .eq("company_id", companyId)
-      .eq("status", "RUNNING")
-      .select("id")
-      .maybeSingle();
+    const errorSummary =
+      result.failures.length > 0
+        ? `${result.failures.length} trabajador(es) fallaron; primero: ${result.failures[0].message.slice(0, 200)}`
+        : null;
+    const { data: finishResult, error: finishError } = await supabase.rpc(
+      "finish_attendance_rule_engine_run",
+      {
+        p_company_id: companyId,
+        p_rule_engine_run_id: runId,
+        p_status: status,
+        p_employees_processed: result.employeesProcessed,
+        p_attendance_derived: result.attendanceDerived,
+        p_late_candidates: result.lateCandidates,
+        p_early_departure_candidates: result.earlyDepartureCandidates,
+        p_overtime_candidates: result.overtimeCandidates,
+        p_without_schedule: result.withoutSchedule,
+        p_failure_count: result.failures.length,
+        p_error_summary: errorSummary,
+      }
+    );
     if (finishError) {
-      throw new Error(`runRuleEngineForDate: fallo cerrando la corrida ${run.id}: ${finishError.message}`);
+      throw new Error(`runRuleEngineForDate: fallo cerrando la corrida ${runId}: ${finishError.message}`);
     }
-    if (!finishedRun) {
+    if (finishResult === "STALE_INPUTS") {
+      return {
+        status: "FAILED",
+        runId,
+        date,
+        result: null,
+        errorSummary: "Los insumos cambiaron durante la corrida; es obligatorio recalcular.",
+      };
+    }
+    if (finishResult !== "FINISHED") {
       throw new Error(
-        `runRuleEngineForDate: la corrida ${run.id} perdió su lease antes de cerrar; no se sobrescribió su estado.`
+        `runRuleEngineForDate: la corrida ${runId} perdió su lease antes de cerrar; no se sobrescribió su estado.`
       );
     }
 
-    return { status, runId: run.id, date, result, errorSummary: null };
+    return { status, runId, date, result, errorSummary: null };
   } catch (err) {
     const message = err instanceof Error ? err.message : "error desconocido";
-    const { data: failedRun, error: failedUpdateError } = await supabase
-      .from("rule_engine_runs")
-      .update({ status: "FAILED", finished_at: new Date().toISOString(), error_summary: message.slice(0, 500) })
-      .eq("id", run.id)
-      .eq("company_id", companyId)
-      .eq("status", "RUNNING")
-      .select("id")
-      .maybeSingle();
+    const { data: failedResult, error: failedUpdateError } = await supabase.rpc(
+      "finish_attendance_rule_engine_run",
+      {
+        p_company_id: companyId,
+        p_rule_engine_run_id: runId,
+        p_status: "FAILED",
+        p_employees_processed: 0,
+        p_attendance_derived: 0,
+        p_late_candidates: 0,
+        p_early_departure_candidates: 0,
+        p_overtime_candidates: 0,
+        p_without_schedule: 0,
+        p_failure_count: 1,
+        p_error_summary: message.slice(0, 500),
+      }
+    );
 
     if (failedUpdateError) {
       throw new Error(
-        `runRuleEngineForDate: la corrida ${run.id} falló (${message}) y no se pudo registrar FAILED: ${failedUpdateError.message}`
+        `runRuleEngineForDate: la corrida ${runId} falló (${message}) y no se pudo registrar FAILED: ${failedUpdateError.message}`
       );
     }
-    if (!failedRun) {
+    if (failedResult !== "FINISHED") {
       throw new Error(
-        `runRuleEngineForDate: la corrida ${run.id} perdió su lease (${message}); no se sobrescribió el estado vigente.`
+        `runRuleEngineForDate: la corrida ${runId} perdió su lease (${message}); no se sobrescribió el estado vigente.`
       );
     }
 
-    return { status: "FAILED", runId: run.id, date, result: null, errorSummary: message };
+    return { status: "FAILED", runId, date, result: null, errorSummary: message };
   }
 }

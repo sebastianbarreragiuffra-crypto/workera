@@ -1,5 +1,5 @@
--- pgTAP Fase 5D: SUPER_ADMIN — existencia del rol, lectura/escritura
--- administrativa amplia, prevención de escalamiento de privilegios,
+-- pgTAP Fase 5D: SUPER_ADMIN — existencia del rol, lectura y administración
+-- técnica (sin autoridad de negocio sobre períodos), prevención de escalamiento,
 -- inmutabilidad de attendance_records/audit_log incluso para SUPER_ADMIN,
 -- protección del último SUPER_ADMIN activo, scoping de supervisores
 -- preservado, y acceso anónimo denegado.
@@ -94,24 +94,27 @@ select lives_ok(
   'SUPER_ADMIN puede leer reporting_periods'
 );
 
--- 3) SUPER_ADMIN administrative write: catálogo de política, empleados,
---    apertura de período.
-select lives_ok(
+-- 3) SUPER_ADMIN puede mantener empleados y auditar horarios, pero RR. HH.
+--    conserva en exclusiva los horarios y el ciclo de los períodos.
+select throws_ok(
   format(
     $$ insert into public.work_schedules (name) values ('Fixture horario SUPER_ADMIN %s') $$,
     extract(epoch from now())::text
   ),
-  'SUPER_ADMIN puede escribir en work_schedules (tabla de política administrativa)'
+  '42501', null,
+  'SUPER_ADMIN no puede mutar work_schedules: es autoridad exclusiva de ADMIN_RRHH'
 );
-select lives_ok(
+select throws_ok(
   $$ update public.employees set display_name = 'Fixture ProdS5D (editado)'
        where id = '90000000-0000-0000-0000-00000000a001' $$,
-  'SUPER_ADMIN puede editar employees'
+  '42501', null,
+  'SUPER_ADMIN no edita employees directamente: debe usar el RPC atomico del padron'
 );
-select lives_ok(
+select throws_ok(
   $$ insert into public.reporting_periods (period_start, period_end, status)
        values (date '2027-01-01', date '2027-01-31', 'OPEN') $$,
-  'SUPER_ADMIN puede abrir un reporting_period'
+  '42501', null,
+  'SUPER_ADMIN no puede abrir un reporting_period: es autoridad exclusiva de ADMIN_RRHH'
 );
 reset role;
 

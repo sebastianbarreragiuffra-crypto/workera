@@ -1,11 +1,43 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  resolveDailyPeriod,
   resolveWeeklyPeriod,
   resolveFortnightPeriod,
   resolveMonthlyPeriod,
   resolvePayrollPeriod,
+  resolveWorkbookPeriodIdentity,
+  workbookWindowType,
 } from "./attendance-export-periods";
+
+test("resolveDailyPeriod: conserva exactamente el día seleccionado", () => {
+  assert.deepEqual(resolveDailyPeriod("2026-09-06"), {
+    type: "DIARIO",
+    startDate: "2026-09-06",
+    endDate: "2026-09-06",
+    label: "Día 2026-09-06",
+  });
+});
+
+test("resolveWorkbookPeriodIdentity: reconstruye solo las cuatro ventanas controladas", () => {
+  const weekly = resolveWorkbookPeriodIdentity({
+    periodType: "SEMANAL",
+    periodStart: "2026-08-17",
+    periodEnd: "2026-08-23",
+  });
+  assert.equal(workbookWindowType(weekly), "SEMANAL");
+  assert.equal(workbookWindowType(resolvePayrollPeriod("2026-09")), "MENSUAL");
+  assert.throws(() => resolveWorkbookPeriodIdentity({
+    periodType: "SEMANAL",
+    periodStart: "2026-08-18",
+    periodEnd: "2026-08-24",
+  }), /no coinciden/i);
+  assert.throws(() => resolveWorkbookPeriodIdentity({
+    periodType: "QUINCENAL",
+    periodStart: "2026-08-02",
+    periodEnd: "2026-08-16",
+  }), /día 1 o 16/i);
+});
 
 test("resolveWeeklyPeriod: cualquier fecha de la semana resuelve al mismo lunes-domingo", () => {
   const wed = resolveWeeklyPeriod("2026-08-19");

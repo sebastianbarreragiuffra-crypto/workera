@@ -16,7 +16,7 @@ const PERIOD_ACTION_INITIAL: PeriodActionState = { status: "idle", message: "" }
 const STATUS_TONE: Record<ReportingPeriodStatus, BadgeTone> = {
   OPEN: "info",
   IN_REVIEW: "warning",
-  READY_TO_CLOSE: "warning",
+  READY_TO_CLOSE: "positive",
   CLOSED: "positive",
   REOPENED: "negative",
 };
@@ -119,13 +119,19 @@ function TransitionButton({ period, to }: { period: ReportingPeriod; to: Reporti
 export function PeriodsClient({
   periods,
   suggestedNext,
+  canManage,
 }: {
   periods: ReportingPeriod[];
   suggestedNext: { periodStart: string; periodEnd: string; label: string };
+  canManage: boolean;
 }) {
   return (
     <div className="space-y-4">
-      <CreatePeriodCard suggested={suggestedNext} />
+      {canManage
+        ? <CreatePeriodCard suggested={suggestedNext} />
+        : <SectionCard title="Auditoría de períodos">
+            <p className="text-sm text-slate-600">Vista técnica de solo lectura. Solo RR. HH. puede crear, cambiar, cerrar o reabrir un período de pago.</p>
+          </SectionCard>}
 
       <SectionCard title={`Períodos (${periods.length})`}>
         {periods.length === 0 ? (
@@ -157,7 +163,7 @@ export function PeriodsClient({
                     </td>
                     <td className="px-2 py-2">
                       <div className="flex flex-wrap gap-2">
-                        {ALLOWED_TRANSITIONS[period.status].map((to) => (
+                        {canManage && ALLOWED_TRANSITIONS[period.status].map((to) => (
                           <TransitionButton key={to} period={period} to={to} />
                         ))}
                       </div>

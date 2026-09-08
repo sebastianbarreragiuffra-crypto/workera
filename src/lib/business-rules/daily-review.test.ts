@@ -61,6 +61,31 @@ test("getDailyReview: sin trabajadores en el área -> listas vacías, no lanza",
   assert.deepEqual(result.noIssues, []);
 });
 
+test("getDailyReview: la empresa activa filtra tanto el área como sus trabajadores", async () => {
+  const filters: Array<[string, string, unknown]> = [];
+  const client = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    from(table: string): any {
+      const builder = {
+        select() { return builder; },
+        eq(column: string, value: unknown) {
+          filters.push([table, column, value]);
+          return builder;
+        },
+        single: async () => ({ data: { id: "group-a" }, error: null }),
+        then(resolve: (value: { data: unknown[]; error: null }) => void) {
+          resolve({ data: [], error: null });
+        },
+      };
+      return builder;
+    },
+  };
+
+  await getDailyReview(client as never, "ADMIN_RRHH", "PRODUCTION", "2026-08-17", "company-a");
+  assert.ok(filters.some((entry) => entry[0] === "employee_groups" && entry[1] === "company_id" && entry[2] === "company-a"));
+  assert.ok(filters.some((entry) => entry[0] === "employees" && entry[1] === "company_id" && entry[2] === "company-a"));
+});
+
 function createMissingPunchReconciliationMock() {
   const selectedRelations: string[] = [];
   const rowsByTable: Record<string, Record<string, unknown>[]> = {

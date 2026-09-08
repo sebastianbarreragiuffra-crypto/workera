@@ -1,5 +1,10 @@
 # Especificación de reglas de negocio — pre-Fase 2
 
+> Documento histórico. Las reglas finales de pre-nómina 2026 y las migraciones
+> `20260906130000`–`20260906210000` reemplazan toda pregunta o cifra pendiente
+> de esta fase, en especial topes, domingos, bono, código R, período 16–15 y
+> exclusión de viáticos.
+
 **Versión 2** de este documento. Reemplaza y consolida la versión anterior (commit `0b568fb`) incorporando: modelo organizacional Administración/Producción, horarios formalizados, elegibilidad y fórmula de horas extra, regla de tope de 120 minutos, tratamiento de clock-out tardío, atrasos diarios/acumulados, y requisitos futuros de dashboard/tests. No se elimina contenido de los documentos anteriores — donde este documento reemplaza una sección previa, se indica explícitamente.
 
 Se apoya en, y no contradice:

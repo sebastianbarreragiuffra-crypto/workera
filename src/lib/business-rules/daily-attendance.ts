@@ -48,15 +48,12 @@ export interface DeriveDailyAttendanceResult {
   clockOut: string | null;
 }
 
-function computeSourceHash(fingerprints: string[]): string {
-  const sorted = [...fingerprints].sort();
+function computeSourceHash(events: { fingerprint: string; status: string; version: number }[]): string {
+  const sorted = events
+    .map((event) => `${event.fingerprint}|${event.status}|v${event.version}`)
+    .sort();
   return createHash("sha256").update(sorted.length > 0 ? sorted.join("|") : "NO_EVENTS").digest("hex");
 }
-
-type CurrentAttendanceRecord = Pick<
-  Database["public"]["Tables"]["attendance_records"]["Row"],
-  "id" | "source" | "source_hash" | "source_version" | "actual_clock_in" | "actual_clock_out"
->;
 
 /**
  * Retira el grafo calculado de una jornada que dejó de existir en la fuente.
@@ -72,61 +69,42 @@ type CurrentAttendanceRecord = Pick<
  * `attendance_records` al final evita dejar candidatos visibles apuntando a
  * una asistencia ya retirada si una llamada intermedia falla.
  */
-async function reconcileStaleDerivedAttendance(
+async function reconcileWorkeraAttendanceDay(
   supabase: SupabaseClient<Database>,
+  companyId: string,
   employeeId: string,
   workDate: string,
-  current: CurrentAttendanceRecord | null
-): Promise<void> {
-  // Sin una asistencia vigente no existe una raíz activa que reconciliar.
-  // Evita cuatro UPDATE vacíos por cada persona exenta en cada reejecución.
-  if (!current) return;
+  actualClockIn: string | null,
+  actualClockOut: string | null,
+  sourceHash: string | null,
+  ruleEngineRunId?: string
+): Promise<string | null> {
+  const { data, error } = await supabase.rpc("reconcile_workera_attendance_day", {
+    p_company_id: companyId,
+    p_rule_engine_run_id: ruleEngineRunId ?? null,
+    p_employee_id: employeeId,
+    p_work_date: workDate,
+    p_actual_clock_in: actualClockIn,
+    p_actual_clock_out: actualClockOut,
+    p_source_hash: sourceHash,
+  });
 
-  for (const table of ["late_arrival_records", "early_departure_records", "overtime_records"] as const) {
-    const { error } = await supabase
-      .from(table)
-      .update({ is_current: false })
-      .eq("employee_id", employeeId)
-      .eq("work_date", workDate)
-      .eq("is_current", true);
-
-    if (error) {
-      throw new Error(`deriveDailyAttendanceRecord: fallo reconciliando ${table}: ${error.message}`);
-    }
+  if (error) {
+    throw new Error(`deriveDailyAttendanceRecord: fallo reconciliando el día: ${error.message}`);
   }
-
-  const { error: statusError } = await supabase
-    .from("attendance_status_records")
-    .update({ is_current: false })
-    .eq("employee_id", employeeId)
-    .eq("work_date", workDate)
-    .eq("source", "system")
-    .eq("is_current", true);
-
-  if (statusError) {
-    throw new Error(`deriveDailyAttendanceRecord: fallo reconciliando attendance_status_records: ${statusError.message}`);
-  }
-
-  if (current.source !== "workera") return;
-
-  const { error: attendanceError } = await supabase
-    .from("attendance_records")
-    .update({ is_current: false })
-    .eq("id", current.id)
-    .eq("source", "workera")
-    .eq("is_current", true);
-
-  if (attendanceError) {
-    throw new Error(`deriveDailyAttendanceRecord: fallo reconciliando attendance_records: ${attendanceError.message}`);
-  }
+  return typeof data === "string" ? data : null;
 }
 
 export async function deriveDailyAttendanceRecord(
   supabase: SupabaseClient<Database>,
   employeeId: string,
   workDate: string,
+  /** Tenant explícito: este motor corre con service_role y no puede depender de RLS. */
+  companyId: string,
   /** El día es feriado legal. Lo resuelve el orquestador con una sola consulta a `holidays` para toda la fecha, en vez de 44 veces desde acá. */
-  isHoliday = false
+  isHoliday = false,
+  /** Lease exacto de la corrida; una corrida reclamada no puede seguir publicando hechos. */
+  ruleEngineRunId?: string
 ): Promise<DeriveDailyAttendanceResult> {
   const schedule = await resolveEffectiveSchedule(supabase, employeeId, workDate);
 
@@ -143,17 +121,17 @@ export async function deriveDailyAttendanceRecord(
   }
 
   if (schedule.kind === "EXEMPT") {
-    await reconcileStaleDerivedAttendance(supabase, employeeId, workDate, current);
+    await reconcileWorkeraAttendanceDay(supabase, companyId, employeeId, workDate, null, null, null, ruleEngineRunId);
     return { status: "EXEMPT", attendanceRecordId: null, clockIn: null, clockOut: null };
   }
   if (schedule.kind === "NO_SCHEDULE_ASSIGNED") {
-    await reconcileStaleDerivedAttendance(supabase, employeeId, workDate, current);
+    await reconcileWorkeraAttendanceDay(supabase, companyId, employeeId, workDate, null, null, null, ruleEngineRunId);
     return { status: "NO_SCHEDULE_ASSIGNED", attendanceRecordId: null, clockIn: null, clockOut: null };
   }
 
   const { data: events, error: eventsError } = await supabase
     .from("workera_attendance_events")
-    .select("attendance_type_code, attendance_timestamp_interpreted, attendance_timestamp_raw, external_fingerprint")
+    .select("attendance_type_code, attendance_timestamp_interpreted, attendance_timestamp_raw, external_fingerprint, attendance_status, source_version")
     .eq("employee_id", employeeId)
     .eq("work_date", workDate)
     .eq("is_current", true)
@@ -164,9 +142,22 @@ export async function deriveDailyAttendanceRecord(
   }
 
   const allEvents = events ?? [];
+  if (allEvents.some((event) => event.attendance_status === "UNKNOWN_EXTERNAL_STATUS")) {
+    throw new Error(
+      "deriveDailyAttendanceRecord: Workera entregó un estado de marcación desconocido; el día requiere revisión."
+    );
+  }
+  // INACTIVO es una versión vigente del hecho crudo, pero no una marcación
+  // válida para liquidar. MODIFICADO sí representa el evento corregido.
+  const effectiveEvents = allEvents.filter(
+    (event) =>
+      event.attendance_status === undefined ||
+      event.attendance_status === "ACTIVO" ||
+      event.attendance_status === "MODIFICADO"
+  );
 
-  const entradaEvents = allEvents.filter((e) => ENTRADA_TYPE_CODES.has(e.attendance_type_code));
-  const salidaEvents = allEvents.filter((e) => SALIDA_TYPE_CODES.has(e.attendance_type_code));
+  const entradaEvents = effectiveEvents.filter((e) => ENTRADA_TYPE_CODES.has(e.attendance_type_code));
+  const salidaEvents = effectiveEvents.filter((e) => SALIDA_TYPE_CODES.has(e.attendance_type_code));
   const hasRecognizedPunch = entradaEvents.length > 0 || salidaEvents.length > 0;
 
   // Una fila manual es la verdad explícita de una persona. No se sustituye ni
@@ -184,7 +175,7 @@ export async function deriveDailyAttendanceRecord(
   // anterior retornaba antes de leer los eventos y, por eso, descartaba
   // también un sábado/domingo efectivamente trabajado.
   if (schedule.kind === "DAY_OFF" && !hasRecognizedPunch) {
-    await reconcileStaleDerivedAttendance(supabase, employeeId, workDate, current);
+    await reconcileWorkeraAttendanceDay(supabase, companyId, employeeId, workDate, null, null, null, ruleEngineRunId);
     return {
       status: allEvents.length > 0 ? "SKIPPED_NO_EVENTS" : isHoliday ? "HOLIDAY" : "DAY_OFF",
       attendanceRecordId: null,
@@ -198,7 +189,7 @@ export async function deriveDailyAttendanceRecord(
   // marcada no dispara) ni se marca "?". Si el trabajador SÍ marcó, se sigue
   // de largo y se deriva normal -- las horas del feriado se pagan HH100.
   if (isHoliday && !hasRecognizedPunch) {
-    await reconcileStaleDerivedAttendance(supabase, employeeId, workDate, current);
+    await reconcileWorkeraAttendanceDay(supabase, companyId, employeeId, workDate, null, null, null, ruleEngineRunId);
     return {
       status: allEvents.length > 0 ? "SKIPPED_NO_EVENTS" : "HOLIDAY",
       attendanceRecordId: null,
@@ -213,7 +204,13 @@ export async function deriveDailyAttendanceRecord(
   const clockIn = entradaEvents[0]?.attendance_timestamp_interpreted ?? null;
   const clockOut = salidaEvents[salidaEvents.length - 1]?.attendance_timestamp_interpreted ?? null;
 
-  const sourceHash = computeSourceHash(allEvents.map((e) => e.external_fingerprint ?? ""));
+  const sourceHash = computeSourceHash(
+    effectiveEvents.map((event) => ({
+      fingerprint: event.external_fingerprint ?? "",
+      status: event.attendance_status ?? "ACTIVO",
+      version: event.source_version ?? 1,
+    }))
+  );
 
   if (current && current.source_hash === sourceHash) {
     return { status: "UNCHANGED", attendanceRecordId: current.id, clockIn, clockOut };
@@ -222,25 +219,20 @@ export async function deriveDailyAttendanceRecord(
   // Retira primero las hojas calculadas y después la raíz. Además de evitar
   // que un candidato visible apunte temporalmente a una asistencia histórica,
   // mantiene el mismo orden de locks que el guard de decisiones en la base.
-  await reconcileStaleDerivedAttendance(supabase, employeeId, workDate, current);
+  const insertedId = await reconcileWorkeraAttendanceDay(
+    supabase,
+    companyId,
+    employeeId,
+    workDate,
+    clockIn,
+    clockOut,
+    sourceHash,
+    ruleEngineRunId
+  );
 
-  const { data: inserted, error: insertError } = await supabase
-    .from("attendance_records")
-    .insert({
-      employee_id: employeeId,
-      work_date: workDate,
-      actual_clock_in: clockIn,
-      actual_clock_out: clockOut,
-      source: "workera",
-      source_hash: sourceHash,
-      source_version: (current?.source_version ?? 0) + 1,
-    })
-    .select("id")
-    .single();
-
-  if (insertError || !inserted) {
-    throw new Error(`deriveDailyAttendanceRecord: fallo insertando attendance_records: ${insertError?.message ?? "sin fila devuelta"}`);
+  if (typeof insertedId !== "string") {
+    throw new Error("deriveDailyAttendanceRecord: el RPC no devolvió la asistencia diaria vigente.");
   }
 
-  return { status: "DERIVED", attendanceRecordId: inserted.id, clockIn, clockOut };
+  return { status: "DERIVED", attendanceRecordId: insertedId, clockIn, clockOut };
 }

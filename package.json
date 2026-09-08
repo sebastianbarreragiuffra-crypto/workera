@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --conditions=react-server --test \"src/**/*.test.ts\" \"next.config.test.ts\"",
+    "test": "tsx --conditions=react-server --test \"src/**/*.test.ts\" \"scripts/**/*.test.mts\" \"next.config.test.ts\"",
     "test:e2e": "playwright test",
     "test:workera": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/workera/**/*.test.ts\"",
     "test:auth": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/supabase/*.test.ts\"",
@@ -21,7 +21,12 @@
     "test:schedules": "tsx --conditions=react-server --test --experimental-test-coverage \"src/lib/schedules/**/*.test.ts\"",
     "readiness:report": "tsx scripts/pilot-readiness.mts",
     "readiness:local": "tsx scripts/pilot-readiness.mts --enforce=LOCAL_SYNTHETIC",
-    "readiness:staging-data": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/staging-data-inventory.mts"
+    "readiness:staging-data": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/staging-data-inventory.mts",
+    "readiness:arcotex-attendance": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/arcotex-attendance-pilot-preflight.mts",
+    "repair:arcotex-attendance-statuses": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/repair-arcotex-attendance-statuses.mts",
+    "pilot:arcotex-attendance-day": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/run-arcotex-attendance-day.mts",
+    "audit:workera-roster-status": "node --conditions=react-server --import=tsx scripts/audit-workera-roster-status.mts",
+    "test:workera-roster-audit": "node --conditions=react-server --import=tsx --test scripts/audit-workera-roster-status.test.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

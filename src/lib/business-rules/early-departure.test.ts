@@ -12,6 +12,53 @@ function createMockSupabase(handlers: {
   onInsert?: (row: Record<string, unknown>) => void;
 }) {
   return {
+    async rpc(name: string, args: Record<string, unknown>) {
+      assert.equal(name, "reconcile_early_departure_candidate");
+      const existingResult = handlers.early_departure_records_existing?.() ?? { data: null, error: null };
+      if (existingResult.error) return { data: null, error: existingResult.error };
+      const existing = existingResult.data as {
+        id: string;
+        attendance_record_id: string;
+        scheduled_end: string;
+        actual_end: string;
+        detected_minutes: number;
+        calculation_version: number;
+      } | null;
+
+      if (args.p_attendance_record_id === null) {
+        if (existing) {
+          const update = handlers.early_departure_records_update?.(existing.id) ?? { data: null, error: null };
+          if (update.error) return { data: null, error: update.error };
+        }
+        return { data: { record_id: null, changed: existing !== null }, error: null };
+      }
+      if (
+        existing &&
+        existing.attendance_record_id === args.p_attendance_record_id &&
+        existing.scheduled_end === args.p_scheduled_end &&
+        new Date(existing.actual_end).getTime() === new Date(String(args.p_actual_end)).getTime() &&
+        existing.detected_minutes === args.p_detected_minutes
+      ) {
+        return { data: { record_id: existing.id, changed: false }, error: null };
+      }
+      if (existing) {
+        const update = handlers.early_departure_records_update?.(existing.id) ?? { data: null, error: null };
+        if (update.error) return { data: null, error: update.error };
+      }
+      handlers.onInsert?.({
+        attendance_record_id: args.p_attendance_record_id,
+        scheduled_end: args.p_scheduled_end,
+        actual_end: args.p_actual_end,
+        detected_minutes: args.p_detected_minutes,
+        calculation_version: (existing?.calculation_version ?? 0) + 1,
+      });
+      const inserted = handlers.early_departure_records_insert?.() ?? { data: { id: "edr-mock" }, error: null };
+      if (inserted.error) return { data: null, error: inserted.error };
+      return {
+        data: { record_id: (inserted.data as { id: string }).id, changed: true },
+        error: null,
+      };
+    },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     from(table: string): any {
       let isInsert = false;
@@ -485,6 +532,6 @@ test("early departure: un fallo al retirar aborta, nunca devuelve NO_EARLY_DEPAR
 
   await assert.rejects(
     generateEarlyDepartureCandidate(mock as never, "emp-1", "2026-08-20", "att-new", "2026-08-20T21:00:00.000Z"),
-    /fallo retirando early_departure_records vigente: db unavailable/
+    /fallo reconciliando salida anticipada: db unavailable/
   );
 });

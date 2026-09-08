@@ -24,10 +24,12 @@ export function ScheduleAdminClient({
   rows,
   schedules,
   today,
+  canManage,
 }: {
   rows: ScheduleAdminRow[];
   schedules: WorkScheduleSummary[];
   today: string;
+  canManage: boolean;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("todos");
@@ -86,7 +88,16 @@ export function ScheduleAdminClient({
                       <td className="px-2 py-2 text-slate-600">{row.areaCode ? AREA_LABEL[row.areaCode] : "—"}</td>
                       <td className="px-2 py-2">
                         {row.workScheduleName ? (
-                          <span className="text-slate-700">{row.workScheduleName}</span>
+                          <span className="text-slate-700">
+                            {row.workScheduleName}
+                            {row.rrhhConfirmedAt ? (
+                              <span className="mt-0.5 block text-[11px] text-success">
+                                Confirmado por RR. HH. · {row.rrhhConfirmedAt.slice(0, 10)}
+                              </span>
+                            ) : (
+                              <span className="mt-0.5 block text-[11px] text-slate-400">Sin confirmación explícita registrada</span>
+                            )}
+                          </span>
                         ) : row.timeControl === "EXEMPT" ? (
                           <span className="text-slate-400">No aplica</span>
                         ) : (
@@ -101,17 +112,21 @@ export function ScheduleAdminClient({
                         )}
                       </td>
                       <td className="px-2 py-2 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setExpandedId(expanded ? null : row.employeeId)}
-                          aria-expanded={expanded}
-                          className="rounded-md border border-border px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          {expanded ? "Cerrar" : "Editar"}
-                        </button>
+                        {canManage ? (
+                          <button
+                            type="button"
+                            onClick={() => setExpandedId(expanded ? null : row.employeeId)}
+                            aria-expanded={expanded}
+                            className="rounded-md border border-border px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            {expanded ? "Cerrar" : "Editar"}
+                          </button>
+                        ) : (
+                          <span className="text-xs font-medium text-slate-400">Solo lectura</span>
+                        )}
                       </td>
                     </tr>
-                    {expanded && (
+                    {canManage && expanded && (
                       <tr>
                         <td colSpan={5} className="px-2 pb-3">
                           <EmployeeScheduleEditor row={row} schedules={schedules} today={today} />

@@ -161,9 +161,10 @@ export async function getDailyReviewBoard(
   supabase: SupabaseClient<Database>,
   callerRole: CallerRole,
   areaCode: DailyReviewResult["groupCode"],
-  date: string
+  date: string,
+  companyId?: string,
 ): Promise<DailyReviewBoardViewModel> {
-  const review = await getDailyReview(supabase, callerRole, areaCode, date);
+  const review = await getDailyReview(supabase, callerRole, areaCode, date, companyId);
 
   const allEmployees = [...review.requiresReview, ...review.noIssues];
   const employeeIds = allEmployees.map((e) => e.employeeId);
@@ -364,12 +365,14 @@ export interface DailyReviewDetailViewModel {
   lateArrival: {
     recordId: string;
     detectedMinutes: number;
+    weekly: { startDate: string; endDate: string; detectedMinutes: number; payrollMinutes: number };
     decision: { justified: boolean; payrollMinutes: number; reason: string | null; decidedAt: string } | null;
   } | null;
 
   earlyDeparture: {
     recordId: string;
     detectedMinutes: number;
+    weekly: { startDate: string; endDate: string; detectedMinutes: number; payrollMinutes: number };
     decision: {
       reasonCategory: string;
       documentRequired: boolean;
@@ -402,6 +405,35 @@ export interface DailyReviewDetailViewModel {
   documents: { id: string; documentType: string; originalFilename: string; uploadedAt: string }[];
 }
 
+function reviewWeekRange(date: string): { startDate: string; endDate: string } {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.valueOf())) throw new Error(`getDailyReviewDetail: fecha inválida (${date}).`);
+  parsed.setUTCDate(parsed.getUTCDate() - ((parsed.getUTCDay() + 6) % 7));
+  const startDate = parsed.toISOString().slice(0, 10);
+  parsed.setUTCDate(parsed.getUTCDate() + 6);
+  return { startDate, endDate: parsed.toISOString().slice(0, 10) };
+}
+
+type WeeklyDecision = { payroll_minutes: number; payroll_effect: string; is_current: boolean };
+type WeeklyIncident = {
+  detected_minutes: number;
+  late_arrival_decisions?: WeeklyDecision | WeeklyDecision[] | null;
+  early_departure_decisions?: WeeklyDecision | WeeklyDecision[] | null;
+};
+
+function weeklyIncidentTotals(rows: readonly WeeklyIncident[], relation: "late_arrival_decisions" | "early_departure_decisions") {
+  let detectedMinutes = 0;
+  let payrollMinutes = 0;
+  for (const row of rows) {
+    detectedMinutes += row.detected_minutes;
+    const raw = row[relation];
+    const decisions = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    const current = decisions.find((decision) => decision.is_current);
+    if (current?.payroll_effect === "DEDUCT") payrollMinutes += current.payroll_minutes;
+  }
+  return { detectedMinutes, payrollMinutes };
+}
+
 export async function getDailyReviewDetail(
   supabase: SupabaseClient<Database>,
   callerRole: CallerRole,
@@ -409,6 +441,7 @@ export async function getDailyReviewDetail(
   date: string
 ): Promise<DailyReviewDetailViewModel> {
   const areaCode = await assertEmployeeAccessAllowed(supabase, callerRole, employeeId);
+  const week = reviewWeekRange(date);
 
   const { data: employee, error: employeeError } = await supabase
     .from("employees")
@@ -432,6 +465,8 @@ export async function getDailyReviewDetail(
     birthdayRes,
     correctionRes,
     timelineRes,
+    weeklyLateRes,
+    weeklyEarlyRes,
   ] = await Promise.all([
       resolveTimeControlPolicy(supabase, employeeId, date),
       resolveEffectiveSchedule(supabase, employeeId, date),
@@ -515,9 +550,25 @@ export async function getDailyReviewDetail(
         .eq("work_date", date)
         .eq("is_current", true)
         .order("attendance_timestamp_interpreted", { ascending: true }),
+      supabase
+        .from("late_arrival_records")
+        .select("detected_minutes, attendance_records!inner(is_current), late_arrival_decisions(payroll_minutes, payroll_effect, is_current)")
+        .eq("employee_id", employeeId)
+        .gte("work_date", week.startDate)
+        .lte("work_date", week.endDate)
+        .eq("is_current", true)
+        .eq("attendance_records.is_current", true),
+      supabase
+        .from("early_departure_records")
+        .select("detected_minutes, attendance_records!inner(is_current), early_departure_decisions(payroll_minutes, payroll_effect, is_current)")
+        .eq("employee_id", employeeId)
+        .gte("work_date", week.startDate)
+        .lte("work_date", week.endDate)
+        .eq("is_current", true)
+        .eq("attendance_records.is_current", true),
     ]);
 
-  for (const res of [attendanceRes, lateRes, earlyRes, overtimeRes, absenceRes, missingPunchRes, documentsRes, birthdayRes, correctionRes, timelineRes]) {
+  for (const res of [attendanceRes, lateRes, earlyRes, overtimeRes, absenceRes, missingPunchRes, documentsRes, birthdayRes, correctionRes, timelineRes, weeklyLateRes, weeklyEarlyRes]) {
     if (res.error) throw new Error(`getDailyReviewDetail: fallo leyendo datos del día: ${res.error.message}`);
   }
 
@@ -561,6 +612,8 @@ export async function getDailyReviewDetail(
   const currentAbsenceDecision = absenceDecisions.find((d) => d && d.is_current) ?? null;
   const absenceTypeRelation = absenceRow ? (absenceRow.absence_types as { name: string } | { name: string }[] | null) : null;
   const absenceTypeName = (Array.isArray(absenceTypeRelation) ? absenceTypeRelation[0]?.name : absenceTypeRelation?.name) ?? "Ausencia";
+  const weeklyLate = weeklyIncidentTotals((weeklyLateRes.data ?? []) as unknown as WeeklyIncident[], "late_arrival_decisions");
+  const weeklyEarly = weeklyIncidentTotals((weeklyEarlyRes.data ?? []) as unknown as WeeklyIncident[], "early_departure_decisions");
 
   return {
     employeeId: employee.id,
@@ -585,6 +638,7 @@ export async function getDailyReviewDetail(
       ? {
           recordId: lateRow.id,
           detectedMinutes: lateRow.detected_minutes,
+          weekly: { ...week, ...weeklyLate },
           decision: currentLateDecision
             ? {
                 justified: currentLateDecision.justified,
@@ -599,6 +653,7 @@ export async function getDailyReviewDetail(
       ? {
           recordId: earlyRow.id,
           detectedMinutes: earlyRow.detected_minutes,
+          weekly: { ...week, ...weeklyEarly },
           decision: currentEarlyDecision
             ? {
                 reasonCategory: currentEarlyDecision.reason_category,

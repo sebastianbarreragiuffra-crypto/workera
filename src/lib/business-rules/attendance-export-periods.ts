@@ -1,23 +1,32 @@
 /**
  * Límites de período para el exportador de asistencia (Fase 9). Exactamente
- * tres modos, sin rango arbitrario -- ver DescargarAsistenciaCard.tsx.
+ * cuatro ventanas controladas, sin rango arbitrario -- ver
+ * DescargarAsistenciaCard.tsx.
  *
- * SEMANAL reutiliza `currentWeekRange` (dashboard-view.ts), el mismo cálculo
- * lunes-domingo ya usado en el resto de la app -- ninguna aritmética de
+ * SEMANAL reutiliza el cálculo compartido lunes-domingo que usa el dashboard
+ * -- ninguna aritmética de
  * fecha nueva. QUINCENAL es un rango de CALENDARIO fijo (1-15 / 16-fin de
  * mes), deliberadamente DISTINTO del ciclo 15-15 que ya usa Colaciones para
  * sus propios descuentos (ese ciclo es de facturación, no de asistencia --
  * no se reutiliza acá). MENSUAL es 1º al último día calendario del mes.
  */
-import { currentWeekRange } from "../view-models/dashboard-view";
+import { currentIsoWeekRange, isCalendarDate } from "../shared/date-time";
 
-export type AttendanceExportType = "SEMANAL" | "QUINCENAL" | "MENSUAL" | "PAGO";
+export type AttendanceExportType = "DIARIO" | "SEMANAL" | "QUINCENAL" | "MENSUAL" | "PAGO";
 
 export interface AttendanceExportPeriod {
   type: AttendanceExportType;
   startDate: string;
   endDate: string;
   label: string;
+}
+
+export type AttendanceWorkbookWindowType = "DIARIO" | "SEMANAL" | "QUINCENAL" | "MENSUAL";
+
+export function workbookWindowType(period: AttendanceExportPeriod): AttendanceWorkbookWindowType {
+  if (period.type === "PAGO") return "MENSUAL";
+  if (period.type === "MENSUAL") throw new Error("El mensual calendario no admite versiones de pre-nómina.");
+  return period.type;
 }
 
 const MONTH_LABEL = new Intl.DateTimeFormat("es-CL", { month: "long", year: "numeric", timeZone: "UTC" });
@@ -35,9 +44,14 @@ function monthLabel(year: number, month1to12: number): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+/** DIARIO: conserva exactamente el día seleccionado. */
+export function resolveDailyPeriod(date: string): AttendanceExportPeriod {
+  return { type: "DIARIO", startDate: date, endDate: date, label: `Día ${date}` };
+}
+
 /** SEMANAL: cualquier fecha dentro de la semana deseada -- se resuelve a lunes-domingo. */
 export function resolveWeeklyPeriod(anyDateInWeek: string): AttendanceExportPeriod {
-  const { start, end } = currentWeekRange(anyDateInWeek);
+  const { start, end } = currentIsoWeekRange(anyDateInWeek);
   return { type: "SEMANAL", startDate: start, endDate: end, label: `Semana ${start} al ${end}` };
 }
 
@@ -82,7 +96,42 @@ export function resolvePayrollPeriod(yearMonth: string): AttendanceExportPeriod 
   };
 }
 
-/** MENSUAL: mes (YYYY-MM) completo, 1º al último día calendario. */
+/**
+ * Reconstruye una selección recibida desde el navegador y rechaza rangos
+ * arbitrarios. El servidor nunca confía solo en Inicio/Fin del formulario.
+ */
+export function resolveWorkbookPeriodIdentity(input: {
+  periodType: "DIARIO" | "SEMANAL" | "QUINCENAL" | "PAGO";
+  periodStart: string;
+  periodEnd: string;
+}): AttendanceExportPeriod {
+  if (!isCalendarDate(input.periodStart) || !isCalendarDate(input.periodEnd)) {
+    throw new Error("Las fechas del archivo no son válidas.");
+  }
+  let resolved: AttendanceExportPeriod;
+  if (input.periodType === "DIARIO") {
+    resolved = resolveDailyPeriod(input.periodStart);
+  } else if (input.periodType === "SEMANAL") {
+    resolved = resolveWeeklyPeriod(input.periodStart);
+  } else if (input.periodType === "QUINCENAL") {
+    const day = Number(input.periodStart.slice(8, 10));
+    if (day !== 1 && day !== 16) throw new Error("La quincena debe comenzar el día 1 o 16.");
+    resolved = resolveFortnightPeriod(input.periodStart.slice(0, 7), day === 1 ? 1 : 2);
+  } else {
+    resolved = resolvePayrollPeriod(input.periodEnd.slice(0, 7));
+  }
+  if (resolved.type !== input.periodType
+      || resolved.startDate !== input.periodStart
+      || resolved.endDate !== input.periodEnd) {
+    throw new Error("El tipo y el rango del archivo no coinciden.");
+  }
+  return resolved;
+}
+
+/**
+ * MENSUAL CALENDARIO legacy. No se ofrece en la UI desde la fase multiempresa:
+ * la opción mensual visible usa resolvePayrollPeriod (ciclo oficial 16-15).
+ */
 export function resolveMonthlyPeriod(yearMonth: string): AttendanceExportPeriod {
   const [yearStr, monthStr] = yearMonth.split("-");
   const year = Number(yearStr);

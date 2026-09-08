@@ -58,3 +58,20 @@ test("uploadMedicalLicenseAction valida acceso al empleado con assertEmployeeAcc
   const fnBody = content.slice(fnStart, fnEnd === -1 ? undefined : fnEnd);
   assert.match(fnBody, /assertEmployeeAccessAllowed\(/, "uploadMedicalLicenseAction debe validar el acceso al empleado server-side");
 });
+
+test("toda mutación de licencia refresca Licencias, Dashboard y la cola diaria", () => {
+  const content = readSource();
+  assert.match(
+    content,
+    /MEDICAL_LICENSE_REVALIDATE_PATHS\s*=\s*\["\/licencias", "\/dashboard", "\/revision-diaria"\]/,
+    "las tres superficies afectadas deben compartir una única lista de revalidación",
+  );
+
+  for (const fnName of ["uploadMedicalLicenseAction", "approveMedicalLicenseAction", "rejectMedicalLicenseAction"]) {
+    const fnStart = content.indexOf(`export async function ${fnName}`);
+    assert.ok(fnStart >= 0, `${fnName} debe existir en actions.ts`);
+    const fnEnd = content.indexOf("\nexport async function", fnStart + 1);
+    const fnBody = content.slice(fnStart, fnEnd === -1 ? undefined : fnEnd);
+    assert.match(fnBody, /revalidateMedicalLicenseViews\(\)/, `${fnName} debe refrescar todas las vistas dependientes`);
+  }
+});

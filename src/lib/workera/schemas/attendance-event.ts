@@ -23,9 +23,22 @@ const rawWorkeraAttendanceEmployeeSchema = z.object({
   companyName: z.string().nullish(),
 });
 
+const workeraLocalTimestampSchema = z
+  .string()
+  .regex(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/,
+    "attendanceDate debe ser un timestamp local ISO sin zona horaria"
+  )
+  .refine((value) => {
+    const parsed = new Date(`${value}Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 19) === value.slice(0, 19);
+  }, "attendanceDate contiene una fecha u hora imposible");
+
 const rawWorkeraAttendanceEventSchema = z.object({
   employee: rawWorkeraAttendanceEmployeeSchema,
-  attendanceDate: z.string().min(1, "attendanceDate no puede ser vacío"),
+  // Workera documenta hora local sin offset. Aceptar solo una fecha, un Z o
+  // un offset y luego reinterpretarlo en Santiago desplazaría la marcación.
+  attendanceDate: workeraLocalTimestampSchema,
   // 0-5 documentado (Entrada/Salida/Salida extraordinaria/Entrada
   // extraordinaria/Inicio descanso/Término descanso). Fuera de ese rango se
   // rechaza explícitamente — no se inventa un séptimo tipo.

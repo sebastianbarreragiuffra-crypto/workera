@@ -24,6 +24,13 @@ async function requireAuthenticatedProfile() {
   return { ...profile, role: profile.role as CallerRole };
 }
 
+const MEDICAL_LICENSE_REVALIDATE_PATHS = ["/licencias", "/dashboard", "/revision-diaria"] as const;
+
+/** Una mutación de licencia afecta la cola, el indicador de cierre y su propia pantalla. */
+function revalidateMedicalLicenseViews() {
+  for (const path of MEDICAL_LICENSE_REVALIDATE_PATHS) revalidatePath(path);
+}
+
 export interface UploadMedicalLicenseActionState {
   status: "idle" | "success" | "error";
   message: string;
@@ -94,7 +101,7 @@ export async function uploadMedicalLicenseAction(_prev: UploadMedicalLicenseActi
     return { status: "error", message: "No pudimos subir la licencia.", extractionStatus: null };
   }
 
-  revalidatePath("/licencias");
+  revalidateMedicalLicenseViews();
   const message =
     extraction.status === "EXTRAIDO"
       ? "Licencia subida -- fechas detectadas en el documento, queda pendiente de aprobación de RRHH."
@@ -152,8 +159,11 @@ export async function approveMedicalLicenseAction(_prev: ApproveMedicalLicenseAc
     return { status: "error", message: "No pudimos aprobar la licencia." };
   }
 
-  revalidatePath("/licencias");
-  return { status: "success", message: "Licencia aprobada -- se generó \"L\" en asistencia para el período confirmado." };
+  revalidateMedicalLicenseViews();
+  return {
+    status: "success",
+    message: "Licencia aprobada -- se generó \"L\" en asistencia para el período confirmado y el caso dejó de estar pendiente.",
+  };
 }
 
 export interface RejectMedicalLicenseActionState {
@@ -191,6 +201,6 @@ export async function rejectMedicalLicenseAction(_prev: RejectMedicalLicenseActi
     return { status: "error", message: "No pudimos rechazar la licencia." };
   }
 
-  revalidatePath("/licencias");
+  revalidateMedicalLicenseViews();
   return { status: "success", message: "Licencia rechazada." };
 }

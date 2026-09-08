@@ -10,7 +10,7 @@ export interface WorkspaceDestinationInput {
 
 /**
  * Precedencia única del inicio autenticado. Un usuario multiempresa siempre
- * elige tenant; Arcotex legacy solo gana cuando es su única empresa laboral.
+ * elige tenant; un workspace laboral solo gana cuando es su única empresa.
  */
 export function resolveWorkspaceDestination(input: WorkspaceDestinationInput): string {
   if (input.hasPlatformMembership) return "/plataforma";
@@ -18,7 +18,7 @@ export function resolveWorkspaceDestination(input: WorkspaceDestinationInput): s
   if (input.companies.kind === "NONE") return "/acceso-pendiente";
 
   const company = input.companies.membership;
-  if (input.legacyProfileRole && hasLegacyWorkforceWorkspace(company)) {
+  if (company.status === "ACTIVE" && hasLegacyWorkforceWorkspace(company)) {
     return "/dashboard";
   }
   if (input.expenseCompanyIds.has(company.companyId)) {
