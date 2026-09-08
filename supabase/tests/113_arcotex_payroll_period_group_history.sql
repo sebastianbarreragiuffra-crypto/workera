@@ -44,7 +44,7 @@ insert into public.employees (
 (
   'a7130000-0000-4000-8000-000000000102',
   '0a4c0000-0000-0000-0000-000000000001',
-  'LOCAL-PERIOD-113', 'Periodo', 'Local', 'Periodo Local',
+  'LOCAL-PROVISIONAL:PERIOD-113', 'Periodo', 'Local', 'Periodo Local',
   (
     select id from public.employee_groups
     where company_id = '0a4c0000-0000-0000-0000-000000000001'
@@ -53,20 +53,9 @@ insert into public.employees (
   'local_provisional', true
 );
 
-insert into public.employee_group_assignments (
-  id, employee_id, employee_group_id, effective_from, source
-)
-select
-  case e.source
-    when 'workera' then 'a7130000-0000-4000-8000-000000000201'::uuid
-    else 'a7130000-0000-4000-8000-000000000202'::uuid
-  end,
-  e.id,
-  e.employee_group_id,
-  date '2097-02-01',
-  'internal'
-from public.employees e
-where e.id in (
+update public.employee_group_assignments
+set effective_from = date '2097-02-01'
+where employee_id in (
   'a7130000-0000-4000-8000-000000000101',
   'a7130000-0000-4000-8000-000000000102'
 );
