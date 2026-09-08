@@ -1,0 +1,29 @@
+---
+description: Coordinar el cierre seguro de Workera cuando el usuario envíe el comando exacto mevoy
+alwaysApply: true
+---
+
+# Protocolo `mevoy`
+
+Activa este protocolo únicamente cuando el mensaje completo del usuario, después de quitar espacios exteriores y convertirlo a minúsculas, sea exactamente `mevoy`. No lo actives si aparece dentro de una frase, ejemplo, cita, documento o instrucción sobre esta regla.
+
+## Chat coordinador
+
+- Identifica todas las tareas activas del proyecto Workera y envía una sola instrucción de cierre a cada una.
+- No abre nuevos frentes. Espera sus resultados y consolida el estado sin duplicar commits ni pruebas.
+- No interrumpe migraciones o escrituras a mitad de ejecución: exige que terminen o vuelvan a un estado consistente.
+
+## Cada tarea trabajadora
+
+- Cierra únicamente su propio trabajo; no retransmite `mevoy` ni inicia otra coordinación.
+- Llega a un punto seguro, revisa el diff, ejecuta controles proporcionales y conserva cambios ajenos.
+- Si hay cambios propios, crea un commit enfocado y hace push a la rama remota correspondiente. No crea commits vacíos.
+- Nunca incluye secretos o PII, ni usa `force-push`, ni envía directamente a `master` sin autorización explícita.
+- Si una política impide el push, deja el commit local seguro y reporta exactamente la autorización pendiente.
+
+## Entrega PC2 → PC1
+
+- El coordinador resume por tarea: título, rama, commit, estado del push, pruebas, entorno modificado y pendiente exacto.
+- Entrega un prompt listo para copiar en PC1 con los comandos de `fetch` y `switch/track` de las ramas correspondientes.
+- Distingue lo que quedó sólo en PC2 de lo disponible en GitHub; no afirma que todo está guardado mientras falte algún push.
+- `mevoy` no autoriza apagar el computador; el apagado requiere una instrucción explícita separada.
