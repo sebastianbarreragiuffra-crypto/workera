@@ -35,6 +35,32 @@ export function selectActiveWorkforceCompany(
 }
 
 /**
+ * Construye la entrada al workspace solo cuando la sesión tiene una
+ * membresía laboral operativa para la empresa pedida. El slug de la URL nunca
+ * actúa como autorización: debe coincidir con una membresía que acaba de
+ * devolver `resolveActiveCompany`, y el Route Handler de destino vuelve a
+ * comprobar exactamente la misma condición antes de fijar la empresa activa.
+ */
+export function workforceEntryPathForCompany(
+  resolution: ActiveCompanyResolution,
+  requestedCompanySlug: string,
+): string | null {
+  const memberships = resolution.kind === "NONE"
+    ? []
+    : resolution.kind === "SINGLE"
+      ? [resolution.membership]
+      : resolution.memberships;
+  const normalizedSlug = requestedCompanySlug.trim().toLowerCase();
+  const membership = memberships.find((candidate) =>
+    candidate.companySlug === normalizedSlug && isOperationalWorkforceMembership(candidate)
+  );
+
+  return membership
+    ? `/empresas/${encodeURIComponent(membership.companySlug)}/personas`
+    : null;
+}
+
+/**
  * Resuelve la empresa laboral elegida, pero vuelve a autorizarla contra las
  * membresías activas en cada petición. La cookie solo recuerda una selección;
  * nunca concede acceso por sí misma.
