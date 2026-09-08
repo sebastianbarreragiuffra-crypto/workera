@@ -1267,16 +1267,43 @@ test("cierre 16-15: un ajuste diario aceptado a ? permanece bloqueante en el gat
 
 test("libro 2026: ajustes tienen formato condicional real, paneles congelados y recálculo", async () => {
   const { bytes } = await buildWorkbook({ employees: ONE_WORKER });
+  const summary = readSheet(bytes, "RESUMEN_NOMINA");
   const summaryXml = workbookXml(bytes, "xl/worksheets/sheet1.xml");
   const stylesXml = workbookXml(bytes, "xl/styles.xml");
   const bookXml = workbookXml(bytes, "xl/workbook.xml");
 
   assert.match(summaryXml, /<[^>]*pane [^>]*xSplit="5"[^>]*ySplit="5"[^>]*topLeftCell="F6"/);
+  assert.match(summaryXml, /<[^>]*pageMargins [^>]*left="0\.25"[^>]*right="0\.25"/);
+  assert.match(summaryXml, /<[^>]*pageSetup [^>]*orientation="landscape"[^>]*fitToWidth="1"[^>]*fitToHeight="0"/);
+  assert.match(String(summary[3][0]), /Colación: referencia declarativa de 40 minutos; no se descuenta/);
   assert.match(summaryXml, /conditionalFormatting sqref="R6:R6"/);
   assert.match(summaryXml, /<[^>]*formula>R6&lt;&gt;0<\/[^>]*formula>/);
   assert.match(summaryXml, /conditionalFormatting sqref="A6:A6"/);
   assert.match(stylesXml, /<[^>]*dxfs count="18">/);
   assert.match(bookXml, /calcMode="auto"[^>]*fullCalcOnLoad="1"[^>]*forceFullCalc="1"/);
+});
+
+test("libro 2026: fórmulas, filtros y estilos crecen con la dotación sin un límite fijo", async () => {
+  for (const workerCount of [1, 3, 12]) {
+    const employees = Array.from({ length: workerCount }, (_, index) => ({
+      id: `emp-${index + 1}`,
+      external_workera_id: `WK-${String(index + 1).padStart(3, "0")}`,
+      display_name: `TRABAJADOR ${String(index + 1).padStart(2, "0")}`,
+      group: index % 2 === 0 ? "PRODUCTION" as const : "INSTALLATION" as const,
+      rut: `${String(index + 1).padStart(8, "0")}-${index % 10}`,
+    }));
+    const { bytes } = await buildWorkbook({ employees });
+    const workbook = readWorkbook(bytes);
+    const summary = workbook.Sheets.RESUMEN_NOMINA;
+    const matrix = workbook.Sheets.MATRIZ_DIARIA_SABANA;
+    const totalRow = 6 + workerCount;
+
+    assert.equal(summary[`C${totalRow}`].v, "TOTAL EMPRESA");
+    assert.equal(summary[`G${totalRow}`].f, `SUM(G6:G${5 + workerCount})`);
+    assert.equal(summary["!autofilter"]?.ref, `A5:AG${5 + workerCount}`);
+    assert.equal(matrix["!autofilter"]?.ref, `A5:L${5 + workerCount}`);
+    assert.match(workbookXml(bytes, "xl/worksheets/sheet1.xml"), new RegExp(`conditionalFormatting sqref="A6:A${5 + workerCount}"`));
+  }
 });
 
 test("libro 2026: un atraso pendiente nunca se convierte en descuento", async () => {
