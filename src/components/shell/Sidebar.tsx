@@ -147,6 +147,7 @@ export function Sidebar({
                   <Link
                     key={item.href}
                     href={item.href}
+                    aria-label={item.label}
                     aria-current={isNavItemActive(item, pathname) ? "page" : undefined}
                     className={`block rounded-md px-3 py-2 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
                       isNavItemActive(item, pathname) ? "bg-white/10 text-white" : "text-slate-300 hover:bg-white/10 hover:text-white"

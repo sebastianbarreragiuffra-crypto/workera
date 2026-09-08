@@ -37,6 +37,7 @@ El comando levanta un servidor Next de desarrollo aislado en el puerto 3107
 - estado de carga anunciado a tecnologías de asistencia;
 - error seguro y reintento funcional;
 - navegación básica por teclado;
+- navegación móvil con nombres accesibles completos y sin overflow horizontal;
 - ausencia de `console.error` y errores no capturados del navegador.
 
 Todos los nombres, identificadores y estados del fixture son sintéticos. El
@@ -78,3 +79,5 @@ rama.
   esqueleto fuera del árbol accesible.
 - El enlace de reintento deshabilita el prefetch de Next para evitar precargar
   y reutilizar la misma respuesta fallida antes del clic.
+- El sidebar conserva el nombre completo de cada enlace para lectores de
+  pantalla cuando la interfaz móvil o colapsada solo muestra una inicial.
