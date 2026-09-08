@@ -184,6 +184,28 @@ test("una cuenta sin privilegios no exige segundo factor", async () => {
   assert.equal(state?.requiresMfa, false);
 });
 
+test("matriz MFA laboral: superadministración y RRHH exigen AAL2; supervisores y trabajador no", async () => {
+  const cases = [
+    { role: "SUPER_ADMIN", requiresMfa: true },
+    { role: "ADMIN_RRHH", requiresMfa: true },
+    { role: "SUPERVISOR_PRODUCTION", requiresMfa: false },
+    { role: "SUPERVISOR_INSTALLATION", requiresMfa: false },
+    { role: "WORKER", requiresMfa: false },
+  ] as const;
+
+  for (const scenario of cases) {
+    const { client } = mockClient({
+      userId: `synthetic-${scenario.role.toLowerCase()}`,
+      profile: { role: scenario.role, active: true },
+    });
+    assert.equal(
+      (await getMfaAccountState(client))?.requiresMfa,
+      scenario.requiresMfa,
+      scenario.role,
+    );
+  }
+});
+
 test("un fallo leyendo profile bloquea en lugar de asumir que MFA no aplica", async () => {
   const { client } = mockClient({
     userId: "66666666-6666-6666-6666-666666666666",

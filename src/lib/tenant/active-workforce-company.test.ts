@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   isOperationalWorkforceMembership,
   selectActiveWorkforceCompany,
+  workforceEntryPathForCompany,
 } from "./active-workforce-company";
 import type { CompanyMembershipSummary } from "./resolve-active-company";
 
@@ -44,6 +45,32 @@ test("empresa laboral activa: onboarding, workspace bloqueado y rol ausente nunc
   assert.equal(isOperationalWorkforceMembership(membership({ status: "ONBOARDING" })), false);
   assert.equal(isOperationalWorkforceMembership(membership({ workspaceEnabled: false })), false);
   assert.equal(isOperationalWorkforceMembership(membership({ legacyRole: null })), false);
+});
+
+test("navegación laboral: solo genera la entrada para la empresa exacta autorizada", () => {
+  const arcotex = membership({ companyName: "Arcotex", companySlug: "arcotex" });
+  const otra = membership({
+    companyId: "22222222-2222-4222-8222-222222222222",
+    companyName: "Empresa sintética",
+    companySlug: "empresa-sintetica",
+  });
+  const resolution = { kind: "MULTIPLE" as const, memberships: [arcotex, otra] };
+
+  assert.equal(workforceEntryPathForCompany(resolution, " ARCOTEX "), "/empresas/arcotex/personas");
+  assert.equal(workforceEntryPathForCompany(resolution, "empresa-no-autorizada"), null);
+});
+
+test("navegación laboral: nunca ofrece dashboard para una membresía no operativa", () => {
+  for (const blocked of [
+    membership({ status: "ONBOARDING" }),
+    membership({ workspaceEnabled: false }),
+    membership({ legacyRole: null }),
+  ]) {
+    assert.equal(
+      workforceEntryPathForCompany({ kind: "SINGLE", membership: blocked }, blocked.companySlug),
+      null,
+    );
+  }
 });
 
 test("empresa laboral activa: la ruta de selección reautoriza y guarda una cookie HttpOnly", () => {
