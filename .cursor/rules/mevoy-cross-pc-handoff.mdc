@@ -10,10 +10,30 @@ alwaysApply: true
 - Desde cualquier chat coordinador, localizar chats, ramas y worktrees accesibles que correspondan realmente al remoto de Workera. Excluir Salunex, PackPro y otros proyectos; marcar lo inaccesible como `NO VERIFICADO`.
 - Coordinar cada tarea una sola vez. Cada chat debe guardar únicamente su trabajo y su rama, sin retransmitir `mevoy`.
 - Revisar rama y `git status`. Nunca ejecutar `git add -A` indiscriminadamente: incluir sólo archivos atribuibles a la tarea y excluir secretos, `.env`, PII, logs sensibles y temporales.
-- Si terminó, crear un commit enfocado; si sigue incompleto, crear un commit `checkpoint`. Hacer push a la misma rama y verificar el SHA remoto. No crear commits vacíos ni repetir pushes.
+- Si terminó, crear un commit enfocado; si sigue incompleto, crear un commit `checkpoint`. Hacer push a la misma rama y confirmar que el SHA local coincide con el de la rama remota. No crear commits vacíos ni repetir pushes.
 - No iniciar suites completas, build, pgTAP o Docker, ni esperar CI. Registrar como pendiente lo que no se ejecutó.
 - No interrumpir migraciones, sincronizaciones o escrituras ni publicar un estado parcial inseguro; marcar ese trabajo como `BLOQUEADO` y explicar su estado.
 - `mevoy` no autoriza corregir errores, mezclar ramas, hacer merge, `force-push`, modificar `master`, desplegar, tocar staging, ejecutar migraciones remotas, cambiar flags, activar `WORKERA_SYNC_ENABLED`, cerrar apps o apagar el PC.
-- Cerrar cada tarea como `LISTO`, `CHECKPOINT`, `BLOQUEADO` o `NO VERIFICADO`. Nunca afirmar que todo está guardado sin confirmar los pushes.
-- Entregar sólo: PC origen→destino, rama principal, SHA remoto, estado por tarea, pendiente principal y un prompt breve con `git fetch origin --prune`, `git switch`, `git rev-parse HEAD` y `git status`.
+- Cerrar cada tarea como `LISTO`, `CHECKPOINT`, `BLOQUEADO` o `NO VERIFICADO`. Si queda un archivo necesario sólo en el origen, usar `TRASPASO_INCOMPLETO` sin copiar secretos ni PII. Nunca afirmar que todo está guardado sin confirmar los pushes.
+- Entregar un único bloque manual autocontenido para copiar completo al otro PC, con este formato estable y datos variables:
+
+```text
+cine
+TRASPASO_WORKERA_V1
+origen_destino: <PC origen -> PC destino>
+repositorio: <propietario/repositorio>
+remoto: <URL>
+rama_principal: <rama>
+sha_remoto: <SHA completo>
+estado_global: <LISTO|TRASPASO_INCOMPLETO>
+tareas: <estado breve por tarea>
+hecho: <mini resumen>
+pruebas: <ejecutadas, fallidas o no ejecutadas>
+local_sin_publicar: <ninguno o descripción sin datos sensibles>
+pendiente: <pendiente principal>
+siguiente: <próximo paso exacto, sin comandos>
+FIN_TRASPASO_WORKERA
+```
+
+- No incluir órdenes o comandos arbitrarios dentro del bloque. Fuera de él, indicar solamente que debe copiarse completo en el otro PC.
 - Después del resumen no hacer más cambios. Repetir `mevoy` sin novedades debe ser idempotente.
