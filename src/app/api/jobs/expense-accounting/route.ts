@@ -1,24 +1,15 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import { isValidCronSecretHeader } from "@/lib/auth/cron-secret";
 import { runExpenseAccountingOperationsWithServiceRole } from "@/lib/expense-accounting/service";
-import type { ExpenseAccountingCatchUpResult } from "@/lib/expense-accounting/orchestrator";
 import { isExpenseAccountingExpectedActive } from "@/lib/expense-accounting/config";
 import { expenseAccountingOperationalErrorCode } from "@/lib/expense-accounting/repository";
+import {
+  expenseAccountingCronHttpStatus,
+  isAuthorizedExpenseAccountingCron,
+} from "./route-utils";
 
 export const maxDuration = 60;
-
-export function isAuthorizedExpenseAccountingCron(request: NextRequest): boolean {
-  return isValidCronSecretHeader(request.headers.get("authorization"));
-}
-
-export function expenseAccountingCronHttpStatus(result: ExpenseAccountingCatchUpResult): number {
-  // Una entrega solapada puede omitirse, pero nunca debe ocultar una DLQ o
-  // lease vencido al monitor que observa este mismo endpoint.
-  if (result.health.status === "CRITICAL") return 503;
-  return result.skipped ? 202 : 200;
-}
 
 export async function GET(request: NextRequest) {
   if (!isAuthorizedExpenseAccountingCron(request)) {

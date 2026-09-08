@@ -6,7 +6,7 @@ import {
   expenseAccountingPausedWatchdogHttpStatus,
   handleExpenseAccountingWatchdog,
   isAuthorizedExpenseAccountingWatchdog,
-} from "./route";
+} from "./route-utils";
 import type { ExpenseAccountingHealthResult } from "@/lib/expense-accounting/service";
 
 function request(header?: string): NextRequest {

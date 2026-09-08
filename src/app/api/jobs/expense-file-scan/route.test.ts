@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { NextRequest } from "next/server";
-import { GET, isAuthorizedExpenseFileScanCron } from "./route";
+import { GET } from "./route";
+import { isAuthorizedExpenseFileScanCron } from "./route-utils";
 
 function request(header?: string): NextRequest {
   return new NextRequest("http://localhost/api/jobs/expense-file-scan", {

@@ -3,11 +3,13 @@ import test from "node:test";
 import { NextRequest } from "next/server";
 import {
   GET,
+} from "./route";
+import {
   handleSupportingDocumentCleanup,
   isAuthorizedSupportingDocumentCleanupCron,
   supportingDocumentCleanupHttpStatus,
   supportingDocumentCleanupPausedHttpStatus,
-} from "./route";
+} from "./route-utils";
 
 function request(header?: string): NextRequest {
   return new NextRequest("http://localhost/api/jobs/supporting-document-cleanup", {

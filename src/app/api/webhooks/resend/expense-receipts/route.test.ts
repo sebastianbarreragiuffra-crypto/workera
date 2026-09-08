@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { EmailReceivedEvent, WebhookEventPayload } from "resend";
 import type { ExpenseEmailProviderConfig } from "@/lib/expense-email/config";
-import { handleExpenseEmailWebhook } from "./route";
+import { handleExpenseEmailWebhook } from "./route-utils";
 
 const CONFIG: ExpenseEmailProviderConfig = {
   enabled: true,

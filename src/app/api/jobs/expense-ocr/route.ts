@@ -1,11 +1,7 @@
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { runExpenseOcrWorkerWithServiceRole } from "@/lib/expense-ocr/service";
-import { isValidCronSecretHeader } from "@/lib/auth/cron-secret";
-
-export function isAuthorizedExpenseOcrCron(request: NextRequest): boolean {
-  return isValidCronSecretHeader(request.headers.get("authorization"));
-}
+import { isAuthorizedExpenseOcrCron } from "./route-utils";
 
 export async function GET(request: NextRequest) {
   if (!isAuthorizedExpenseOcrCron(request)) {

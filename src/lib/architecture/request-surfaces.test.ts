@@ -56,16 +56,19 @@ test("la ruta declarada, el archivo y el feature flag coinciden con el código",
     assert.ok(existsSync(sourcePath), `${surface.source} no existe`);
     assert.equal(normalizedRoute(sourcePath), surface.route, `${surface.source} declara una URL incorrecta`);
     const source = readFileSync(sourcePath, "utf8");
+    const evidence = [source, ...localSourceClosure(sourcePath, source)];
     assert.match(source, new RegExp(`export\\s+(?:async\\s+)?function\\s+${surface.method}\\b`));
     if (surface.featureFlag) {
-      const evidence = [source, ...localSourceClosure(sourcePath, source)];
       assert.ok(
         evidence.some((candidate) => candidate.includes(surface.featureFlag!)),
         `${surface.source} ni su configuración directa consultan ${surface.featureFlag}`
       );
     }
     if (surface.authentication === "CRON_SECRET") {
-      assert.match(source, /isValidCronSecret(?:Header)?/, `${surface.source} debe revalidar CRON_SECRET`);
+      assert.ok(
+        evidence.some((candidate) => /isValidCronSecret(?:Header)?/.test(candidate)),
+        `${surface.source} debe revalidar CRON_SECRET`,
+      );
     }
   }
 });

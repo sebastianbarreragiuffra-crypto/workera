@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { NextRequest } from "next/server";
-import { expenseAccountingCronHttpStatus, GET, isAuthorizedExpenseAccountingCron } from "./route";
+import { GET } from "./route";
+import { expenseAccountingCronHttpStatus, isAuthorizedExpenseAccountingCron } from "./route-utils";
 import type { ExpenseAccountingCatchUpResult } from "@/lib/expense-accounting/orchestrator";
 
 function request(header?: string): NextRequest {

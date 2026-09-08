@@ -1,11 +1,7 @@
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
-import { isValidCronSecretHeader } from "@/lib/auth/cron-secret";
 import { runExpenseFileScanWorkerWithServiceRole } from "@/lib/expense-file-scan/service";
-
-export function isAuthorizedExpenseFileScanCron(request: NextRequest): boolean {
-  return isValidCronSecretHeader(request.headers.get("authorization"));
-}
+import { isAuthorizedExpenseFileScanCron } from "./route-utils";
 
 export async function GET(request: NextRequest) {
   if (!isAuthorizedExpenseFileScanCron(request)) {

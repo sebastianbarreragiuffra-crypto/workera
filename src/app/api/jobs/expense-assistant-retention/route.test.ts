@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 import {
   handleExpenseAssistantRetention,
   isAuthorizedExpenseAssistantRetentionCron,
-} from "./route";
+} from "./route-utils";
 
 function request(header?: string): NextRequest {
   return new NextRequest("http://localhost/api/jobs/expense-assistant-retention", {

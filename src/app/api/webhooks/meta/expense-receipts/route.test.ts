@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ExpenseWhatsappProviderConfig } from "@/lib/expense-whatsapp/config";
-import { handleExpenseWhatsappVerification, handleExpenseWhatsappWebhook } from "./route";
+import { handleExpenseWhatsappVerification, handleExpenseWhatsappWebhook } from "./route-utils";
 
 const CONFIG: ExpenseWhatsappProviderConfig = {
   enabled: true,
