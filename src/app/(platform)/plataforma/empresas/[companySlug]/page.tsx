@@ -31,6 +31,8 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { presentOnboardingStatus } from "@/components/platform/status-presenters";
 import { requireArcotexPilotEmployeeIds } from "@/lib/employees/arcotex-pilot-roster";
+import { resolveActiveCompany } from "@/lib/tenant/resolve-active-company";
+import { workforceEntryPathForCompany } from "@/lib/tenant/active-workforce-company";
 
 const TAB_LABELS: Array<{ key: CompanyTabKey; label: string }> = [
   { key: "overview", label: "Resumen" },
@@ -68,7 +70,15 @@ function formatDate(value: string, timeZone: string): string {
   return new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeZone }).format(new Date(value));
 }
 
-function OverviewTab({ detail, canManage }: { detail: PlatformCompanyDetail; canManage: boolean }) {
+function OverviewTab({
+  detail,
+  canManage,
+  workforceHref,
+}: {
+  detail: PlatformCompanyDetail;
+  canManage: boolean;
+  workforceHref: string | null;
+}) {
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.6fr)]">
       <SectionCard title="Onboarding">
@@ -101,6 +111,14 @@ function OverviewTab({ detail, canManage }: { detail: PlatformCompanyDetail; can
       </SectionCard>
 
       <div className="space-y-5">
+        {workforceHref && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
+            <p>Tu membresía laboral está activa en {detail.header.name}.</p>
+            <Link href={workforceHref} className="font-semibold underline underline-offset-2 hover:no-underline">
+              Abrir dashboard de {detail.header.name} →
+            </Link>
+          </div>
+        )}
         <SectionCard title="Configuración del cliente">
           <dl className="space-y-3 text-sm">
             <div className="flex items-center justify-between gap-4"><dt className="text-slate-500">Plan</dt><dd className="font-medium text-slate-900">{detail.planCode}</dd></div>
@@ -356,11 +374,15 @@ export default async function CompanyDetailPage({
   // chequeo paralelo. Se pide en paralelo con getPlatformCompanyDetail() --
   // solo depende de session.userId, ya resuelto -- y se tolera que falle
   // (banner opcional, nunca debe tumbar el resto de la pestaña Módulos).
-  const [detailResult, expenseCompaniesResult] = await Promise.allSettled([
+  const [detailResult, companyAccessResult] = await Promise.allSettled([
     getPlatformCompanyDetail(companySlug, selected, memberPage, invitationPage),
-    selected === "modules"
-      ? createClient().then((supabase) => listExpenseCompaniesFromClient(supabase, session.userId))
-      : Promise.resolve([]),
+    createClient().then(async (supabase) => {
+      const [expenseCompanies, activeCompanies] = await Promise.all([
+        selected === "modules" ? listExpenseCompaniesFromClient(supabase, session.userId) : Promise.resolve([]),
+        selected === "overview" ? resolveActiveCompany(supabase) : Promise.resolve({ kind: "NONE" as const }),
+      ]);
+      return { expenseCompanies, activeCompanies };
+    }),
   ]);
 
   if (detailResult.status === "rejected") {
@@ -368,8 +390,11 @@ export default async function CompanyDetailPage({
     throw detailResult.reason;
   }
   const detail: PlatformCompanyDetail = detailResult.value;
-  const expenseCompanies = expenseCompaniesResult.status === "fulfilled" ? expenseCompaniesResult.value : [];
+  const expenseCompanies = companyAccessResult.status === "fulfilled" ? companyAccessResult.value.expenseCompanies : [];
   const canOpenExpenses = expenseCompanies.some((company) => company.slug === detail.header.slug);
+  const workforceHref = companyAccessResult.status === "fulfilled"
+    ? workforceEntryPathForCompany(companyAccessResult.value.activeCompanies, detail.header.slug)
+    : null;
   let employeeMetric: { label: string; value: string | number } | undefined;
   if (detail.header.slug === "arcotex") {
     try {
@@ -386,7 +411,9 @@ export default async function CompanyDetailPage({
     <div className="space-y-6">
       <CompanyHeader company={detail.header} backHref="/plataforma/empresas" employeeMetric={employeeMetric} />
       <CompanyTabs tabs={buildTabs(detail.header.slug, selected, detail)} />
-      {selected === "overview" && <OverviewTab detail={detail} canManage={session.canManage} />}
+      {selected === "overview" && (
+        <OverviewTab detail={detail} canManage={session.canManage} workforceHref={workforceHref} />
+      )}
       {selected === "users" && (
         <UsersTab
           detail={detail}
