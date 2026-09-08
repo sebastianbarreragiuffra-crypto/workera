@@ -75,6 +75,7 @@ interface EmployeeScopeRow {
   hire_date?: string | null;
   employee_groups?: { code: string } | null;
   has_fact?: boolean;
+  has_historical_group?: boolean;
 }
 
 /**
@@ -109,6 +110,11 @@ function supabaseStub(
     if (table === "employee_birthdays") return birthdays;
     if (table === "holidays") return holidayDates.map((d) => ({ holiday_date: d }));
     if (table === "employees") return employees ?? [];
+    if (table === "employee_group_assignments") {
+      return (employees ?? [])
+        .filter((employee) => employee.has_historical_group !== false)
+        .map((employee) => ({ employee_id: employee.id, effective_to: null }));
+    }
     if (table === "workera_attendance_events" || table === "attendance_records") {
       return (employees ?? []).filter((employee) => employee.has_fact).map((employee) => ({ employee_id: employee.id }));
     }
@@ -882,6 +888,40 @@ test("processAttendanceDay: la corrida completa incluye inactivos con hechos del
   );
 
   assert.deepEqual(result.outcomes.map((outcome) => outcome.employeeId), ["emp-active", "emp-inactive-fact"]);
+});
+
+test("processAttendanceDay: no inventa ausencias históricas para altas actuales sin grupo ni hechos", async () => {
+  const { client } = supabaseStub([], [], [], [], null, [
+    { id: "emp-historical", company_id: COMPANY_ID, active: true },
+    {
+      id: "emp-current-only",
+      company_id: COMPANY_ID,
+      active: true,
+      has_historical_group: false,
+    },
+    {
+      id: "emp-fact-without-group",
+      company_id: COMPANY_ID,
+      active: true,
+      has_fact: true,
+      has_historical_group: false,
+    },
+  ]);
+  const result = await processAttendanceDay(
+    client,
+    DATE,
+    { companyId: COMPANY_ID, ruleEngineRunId: RUN_ID },
+    scriptedDeps({
+      "emp-historical": { attendance: noRecord("EXEMPT") },
+      "emp-fact-without-group": { attendance: noRecord("EXEMPT") },
+    })
+  );
+
+  assert.deepEqual(
+    result.outcomes.map((outcome) => outcome.employeeId),
+    ["emp-historical", "emp-fact-without-group"],
+    "un hecho existente conserva el fail-closed; un alta actual sin evidencia no se retroproyecta"
+  );
 });
 
 test("processAttendanceDay: nunca deriva una fecha anterior al ingreso", async () => {

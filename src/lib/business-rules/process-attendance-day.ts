@@ -147,7 +147,7 @@ interface EmployeeScopeRow {
   employee_groups: { code: string } | { code: string }[] | null;
 }
 
-async function loadInactiveEmployeesWithFacts(
+async function loadEmployeesWithFacts(
   supabase: SupabaseClient<Database>,
   companyId: string,
   date: string,
@@ -188,6 +188,38 @@ async function loadInactiveEmployeesWithFacts(
   return new Set([...rawPages.flat(2), ...attendancePages.flat(2)].map((row) => row.employee_id));
 }
 
+async function loadEmployeesWithHistoricalGroup(
+  supabase: SupabaseClient<Database>,
+  date: string,
+  employeeIds: string[]
+): Promise<Set<string>> {
+  if (employeeIds.length === 0) return new Set();
+
+  type HistoricalGroupRow = { employee_id: string; effective_to: string | null };
+  const pages = await Promise.all(
+    chunksOf(employeeIds).map((ids) =>
+      fetchAllPages<HistoricalGroupRow>(
+        "processAttendanceDay: fallo comprobando cobertura histórica de grupo",
+        (from, to) =>
+          supabase
+            .from("employee_group_assignments")
+            .select("employee_id, effective_to")
+            .in("employee_id", ids)
+            .lte("effective_from", date)
+            .order("employee_id")
+            .range(from, to) as unknown as PromiseLike<PageResponse<HistoricalGroupRow>>
+      )
+    )
+  );
+
+  return new Set(
+    pages
+      .flat()
+      .filter((row) => row.effective_to === null || row.effective_to >= date)
+      .map((row) => row.employee_id)
+  );
+}
+
 async function loadEmployeesInScope(
   supabase: SupabaseClient<Database>,
   date: string,
@@ -215,14 +247,29 @@ async function loadEmployeesInScope(
   // Nunca deriva jornadas anteriores al ingreso, incluso en un rerun manual.
   let rows = pages.flat().filter((row) => !row.hire_date || row.hire_date <= date);
   if (!options.employeeIds) {
-    const inactiveIds = rows.filter((row) => row.active === false).map((row) => row.id);
-    const inactiveWithFacts = await loadInactiveEmployeesWithFacts(
+    const candidateIds = rows.map((row) => row.id);
+    const employeesWithFacts = await loadEmployeesWithFacts(
       supabase,
       options.companyId,
       date,
-      inactiveIds
+      candidateIds
     );
-    rows = rows.filter((row) => row.active !== false || inactiveWithFacts.has(row.id));
+    rows = rows.filter((row) => row.active !== false || employeesWithFacts.has(row.id));
+
+    // En un reproceso histórico, el padrón activo de hoy no demuestra por sí
+    // solo que una persona pertenecía a la empresa en esa fecha. La historia
+    // de grupo es la fuente temporal. Un trabajador sin cobertura se incluye
+    // únicamente si ya tiene hechos del día, para que el motor falle cerrado
+    // en vez de ocultar una inconsistencia; sin hechos, se excluye y nunca se
+    // inventa una ausencia retroactiva.
+    const employeesWithHistoricalGroup = await loadEmployeesWithHistoricalGroup(
+      supabase,
+      date,
+      rows.map((row) => row.id)
+    );
+    rows = rows.filter(
+      (row) => employeesWithHistoricalGroup.has(row.id) || employeesWithFacts.has(row.id)
+    );
   }
   if (!options.areaCode) return rows.map((r) => r.id);
 
