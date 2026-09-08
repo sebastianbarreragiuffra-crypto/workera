@@ -157,3 +157,33 @@ test("muestra carga, error seguro y un reintento funcional", async ({ page }) =>
   await expect(page.getByRole("heading", { name: "Pendientes", level: 1 })).toBeVisible();
   await expect(page.getByRole("link", { name: /Caso Sintético Pendiente/ })).toBeVisible();
 });
+
+test.describe("flujo móvil", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("mantiene navegación comprensible y sin overflow horizontal", async ({ page }) => {
+    await page.goto("/dashboard");
+
+    const primaryNavigation = page.getByRole("complementary", { name: "Navegación principal" });
+    const summaryLink = primaryNavigation.getByRole("link", { name: "Resumen Diario", exact: true });
+    const pendingLink = primaryNavigation.getByRole("link", { name: "Pendientes", exact: true });
+
+    await expect(summaryLink).toBeVisible();
+    await expect(summaryLink).toHaveAttribute("aria-current", "page");
+    await expect(pendingLink).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      await page.evaluate(() => document.documentElement.clientWidth),
+    );
+
+    await pendingLink.click();
+    await expect(page.getByRole("heading", { name: "Pendientes", level: 1 })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Navegación de fecha" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Área" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      await page.evaluate(() => document.documentElement.clientWidth),
+    );
+
+    await page.locator("summary").filter({ hasText: "Sin novedades (1)" }).click();
+    await expect(page.getByRole("link", { name: /Caso Sintético Sin Novedades/ })).toBeVisible();
+  });
+});
