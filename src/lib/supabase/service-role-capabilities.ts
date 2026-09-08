@@ -140,6 +140,12 @@ export const SERVICE_ROLE_CAPABILITIES = {
     authorization: "Operador local con .env.staging, slug ARCOTEX fijo y --apply explícito; bloquea cualquier estado crudo fuera de la allowlist documentada.",
     resources: ["Lectura de eventos ARCOTEX y RPC versionados begin/upsert/finish de sync para un único día"],
   },
+  "arcotex-authorized-roster-config": {
+    consumers: ["src/lib/staging-preflight/arcotex-authorized-roster-config.ts"],
+    entrypoints: ["OPERATOR_SCRIPT"],
+    authorization: "Operador local con .env.staging; FEBRERO/MARZO deben acreditar los 45 nombres y --approve-authoritative-roster autoriza resolver el único conjunto con la huella canónica ARCOTEX.",
+    resources: ["employees SELECT de identidad técnica acotado al company_id fijo ARCOTEX; sin escrituras DB y con salida agregada"],
+  },
 } as const;
 
 export type ServiceRoleCapability = keyof typeof SERVICE_ROLE_CAPABILITIES;

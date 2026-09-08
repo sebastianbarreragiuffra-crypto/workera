@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import { getCurrentProfile } from "../../../../lib/auth/session";
 import {
   assertSecondFactorForPrivileged,
@@ -9,11 +9,8 @@ import {
   buildAttendanceExportData,
   buildAttendanceExportWorkbook,
   payrollWorkbookConflicts,
-  type PayrollWorkbookConflictPreview,
 } from "../../../../lib/business-rules/attendance-export";
 import {
-  resolvePayrollPeriod,
-  resolveWorkbookPeriodIdentity,
   workbookWindowType,
   type AttendanceExportPeriod,
 } from "../../../../lib/business-rules/attendance-export-periods";
@@ -24,7 +21,6 @@ import {
   parsePayrollWorkbook,
   PAYROLL_WORKBOOK_LIMITS,
   validatePayrollWorkbookBusinessChanges,
-  type PayrollWorkbookChange,
   type PayrollWorkbookConflictResolution,
 } from "../../../../lib/payroll/payroll-workbook-upload";
 import { createClient } from "../../../../lib/supabase/server";
@@ -37,10 +33,17 @@ import {
 import { loadAcceptedPayrollWorkbookAdjustments } from "../../../../lib/payroll/payroll-workbook-adjustments";
 import {
   acceptTrustedPayrollWorkbook,
+  downloadTrustedPayrollWorkbook,
   removeUnregisteredPayrollWorkbook,
 } from "../../../../lib/payroll-workbook/service";
 import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
-import { requireArcotexPilotEmployeeIds } from "../../../../lib/employees/arcotex-pilot-roster";
+import { authorizedRosterForCompany } from "../../../../lib/employees/arcotex-pilot-roster";
+import {
+  parsePayrollMultipart,
+  payrollWorkbookPreviewToken,
+  requestWithLimitedBody,
+  resolveSubmittedWorkbookPeriod,
+} from "./route-utils";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const MAX_REVIEWABLE_CHANGES = 500;
@@ -66,18 +69,6 @@ type LooseClient = {
   rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message: string } | null }>;
 };
 
-export function payrollWorkbookPreviewToken(input: {
-  baseVersionId: string | null;
-  sourceRevision: number;
-  uploadedSha256: string;
-  changes: PayrollWorkbookChange[];
-  conflicts?: PayrollWorkbookConflictPreview[];
-}, signingSecret: string, actorId: string, issuedAt: number): string {
-  return createHmac("sha256", signingSecret)
-    .update(JSON.stringify({ ...input, actorId, issuedAt }))
-    .digest("hex");
-}
-
 async function readPayrollSourceRevision(loose: LooseClient, companyId: string): Promise<number> {
   const result = await loose.rpc("get_payroll_source_revision", {
     p_company_id: companyId,
@@ -98,57 +89,6 @@ function previewSigningSecret(): string {
 function equalToken(expected: string, received: string): boolean {
   if (!/^[a-f0-9]{64}$/.test(expected) || !/^[a-f0-9]{64}$/.test(received)) return false;
   return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(received, "hex"));
-}
-
-export function resolveSubmittedWorkbookPeriod(input: {
-  periodType: string;
-  periodStart: string;
-  periodEnd: string;
-  legacyMonth?: string;
-}): AttendanceExportPeriod {
-  if (!input.periodType && /^\d{4}-(0[1-9]|1[0-2])$/.test(input.legacyMonth ?? "")) {
-    return resolvePayrollPeriod(input.legacyMonth!);
-  }
-  if (!["DIARIO", "SEMANAL", "QUINCENAL", "PAGO"].includes(input.periodType)) {
-    throw new Error("La frecuencia del archivo no es válida.");
-  }
-  return resolveWorkbookPeriodIdentity({
-    periodType: input.periodType as "DIARIO" | "SEMANAL" | "QUINCENAL" | "PAGO",
-    periodStart: input.periodStart,
-    periodEnd: input.periodEnd,
-  });
-}
-
-/** Lee el stream con un límite antes de invocar formData(), incluso sin Content-Length. */
-export async function requestWithLimitedBody(request: Request, maxBytes: number): Promise<Request> {
-  if (!request.body) return request;
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > maxBytes) throw new Error("PAYROLL_MULTIPART_TOO_LARGE");
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const body = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
-  return new Request(request.url, { method: request.method, headers: request.headers, body });
-}
-
-/** Multipart inválido es una entrada de cliente, no una falla interna. */
-export async function parsePayrollMultipart(request: Request): Promise<FormData | null> {
-  try {
-    return await request.formData();
-  } catch {
-    return null;
-  }
 }
 
 export async function POST(request: Request) {
@@ -210,6 +150,13 @@ export async function POST(request: Request) {
     period,
   });
   if (access.status !== "ALLOWED") return workforceDataAccessFailureResponse(access)!;
+  let authorizedRoster: ReturnType<typeof authorizedRosterForCompany>;
+  try {
+    authorizedRoster = authorizedRosterForCompany(companyId, process.env.ARCOTEX_PILOT_EMPLOYEE_IDS);
+  } catch (error) {
+    console.error("[attendance-import] configuración inválida del padrón autorizado", error instanceof Error ? error.message : "error desconocido");
+    return NextResponse.json({ error: "La configuración del padrón autorizado no es válida." }, { status: 503 });
+  }
   let uploadedStoragePath: string | null = null;
   let versionRegistered = false;
   try {
@@ -245,10 +192,16 @@ export async function POST(request: Request) {
     if ("companyId" in uploaded.identity && uploaded.identity.companyId !== companyId) {
       return NextResponse.json({ error: "El archivo no corresponde a la empresa activa." }, { status: 409 });
     }
-    const pilotEmployeeIds = workforceCompany.companySlug === "arcotex"
-      ? requireArcotexPilotEmployeeIds(process.env.ARCOTEX_PILOT_EMPLOYEE_IDS)
-      : undefined;
-    const data = await buildAttendanceExportData(supabase, payrollRole, period, companyId, { employeeIds: pilotEmployeeIds });
+    if (authorizedRoster && (
+      uploaded.identity.rosterCount !== authorizedRoster.employeeCount
+      || uploaded.identity.rosterSha256 !== authorizedRoster.expectedEmployeeCodeSha256
+    )) {
+      return NextResponse.json({ error: "El archivo no corresponde al padrón autorizado de 45 personas." }, { status: 409 });
+    }
+    const data = await buildAttendanceExportData(supabase, payrollRole, period, companyId, {
+      employeeIds: authorizedRoster?.employeeIds,
+      expectedEmployeeCodeSha256: authorizedRoster?.expectedEmployeeCodeSha256,
+    });
     data.workbookBaseVersionId = latestId;
     data.workbookAdjustments = await loadAcceptedPayrollWorkbookAdjustments(supabase, {
       companyId,
@@ -378,6 +331,13 @@ export async function GET(request: Request) {
     ["ADMIN_RRHH", "SUPER_ADMIN"],
   );
   if (!payrollRole) return NextResponse.json({ error: "Sin permiso para descargar esta versión." }, { status: 403 });
+  let authorizedRoster: ReturnType<typeof authorizedRosterForCompany>;
+  try {
+    authorizedRoster = authorizedRosterForCompany(companyId, process.env.ARCOTEX_PILOT_EMPLOYEE_IDS);
+  } catch (error) {
+    console.error("[payroll-workbook-download] configuración inválida del padrón autorizado", error instanceof Error ? error.message : "error desconocido");
+    return NextResponse.json({ error: "La configuración del padrón autorizado no es válida." }, { status: 503 });
+  }
   const searchParams = new URL(request.url).searchParams;
   const versionId = searchParams.get("version");
   const loose = supabase as unknown as LooseClient;
@@ -421,8 +381,8 @@ export async function GET(request: Request) {
   const versionQuery = loose
     .from(workingScope ? "payroll_working_versions" : "payroll_workbook_versions")
     .select(workingScope
-      ? "storage_path, file_size, period_start, period_end, content_sha256, window_type"
-      : "storage_path, file_size, period_start, period_end, content_sha256, status")
+      ? "storage_path, file_size, period_start, period_end, content_sha256, window_type, base_version_id"
+      : "storage_path, file_size, period_start, period_end, content_sha256, status, base_version_id")
     .eq("id", versionId)
     .eq("company_id", companyId);
   const row = await (workingScope
@@ -438,13 +398,48 @@ export async function GET(request: Request) {
   };
   const access = await authorizeWorkforceDataAccess(supabase, { scope: "attendance.export", period });
   if (access.status !== "ALLOWED") return workforceDataAccessFailureResponse(access)!;
-  const downloaded = await supabase.storage.from("payroll-workbooks").download(row.data.storage_path);
-  if (downloaded.error || !downloaded.data) return NextResponse.json({ error: "No pudimos descargar la versión." }, { status: 500 });
-  const bytes = Buffer.from(await downloaded.data.arrayBuffer());
-  const actualHash = createHash("sha256").update(bytes).digest("hex");
-  if (actualHash !== row.data.content_sha256 || bytes.byteLength !== Number(row.data.file_size)) {
-    console.error("[payroll-workbook-download] hash o tamaño de Storage no coincide con la versión", versionId);
+  let bytes: Uint8Array<ArrayBuffer>;
+  try {
+    bytes = await downloadTrustedPayrollWorkbook({
+      companyId,
+      periodStart: period.startDate,
+      periodEnd: period.endDate,
+      storagePath: row.data.storage_path,
+      contentSha256: String(row.data.content_sha256 ?? ""),
+      fileSize: Number(row.data.file_size),
+    });
+  } catch (error) {
+    console.error(
+      "[payroll-workbook-download] Storage no coincide con la versión",
+      versionId,
+      error instanceof Error ? error.message : "error desconocido",
+    );
     return NextResponse.json({ error: "La versión no superó la verificación de integridad." }, { status: 500 });
+  }
+  if (authorizedRoster) {
+    try {
+      const identity = parsePayrollWorkbook(bytes).identity;
+      if (
+        identity.companyId !== companyId
+        || identity.periodType !== period.type
+        || identity.periodStart !== period.startDate
+        || identity.periodEnd !== period.endDate
+        || identity.payrollMonth !== (period.type === "PAGO" ? period.endDate.slice(0, 7) : "")
+        || identity.baseVersion !== String(row.data.base_version_id ?? "ORIGEN_ACTUAL")
+        || identity.rosterCount !== authorizedRoster.employeeCount
+        || identity.rosterSha256 !== authorizedRoster.expectedEmployeeCodeSha256
+      ) {
+        return NextResponse.json(
+          { error: "La versión no acredita el padrón autorizado de 45 personas." },
+          { status: 409 },
+        );
+      }
+    } catch {
+      return NextResponse.json(
+        { error: "La versión no acredita el padrón autorizado de 45 personas." },
+        { status: 409 },
+      );
+    }
   }
   const artifactLabel = !workingScope && row.data.status === "CLOSED_SNAPSHOT" ? "cierre" : "version";
   const filename = `pre-nomina-${String(row.data.period_start)}-al-${String(row.data.period_end)}-${artifactLabel}.xlsx`;

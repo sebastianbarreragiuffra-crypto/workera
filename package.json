@@ -25,6 +25,8 @@
     "audit:workera-roster-status": "node --conditions=react-server --import=tsx scripts/audit-workera-roster-status.mts",
     "test:workera-roster-audit": "node --conditions=react-server --import=tsx --test scripts/audit-workera-roster-status.test.mts",
     "readiness:arcotex-attendance": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/arcotex-attendance-pilot-preflight.mts",
+    "preview:arcotex-authorized-roster": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/preview-arcotex-attendance-roster.mts",
+    "configure:arcotex-authorized-roster": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/configure-arcotex-authorized-roster.mts",
     "repair:arcotex-attendance-statuses": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/repair-arcotex-attendance-statuses.mts",
     "pilot:arcotex-attendance-day": "node --env-file=.env.staging --conditions=react-server --import=tsx scripts/run-arcotex-attendance-day.mts"
   },

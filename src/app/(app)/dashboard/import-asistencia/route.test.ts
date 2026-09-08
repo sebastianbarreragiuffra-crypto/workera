@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parsePayrollMultipart, payrollWorkbookPreviewToken, requestWithLimitedBody, resolveSubmittedWorkbookPeriod } from "./route";
+import { parsePayrollMultipart, payrollWorkbookPreviewToken, requestWithLimitedBody, resolveSubmittedWorkbookPeriod } from "./route-utils";
 
 const change = {
   sheet: "RESUMEN_NOMINA",
@@ -67,4 +67,15 @@ test("confirmación XLSX: la sesión exige MFA y nunca ejecuta directamente el c
   assert.match(source, /await removeUnregisteredPayrollWorkbook\(\{/);
   assert.doesNotMatch(source, /supabase\.storage\.from\("payroll-workbooks"\)\.remove/);
   assert.doesNotMatch(source, /\.rpc\(["']register_accepted_payroll_workbook["']/);
+});
+
+test("versiones ARCOTEX: subida y descarga histórica exigen la misma atestación del padrón de 45", () => {
+  const source = readFileSync(new URL("./route.ts", import.meta.url), "utf8");
+  const getHandler = source.slice(source.indexOf("export async function GET"));
+  assert.match(source, /uploaded\.identity\.rosterCount[\s\S]*?uploaded\.identity\.rosterSha256/);
+  assert.match(getHandler, /authorizedRosterForCompany\(companyId, process\.env\.ARCOTEX_PILOT_EMPLOYEE_IDS\)/);
+  assert.match(getHandler, /downloadTrustedPayrollWorkbook\(\{/);
+  assert.doesNotMatch(getHandler, /supabase\.storage\.from\("payroll-workbooks"\)\.download/);
+  assert.match(getHandler, /parsePayrollWorkbook\(bytes\)[\s\S]*?identity\.rosterCount[\s\S]*?identity\.rosterSha256/);
+  assert.match(getHandler, /La versión no acredita el padrón autorizado de 45 personas/);
 });

@@ -32,7 +32,7 @@ select has_function(
 );
 select has_function(
   'public', 'prepare_payroll_period_close',
-  array['uuid','uuid','uuid','reporting_period_status','uuid','bigint','text','integer','text'],
+  array['uuid','uuid','uuid','reporting_period_status','uuid','bigint','text','text','integer','text'],
   'existe la reserva autenticada del cierre'
 );
 select has_function(
@@ -174,70 +174,70 @@ select ok(
   (select p.prosecdef and p.provolatile = 'v'
    from pg_catalog.pg_proc p
    where p.oid = (
-     'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'
+     'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'
    )::regprocedure),
   'prepare es SECURITY DEFINER y VOLATILE'
 );
 select ok(
   lower(pg_get_functiondef(
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'::regprocedure
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'::regprocedure
   )) like '%has_company_app_role(p_company_id, ''admin_rrhh''%'
   and lower(pg_get_functiondef(
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'::regprocedure
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'::regprocedure
   )) not like '%current_user_role()%'
   and lower(pg_get_functiondef(
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'::regprocedure
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'::regprocedure
   )) not like '%is_active_company_member(p_company_id)%'
   and lower(pg_get_functiondef(
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'::regprocedure
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'::regprocedure
   )) like '%enforce_mfa_for_privileged()%',
   'prepare deriva ADMIN_RRHH, empresa activa y MFA desde la sesión'
 );
 select ok(
   lower(pg_get_functiondef(
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'::regprocedure
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'::regprocedure
   )) like '%p_expected_status is distinct from ''ready_to_close''%'
   and lower(pg_get_functiondef(
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'::regprocedure
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'::regprocedure
   )) like '%period_end <> (date_trunc%'
   and lower(pg_get_functiondef(
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'::regprocedure
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'::regprocedure
   )) like '%/closed/%p_operation_id%',
   'prepare exige READY_TO_CLOSE, corte 16-15 y ruta exacta de operación'
 );
 select ok(
   lower(pg_get_functiondef(
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'::regprocedure
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'::regprocedure
   )) like '%private.payroll_source_revisions%for update%'
   and lower(pg_get_functiondef(
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'::regprocedure
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'::regprocedure
   )) like '%pg_advisory_xact_lock%'
   and lower(pg_get_functiondef(
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'::regprocedure
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'::regprocedure
   )) like '%from public.reporting_periods rp%for update%',
   'prepare serializa revisión, aceptación y estado del período'
 );
 select ok(
   lower(pg_get_functiondef(
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'::regprocedure
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'::regprocedure
   )) like '%v_latest is distinct from p_expected_base_version_id%'
   and lower(pg_get_functiondef(
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'::regprocedure
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'::regprocedure
   )) like '%private.payroll_workbook_source_attestations%'
   and lower(pg_get_functiondef(
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)'::regprocedure
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)'::regprocedure
   )) like '%payroll_workbook_conflicts%resolved_at is null%',
   'prepare revalida última ACCEPTED vigente y bloquea conflictos abiertos'
 );
 select ok(
   has_function_privilege(
     'authenticated',
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)',
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)',
     'EXECUTE'
   )
   and not has_function_privilege(
     'anon',
-    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,integer,text)',
+    'public.prepare_payroll_period_close(uuid,uuid,uuid,public.reporting_period_status,uuid,bigint,text,text,integer,text)',
     'EXECUTE'
   ),
   'solo una sesión autenticada puede intentar preparar y queda sujeta a los gates internos'

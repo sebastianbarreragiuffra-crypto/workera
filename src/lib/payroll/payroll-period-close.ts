@@ -11,8 +11,11 @@ import {
   type AttendanceExportCloseReadiness,
 } from "../business-rules/attendance-export";
 import { resolvePayrollPeriod } from "../business-rules/attendance-export-periods";
+import { authorizedRosterForCompany } from "../employees/arcotex-pilot-roster";
 import { finalizePreparedPayrollClose } from "../payroll-close/service";
+import { removeUnregisteredPayrollWorkbook } from "../payroll-workbook/service";
 import type { Database } from "../supabase/database.types";
+import { payrollReadinessDigest } from "./payroll-period-approval";
 import { loadAcceptedPayrollWorkbookAdjustments } from "./payroll-workbook-adjustments";
 
 const PAYROLL_WORKBOOK_BUCKET = "payroll-workbooks";
@@ -46,6 +49,12 @@ interface ClosedSnapshotRow {
   closed_snapshot_at: string | null;
 }
 
+interface CurrentApprovalRow {
+  accepted_workbook_version_id: string;
+  source_revision: number;
+  readiness_sha256: string;
+}
+
 interface LooseError {
   code?: string;
   message: string;
@@ -75,7 +84,6 @@ interface PayrollCloseClient {
         bytes: Uint8Array,
         options: { contentType: string; upsert: false; metadata: Record<string, string> }
       ): Promise<{ error: LooseError | null }>;
-      remove(paths: string[]): Promise<{ error: LooseError | null }>;
     };
   };
 }
@@ -109,7 +117,9 @@ export interface PayrollPeriodCloseDependencies {
   getReadiness(data: AttendanceExportData): AttendanceExportCloseReadiness;
   loadAdjustments: typeof loadAcceptedPayrollWorkbookAdjustments;
   finalizePreparedClose: typeof finalizePreparedPayrollClose;
+  removeUnregisteredWorkbook: typeof removeUnregisteredPayrollWorkbook;
   randomUuid(): string;
+  resolveAuthorizedRoster(companyId: string): ReturnType<typeof authorizedRosterForCompany>;
 }
 
 const DEFAULT_DEPENDENCIES: PayrollPeriodCloseDependencies = {
@@ -118,7 +128,10 @@ const DEFAULT_DEPENDENCIES: PayrollPeriodCloseDependencies = {
   getReadiness: getAttendanceExportCloseReadiness,
   loadAdjustments: loadAcceptedPayrollWorkbookAdjustments,
   finalizePreparedClose: finalizePreparedPayrollClose,
+  removeUnregisteredWorkbook: removeUnregisteredPayrollWorkbook,
   randomUuid: () => crypto.randomUUID(),
+  resolveAuthorizedRoster: (companyId) =>
+    authorizedRosterForCompany(companyId, process.env.ARCOTEX_PILOT_EMPLOYEE_IDS),
 };
 
 function asReportingPeriod(row: Record<string, unknown> | null): ReportingPeriodRow | null {
@@ -157,6 +170,15 @@ function asClosedSnapshot(row: Record<string, unknown> | null): ClosedSnapshotRo
     return null;
   }
   return row as unknown as ClosedSnapshotRow;
+}
+
+function asCurrentApproval(row: Record<string, unknown> | null): CurrentApprovalRow | null {
+  if (
+    typeof row?.accepted_workbook_version_id !== "string"
+    || typeof row.source_revision !== "number"
+    || typeof row.readiness_sha256 !== "string"
+  ) return null;
+  return row as unknown as CurrentApprovalRow;
 }
 
 async function readSourceRevision(client: PayrollCloseClient, companyId: string): Promise<number> {
@@ -204,18 +226,26 @@ function errorLike(error: unknown): LooseError | null {
 async function discardOrphan(
   client: PayrollCloseClient,
   operationId: string,
-  storagePath: string
+  storagePath: string,
+  companyId: string,
+  periodStart: string,
+  periodEnd: string,
+  removeUnregisteredWorkbook: typeof removeUnregisteredPayrollWorkbook,
 ): Promise<void> {
   const aborted = await client.rpc("abort_payroll_period_close", { p_operation_id: operationId });
   if (aborted.error) {
     console.error("[payroll-period-close] no se pudo abortar la reserva", aborted.error.message);
   }
-  const removal = await client.storage.from(PAYROLL_WORKBOOK_BUCKET).remove([storagePath]);
-  if (removal.error) {
-    // La policy solo permite eliminar un objeto propio que todavía no esté
+  try {
+    await removeUnregisteredWorkbook({ companyId, periodStart, periodEnd, storagePath });
+  } catch (error) {
+    // El trigger solo permite eliminar un objeto que todavía no esté
     // referenciado. Si el resultado del RPC fue incierto pero alcanzó a
     // confirmar, este intento falla de manera segura y conserva el snapshot.
-    console.error("[payroll-period-close] no se pudo limpiar el objeto huérfano", removal.error.message);
+    console.error(
+      "[payroll-period-close] no se pudo limpiar el objeto huérfano",
+      error instanceof Error ? error.message : "error desconocido",
+    );
   }
 }
 
@@ -227,8 +257,8 @@ async function discardOrphan(
  * Storage no comparte transacción con Postgres: una reserva breve autoriza la
  * ruta, el objeto se sube inmutable, una frontera server-only verifica sus
  * bytes y el RPC final confirma snapshot + estado + log. Toda falla aborta la
- * reserva antes de compensar solo ese objeto; la RLS impide borrar una ruta
- * que siga preparada o que el commit ya haya referenciado.
+ * reserva antes de compensar solo ese objeto; la frontera server-only y el
+ * trigger impiden borrar una ruta preparada o ya referenciada por el commit.
  */
 export async function closePayrollPeriodWithSnapshot(
   supabase: SupabaseClient<Database>,
@@ -241,6 +271,7 @@ export async function closePayrollPeriodWithSnapshot(
   if (!UUID_PATTERN.test(input.companyId) || !UUID_PATTERN.test(input.reportingPeriodId)) {
     throw new Error("El identificador de empresa o período no es válido.");
   }
+  const authorizedRoster = dependencies.resolveAuthorizedRoster(input.companyId);
 
   const client = supabase as unknown as PayrollCloseClient;
   const periodResult = await client
@@ -320,7 +351,10 @@ export async function closePayrollPeriodWithSnapshot(
   try {
     let openConflicts: LooseListResult;
     [data, adjustments, openConflicts] = await Promise.all([
-      dependencies.buildExportData(supabase, input.callerRole, period, input.companyId),
+      dependencies.buildExportData(supabase, input.callerRole, period, input.companyId, {
+        employeeIds: authorizedRoster?.employeeIds,
+        expectedEmployeeCodeSha256: authorizedRoster?.expectedEmployeeCodeSha256,
+      }),
       dependencies.loadAdjustments(supabase, {
         companyId: input.companyId,
         windowType: "MENSUAL",
@@ -353,10 +387,49 @@ export async function closePayrollPeriodWithSnapshot(
   }
   data.workbookBaseVersionId = latestAcceptedVersionId;
   data.workbookAdjustments = adjustments;
+  if (authorizedRoster && (
+    data.rosterCount !== authorizedRoster.employeeCount
+    || data.rosterSha256 !== authorizedRoster.expectedEmployeeCodeSha256
+  )) {
+    throw new Error("El padrón recalculado no corresponde a las 45 personas autorizadas de Arcotex.");
+  }
 
   const readiness = dependencies.getReadiness(data);
   if (!readiness.ready || readiness.pendingCount > 0 || readiness.issues.length > 0) {
     throw closeBlocked(readiness);
+  }
+
+  const currentReadinessSha256 = payrollReadinessDigest({
+    companyId: input.companyId,
+    periodId: input.reportingPeriodId,
+    periodStart: period.startDate,
+    periodEnd: period.endDate,
+    sourceRevision: sourceRevisionBefore,
+    acceptedVersionId: latestAcceptedVersionId,
+    readiness,
+    rosterCount: data.rosterCount ?? null,
+    rosterSha256: data.rosterSha256 ?? null,
+  });
+  const approvalResult = await client
+    .from("reporting_period_approvals")
+    .select("accepted_workbook_version_id, source_revision, readiness_sha256")
+    .eq("company_id", input.companyId)
+    .eq("reporting_period_id", input.reportingPeriodId)
+    .is("invalidated_at", null)
+    .maybeSingle();
+  const currentApproval = asCurrentApproval(approvalResult.data);
+  if (
+    approvalResult.error
+    || !currentApproval
+    || currentApproval.accepted_workbook_version_id !== latestAcceptedVersionId
+    || currentApproval.source_revision !== sourceRevisionBefore
+    || currentApproval.readiness_sha256 !== currentReadinessSha256
+  ) {
+    throw new PayrollPeriodCloseBlockedError(
+      "La aprobación de RR. HH. ya no corresponde a la pre-nómina vigente.",
+      0,
+      ["Vuelve a revisar y aprobar el período antes de cerrarlo."],
+    );
   }
 
   // El gate se evalúa contra READY_TO_CLOSE. Solo después se presenta el
@@ -401,6 +474,7 @@ export async function closePayrollPeriodWithSnapshot(
     p_expected_status: "READY_TO_CLOSE",
     p_expected_base_version_id: latestAcceptedVersionId,
     p_expected_source_revision: sourceRevisionAfter,
+    p_expected_readiness_sha256: currentReadinessSha256,
     p_content_sha256: contentSha256,
     p_file_size: bytes.byteLength,
     p_storage_path: storagePath,
@@ -421,10 +495,21 @@ export async function closePayrollPeriodWithSnapshot(
       operation_id: operationId,
       base_version_id: latestAcceptedVersionId,
       source_revision: String(sourceRevisionAfter),
+      readiness_sha256: currentReadinessSha256,
+      roster_count: data.rosterCount == null ? "" : String(data.rosterCount),
+      roster_sha256: data.rosterSha256 ?? "",
     },
   });
   if (upload.error) {
-    await discardOrphan(client, operationId, storagePath);
+    await discardOrphan(
+      client,
+      operationId,
+      storagePath,
+      input.companyId,
+      periodRow.period_start,
+      periodRow.period_end,
+      dependencies.removeUnregisteredWorkbook,
+    );
     throw new Error("No pudimos guardar el snapshot Excel privado. El período permanece sin cerrar.");
   }
 
@@ -437,11 +522,27 @@ export async function closePayrollPeriodWithSnapshot(
       expectedFileSize: bytes.byteLength,
     });
   } catch (error) {
-    await discardOrphan(client, operationId, storagePath);
+    await discardOrphan(
+      client,
+      operationId,
+      storagePath,
+      input.companyId,
+      periodRow.period_start,
+      periodRow.period_end,
+      dependencies.removeUnregisteredWorkbook,
+    );
     throw safeCommitError(errorLike(error));
   }
   if (!UUID_PATTERN.test(snapshotVersionId)) {
-    await discardOrphan(client, operationId, storagePath);
+    await discardOrphan(
+      client,
+      operationId,
+      storagePath,
+      input.companyId,
+      periodRow.period_start,
+      periodRow.period_end,
+      dependencies.removeUnregisteredWorkbook,
+    );
     throw new Error("No pudimos confirmar el identificador del snapshot de cierre.");
   }
 

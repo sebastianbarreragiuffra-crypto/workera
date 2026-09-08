@@ -149,7 +149,7 @@ test("cada operacion Storage esta inventariada con bucket y ocurrencias exactas"
   assert.equal(registered.size, STORAGE_CONSUMER_SURFACES.length, "hay una operacion Storage duplicada");
   assert.deepEqual([...registered.keys()].sort(), [...discovered.keys()].sort());
   for (const [key, count] of discovered) assert.equal(registered.get(key), count, key);
-  assert.equal([...discovered.values()].reduce((sum, count) => sum + count, 0), 23);
+  assert.equal([...discovered.values()].reduce((sum, count) => sum + count, 0), 21);
 });
 
 test("Storage sensible conserva cuarentena o explicita su bloqueo", () => {

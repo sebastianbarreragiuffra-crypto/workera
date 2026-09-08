@@ -10,6 +10,7 @@ import {
   isWeekend,
 } from "./attendance-export";
 import type { AttendanceExportPeriod } from "./attendance-export-periods";
+import { canonicalRosterSha256 } from "../employees/arcotex-pilot-roster";
 import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../tenant/legacy-workforce";
 
 function buildAttendanceExportData(
@@ -484,6 +485,51 @@ test("buildAttendanceExportData: el padrón aprobado limita la exportación sin 
 
   assert.deepEqual(data.workers.map((worker) => worker.employeeId), ["emp-approved"]);
   assert.equal(employees.length, 2, "el filtro no elimina ni desactiva filas del padrón fuente");
+});
+
+test("buildAttendanceExportData: la huella autorizada conserva todo el padrón explícito y llega al libro", async () => {
+  const employees = [
+    { id: "emp-active", external_workera_id: "WK-002", display_name: "PERSONA ACTIVA", group: "PRODUCTION" },
+    {
+      id: "emp-inactive",
+      external_workera_id: "WK-001",
+      display_name: "PERSONA INACTIVA",
+      group: "PRODUCTION",
+      active: false,
+      hire_date: "2099-01-01",
+    },
+  ];
+  const expectedEmployeeCodeSha256 = canonicalRosterSha256(["WK-001", "WK-002"]);
+  const data = await buildAttendanceExportDataForCompany(
+    mockSupabase({ employees }),
+    "ADMIN_RRHH",
+    PERIOD,
+    ARCOTEX_WORKFORCE_COMPANY_ID,
+    { employeeIds: ["emp-active", "emp-inactive"], expectedEmployeeCodeSha256 },
+  );
+
+  assert.deepEqual(data.workers.map((worker) => worker.employeeId).sort(), ["emp-active", "emp-inactive"]);
+  assert.equal(data.rosterCount, 2);
+  assert.equal(data.rosterSha256, expectedEmployeeCodeSha256);
+
+  const book = XLSX.read(buildAttendanceExportWorkbook(data), { type: "array" });
+  const metadata = new Map(
+    XLSX.utils.sheet_to_json<(string | number)[]>(book.Sheets._GESTORA_TECNICA, { header: 1, raw: false })
+      .map((row) => [String(row[0] ?? ""), String(row[1] ?? "")]),
+  );
+  assert.equal(metadata.get("Cantidad padrón autorizado"), "2");
+  assert.equal(metadata.get("Huella padrón autorizado"), expectedEmployeeCodeSha256);
+
+  await assert.rejects(
+    buildAttendanceExportDataForCompany(
+      mockSupabase({ employees }),
+      "ADMIN_RRHH",
+      PERIOD,
+      ARCOTEX_WORKFORCE_COMPANY_ID,
+      { employeeIds: ["emp-active", "emp-inactive"], expectedEmployeeCodeSha256: "0".repeat(64) },
+    ),
+    /no corresponden al padrón autorizado/i,
+  );
 });
 
 test("buildAttendanceExportData: falla cerrado si un ID aprobado no pertenece al alcance autorizado", async () => {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canDownloadPayrollWorkbook, requireYearMonth } from "./route";
+import { canDownloadPayrollWorkbook, requireYearMonth } from "./route-utils";
 import { readFileSync } from "node:fs";
 
 /**
@@ -50,6 +50,8 @@ test("descarga de pre-nómina: exige rol del tenant y CLOSED usa el snapshot exa
   assert.match(source, /resolvePayrollCompanyRole[\s\S]*?\["ADMIN_RRHH", "SUPER_ADMIN"\]/);
   assert.doesNotMatch(source, /buildAttendanceExportData\(supabase, profile\.role/);
   assert.match(source, /status === "CLOSED"[\s\S]*?CLOSED_SNAPSHOT[\s\S]*?content_sha256/);
-  assert.match(source, /createHash\("sha256"\)[\s\S]*?snapshot\.data\.content_sha256/);
-  assert.match(source, /status === "CLOSED"[\s\S]*?if \(pilotEmployeeIds\)[\s\S]*?status: 409/);
+  assert.match(source, /downloadTrustedPayrollWorkbook\(\{[\s\S]*?snapshot\.data\.content_sha256/);
+  assert.doesNotMatch(source, /supabase\.storage\.from\("payroll-workbooks"\)\.download/);
+  assert.match(source, /parsePayrollWorkbook\(bytes\)[\s\S]*?identity\.rosterCount[\s\S]*?identity\.rosterSha256/);
+  assert.doesNotMatch(source, /if \(pilotEmployeeIds\)[\s\S]*?status: 409/);
 });

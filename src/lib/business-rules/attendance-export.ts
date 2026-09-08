@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 import { areasVisibleToRole, type AreaCode, type CallerRole } from "../access/scope";
 import { applyXlsxPresentation } from "../excel/xlsx-postprocess";
+import { canonicalRosterSha256 } from "../employees/arcotex-pilot-roster";
 import type { AttendanceExportPeriod } from "./attendance-export-periods";
 import { loadHolidaySet } from "./holidays";
 import type { AcceptedPayrollWorkbookAdjustment, PayrollAdjustmentField } from "../payroll/payroll-workbook-adjustments";
@@ -19,7 +20,7 @@ type PayrollSummaryAdjustmentField = Exclude<PayrollAdjustmentField, "Código as
  * accionables) y `MATRIZ_DIARIA_SABANA` (una fila por persona y una columna
  * por fecha). El corte de pago es siempre 16–15.
  *
- * El libro se genera desde datos vivos para incluir el padrón completo. Nunca
+ * El libro se genera desde datos vivos dentro del padrón autorizado. Nunca
  * inventa un estado: un día exigible sin dato definitivo sale `?`, nunca P/F
  * supuesto. El cierre persiste este mismo archivo como snapshot privado e
  * inmutable; antes de cerrar sigue siendo el artefacto operativo editable.
@@ -451,6 +452,15 @@ export interface AttendanceExportData {
   workbookBaseVersionId?: string | null;
   /** Última decisión aceptada por trabajador/campo, reaplicada sin alterar Workera. */
   workbookAdjustments?: readonly AcceptedPayrollWorkbookAdjustment[];
+  /** Cantidad exacta del padrón autorizado, cuando la empresa exige uno cerrado. */
+  rosterCount?: number | null;
+  /** Huella canónica de los códigos Workera del padrón autorizado. */
+  rosterSha256?: string | null;
+}
+
+export interface AttendanceExportOptions {
+  employeeIds?: readonly string[];
+  expectedEmployeeCodeSha256?: string;
 }
 
 function emptyDay(): AttendanceExportDay {
@@ -481,7 +491,7 @@ export async function buildAttendanceExportData(
   callerRole: CallerRole,
   period: AttendanceExportPeriod,
   companyId: string,
-  options: { employeeIds?: readonly string[] } = {},
+  options: AttendanceExportOptions = {},
 ): Promise<AttendanceExportData> {
   const allowedAreas = areasVisibleToRole(callerRole);
   // El RUT es necesario para conciliación de nómina, pero no para supervisar
@@ -505,10 +515,17 @@ export async function buildAttendanceExportData(
   if (requestedEmployeeIds && requestedEmployeeIds.size !== options.employeeIds!.length) {
     throw new Error("buildAttendanceExportData: el padrón solicitado contiene IDs duplicados.");
   }
+  if (options.expectedEmployeeCodeSha256 && requestedEmployeeIds === null) {
+    throw new Error("buildAttendanceExportData: una huella de padrón exige IDs explícitos.");
+  }
+  if (options.expectedEmployeeCodeSha256 && !/^[a-f0-9]{64}$/.test(options.expectedEmployeeCodeSha256)) {
+    throw new Error("buildAttendanceExportData: la huella del padrón no es válida.");
+  }
 
   const scoped = employees
     .map((row) => ({
       id: row.id,
+      externalWorkeraId: row.external_workera_id,
       // Algunos registros bootstrap usan `EXCEL-<RUT>` como identificador
       // temporal. Ocultar solo la columna RUT no bastaría: para supervisores
       // también se omite el código hasta que todos los padrones usen un ID
@@ -523,6 +540,7 @@ export async function buildAttendanceExportData(
     .filter(
       (employee): employee is {
         id: string;
+        externalWorkeraId: string;
         employeeCode: string;
         employeeRut: string | null;
         displayName: string;
@@ -530,12 +548,24 @@ export async function buildAttendanceExportData(
         active: boolean;
         area: AreaCode;
       } => employee.area !== null
-        && (employee.hireDate === null || employee.hireDate <= period.endDate)
+        && (requestedEmployeeIds !== null || employee.hireDate === null || employee.hireDate <= period.endDate)
         && (requestedEmployeeIds === null || requestedEmployeeIds.has(employee.id))
     );
 
   if (requestedEmployeeIds && scoped.length !== requestedEmployeeIds.size) {
     throw new Error("buildAttendanceExportData: el padrón solicitado no pertenece íntegramente a la empresa y alcance autorizados.");
+  }
+
+  let rosterSha256: string | null = null;
+  if (options.expectedEmployeeCodeSha256) {
+    const employeeCodes = scoped.map((employee) => employee.externalWorkeraId.trim());
+    if (employeeCodes.some((code) => code === "") || new Set(employeeCodes).size !== employeeCodes.length) {
+      throw new Error("buildAttendanceExportData: el padrón autorizado tiene códigos Workera vacíos o duplicados.");
+    }
+    rosterSha256 = canonicalRosterSha256(employeeCodes);
+    if (rosterSha256 !== options.expectedEmployeeCodeSha256) {
+      throw new Error("buildAttendanceExportData: los UUID configurados no corresponden al padrón autorizado de Arcotex.");
+    }
   }
 
   const days = calendarDaysBetween(period.startDate, period.endDate);
@@ -554,6 +584,7 @@ export async function buildAttendanceExportData(
     const { data: reportingPeriod, error: reportingPeriodError } = await supabase
       .from("reporting_periods")
       .select("status")
+      .eq("company_id", companyId)
       .eq("period_start", period.startDate)
       .eq("period_end", period.endDate)
       .maybeSingle();
@@ -605,6 +636,8 @@ export async function buildAttendanceExportData(
       ruleEngineProblemDates: new Set(days),
       companyId,
       workbookBaseVersionId: null,
+      rosterCount: requestedEmployeeIds?.size ?? null,
+      rosterSha256,
     };
   }
 
@@ -1082,7 +1115,7 @@ export async function buildAttendanceExportData(
   // cambia retroactivamente un Excel viejo. Si no tienen ningún dato en el
   // rango, se excluyen porque el modelo aún no guarda fecha de término.
   const includedWorkers = workers
-    .filter((worker) => worker.currentlyActive || worker.days.size > 0)
+    .filter((worker) => requestedEmployeeIds !== null || worker.currentlyActive || worker.days.size > 0)
     .sort((left, right) => left.workerName.localeCompare(right.workerName, "es"));
 
   // Segunda lectura: si una corrida empezó, cambió de estado o terminó
@@ -1107,6 +1140,8 @@ export async function buildAttendanceExportData(
     ruleEngineProblemDates,
     companyId,
     workbookBaseVersionId: null,
+    rosterCount: requestedEmployeeIds?.size ?? null,
+    rosterSha256,
   };
 }
 
@@ -2477,6 +2512,8 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
     ["Fin", period.endDate],
     ["Mes de remuneración", period.type === "PAGO" ? period.endDate.slice(0, 7) : ""],
     ["Versión base", data.workbookBaseVersionId ?? "ORIGEN_ACTUAL"],
+    ["Cantidad padrón autorizado", data.rosterCount ?? ""],
+    ["Huella padrón autorizado", data.rosterSha256 ?? ""],
   ]);
   metadataSheet["!protect"] = { password: "GESTORA", selectLockedCells: true, selectUnlockedCells: true };
   XLSX.utils.book_append_sheet(workbook, metadataSheet, "_GESTORA_TECNICA");

@@ -35,7 +35,9 @@ Commit base funcional: `d13374f` (`docs: checkpoint workforce tenant selection`)
 - Las consultas agregadas modificadas filtran grupos, trabajadores, períodos, corridas del motor, versiones, ajustes y objetos de Storage por la empresa activa.
 - El menú laboral muestra el nombre de la empresa seleccionada y permite volver al selector.
 - El gate SQL de descarga acepta ahora `DIARIO` únicamente cuando inicio y término son el mismo día; conserva sesión, membresía Arcotex, MFA, cuota y auditoría.
-- Para Arcotex, descarga y reimportación quedan obligatoriamente acotadas al padrón conciliado mediante `ARCOTEX_PILOT_EMPLOYEE_IDS`: el servidor exige exactamente 60 UUID únicos y que todos pertenezcan al tenant/alcance autorizado. Si falta la configuración, la exportación se bloquea; jamás cae al padrón heredado de GESTORA. Las demás filas solo se leen para validar pertenencia y no se modifican. Un snapshot ya cerrado sin atestación de esos 60 se rechaza en vez de filtrarse o regenerarse.
+- Para Arcotex, descarga, reimportación, aprobación y cierre quedan obligatoriamente acotados al padrón conciliado mediante `ARCOTEX_PILOT_EMPLOYEE_IDS`: el servidor exige exactamente 45 UUID únicos, que todos pertenezcan al tenant/alcance autorizado y que la huella de sus códigos Workera coincida con la fuente aprobada de FEBRERO y MARZO. Si falta la configuración o cambia una persona, la operación se bloquea; jamás cae al padrón completo. Las demás fichas solo se leen para validar pertenencia y no se modifican. Todo libro incorpora conteo y huella en su identidad técnica; un snapshot cerrado antiguo o con una atestación distinta se rechaza en vez de filtrarse o regenerarse.
+
+La variable es exclusivamente server-side. Los valores reales se configuran en el archivo local gitignored o en el proveedor de despliegue; `.env.example` y `.env.staging.example` deben conservarla vacía. Cambiar el XLS autorizado exige repetir la conciliación, revisar sus 45 correspondencias y actualizar deliberadamente la huella versionada antes de habilitar nuevas planillas.
 
 ## Fase 4: recorrido real del Excel completado
 

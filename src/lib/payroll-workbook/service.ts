@@ -78,6 +78,15 @@ export interface AcceptTrustedPayrollWorkbookResult {
   idempotencyKey: string;
 }
 
+export interface DownloadTrustedPayrollWorkbookInput {
+  companyId: string;
+  periodStart: string;
+  periodEnd: string;
+  storagePath: string;
+  contentSha256: string;
+  fileSize: number;
+}
+
 export interface AcceptTrustedPayrollWorkbookDependencies {
   createTrustedClient(): TrustedPayrollWorkbookClient;
 }
@@ -148,6 +157,18 @@ function validateStoredWorkbookPath(input: {
       || !input.storagePath.startsWith(`${input.companyId}/${input.periodStart}_${input.periodEnd}/`)
       || !input.storagePath.endsWith(".xlsx")) {
     throw new Error("La ruta privada del XLSX no corresponde a empresa y período.");
+  }
+}
+
+function validateDownloadInput(input: DownloadTrustedPayrollWorkbookInput): void {
+  validateStoredWorkbookPath(input);
+  if (
+    !SHA256_PATTERN.test(input.contentSha256)
+    || !Number.isSafeInteger(input.fileSize)
+    || input.fileSize < 1
+    || input.fileSize > MAX_PAYROLL_WORKBOOK_BYTES
+  ) {
+    throw new Error("La evidencia declarada del XLSX guardado no es válida.");
   }
 }
 
@@ -294,6 +315,35 @@ export async function acceptTrustedPayrollWorkbook(
     fileSize: bytes.byteLength,
     idempotencyKey,
   };
+}
+
+/**
+ * Única frontera de descarga para libros ya registrados. Las rutas validan
+ * sesión, tenant, rol y propósito antes de llamarla; aquí se usa Storage con
+ * service_role y se vuelven a cotejar tamaño y SHA-256 de los bytes reales.
+ */
+export async function downloadTrustedPayrollWorkbook(
+  input: DownloadTrustedPayrollWorkbookInput,
+  dependencies: AcceptTrustedPayrollWorkbookDependencies = DEFAULT_DEPENDENCIES,
+): Promise<Uint8Array<ArrayBuffer>> {
+  validateDownloadInput(input);
+  const trusted = dependencies.createTrustedClient();
+  const downloaded = await trusted.storage.from(PAYROLL_WORKBOOK_BUCKET).download(input.storagePath);
+  if (downloaded.error || !downloaded.data) {
+    throw new Error("No pudimos descargar el XLSX privado.");
+  }
+  if (
+    typeof downloaded.data.size === "number"
+    && downloaded.data.size !== input.fileSize
+  ) {
+    throw new Error("El tamaño del XLSX privado no coincide con su evidencia.");
+  }
+  const bytes = new Uint8Array(await downloaded.data.arrayBuffer());
+  const actualSha256 = createHash("sha256").update(bytes).digest("hex");
+  if (bytes.byteLength !== input.fileSize || actualSha256 !== input.contentSha256) {
+    throw new Error("Los bytes del XLSX privado no coinciden con su evidencia.");
+  }
+  return bytes;
 }
 
 /**
