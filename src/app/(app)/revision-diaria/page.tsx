@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "../../../lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "../../../lib/auth/session";
 import { getDailyReviewBoard, getDailyReviewDetail, sortPendingCards } from "../../../lib/view-models/daily-review-view";
 import type { DailyReviewCardViewModel, FilterCounts } from "../../../lib/view-models/daily-review-view";

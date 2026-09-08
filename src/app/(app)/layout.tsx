@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentProfile } from "../../lib/auth/session";
-import { createClient } from "../../lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "../../components/shell/Sidebar";
 import { Topbar } from "../../components/shell/Topbar";
 import { getNavSectionsForRole, roleLabel } from "../../components/shell/nav-config";

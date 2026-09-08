@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "../../../lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "../../../lib/auth/session";
 import { getDashboardForRole } from "../../../lib/view-models/dashboard-view";
 import { getAttendanceReadiness } from "../../../lib/view-models/attendance-readiness";
