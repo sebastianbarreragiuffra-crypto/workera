@@ -2123,7 +2123,7 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
     [periodScopeLabel],
     [overallStatus],
     [
-      "Las horas y bonos automáticos provienen solo de decisiones definitivas. Los días P son códigos de presencia, no días pagables. Centro_Costo corresponde a la unidad organizacional primaria vigente al día 15. En las columnas Q:Y se ven las horas reales, los ajustes de RR. HH. y sus motivos; Ajuste HH50/HH100 se ingresa en minutos enteros (+/-) y el bono en CLP. Todo ajuste exige motivo. 'Sin pendientes' no reemplaza el cierre formal ni un snapshot inmutable.",
+      "Las horas y bonos automáticos provienen solo de decisiones definitivas. Los días P son códigos de presencia, no días pagables. Centro_Costo corresponde a la unidad organizacional primaria vigente al día 15. En las columnas Q:Y se ven las horas reales, los ajustes de RR. HH. y sus motivos; Ajuste HH50/HH100 se ingresa en minutos enteros (+/-) y el bono en CLP. Todo ajuste exige motivo. Colación: referencia declarativa de 40 minutos; no se descuenta porque el esquema no contiene una fuente confirmada. 'Sin pendientes' no reemplaza el cierre formal ni un snapshot inmutable.",
     ],
     [...SUMMARY_HEADERS_2026],
   ];
@@ -2498,6 +2498,7 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
     {
       sheetIndex: 1,
       freeze: { xSplit: 5, ySplit: 5, topLeftCell: "F6" },
+      print: { orientation: "landscape", fitToWidth: 1 },
       conditionalFormats: workers.length === 0 ? [] : [
         { sqref: `R6:R${lastWorkerExcelRow}`, formula: "R6<>0", fillRgb: "FFF2CC", fontRgb: "9C5700" },
         { sqref: `U6:U${lastWorkerExcelRow}`, formula: "U6<>0", fillRgb: "FFF2CC", fontRgb: "9C5700" },
@@ -2513,10 +2514,11 @@ export function buildAttendanceExportWorkbook(data: AttendanceExportData): Uint8
         { sqref: `A6:A${lastWorkerExcelRow}`, formula: '$A6="CERRADO"', fillRgb: "D9EAF7", fontRgb: "17365D" },
       ],
     },
-    { sheetIndex: 2, freeze: { xSplit: 4, ySplit: 4, topLeftCell: "E5" } },
+    { sheetIndex: 2, freeze: { xSplit: 4, ySplit: 4, topLeftCell: "E5" }, print: { orientation: "landscape", fitToWidth: 1 } },
     {
       sheetIndex: 3,
       freeze: { xSplit: 5, ySplit: 5, topLeftCell: "F6" },
+      print: { orientation: "landscape", fitToWidth: 1 },
       conditionalFormats: workers.length === 0 ? [] : [
         { sqref: matrixDailyRange, formula: 'F6="?"', fillRgb: "FCE4D6", fontRgb: "9C0006" },
         { sqref: matrixDailyRange, formula: 'F6="R"', fillRgb: "F4CCCC", fontRgb: "9C0006" },

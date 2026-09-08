@@ -17,6 +17,7 @@ for (const prefix of ["", "x:"] as const) {
     const bytes = applyXlsxPresentation(fixture(prefix), [{
       sheetIndex: 1,
       freeze: { xSplit: 2, ySplit: 3, topLeftCell: "C4" },
+      print: { orientation: "landscape", fitToWidth: 1 },
       conditionalFormats: [{ sqref: "A1:A5", formula: "A1<>0", fillRgb: "FFF2CC" }],
     }]);
     const archive = unzipSync(bytes);
@@ -25,6 +26,8 @@ for (const prefix of ["", "x:"] as const) {
     const workbook = strFromU8(archive["xl/workbook.xml"]);
 
     assert.match(sheet, /<[^>]*pane [^>]*xSplit="2"[^>]*ySplit="3"[^>]*topLeftCell="C4"/);
+    assert.match(sheet, /<[^>]*pageMargins [^>]*left="0\.25"[^>]*right="0\.25"/);
+    assert.match(sheet, /<[^>]*pageSetup [^>]*orientation="landscape"[^>]*fitToWidth="1"[^>]*fitToHeight="0"/);
     assert.match(sheet, /conditionalFormatting sqref="A1:A5"/);
     assert.match(sheet, /<[^>]*formula>A1&lt;&gt;0<\/[^>]*formula>/);
     assert.match(styles, /<[^>]*dxfs count="1">/);

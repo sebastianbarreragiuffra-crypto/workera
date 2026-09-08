@@ -15,11 +15,28 @@ export interface XlsxConditionalFormat {
   fontRgb?: string;
 }
 
+export interface XlsxPrintSetup {
+  orientation: "portrait" | "landscape";
+  /** Ajusta el ancho impreso sin forzar toda la tabla a una sola página vertical. */
+  fitToWidth: number;
+  fitToHeight?: number;
+  paperSize?: number;
+  margins?: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+    header: number;
+    footer: number;
+  };
+}
+
 export interface XlsxSheetPresentation {
   /** Orden físico de la hoja dentro del libro, comenzando en 1. */
   sheetIndex: number;
   freeze?: XlsxFreezePane;
   conditionalFormats?: XlsxConditionalFormat[];
+  print?: XlsxPrintSetup;
 }
 
 function xmlText(value: string): string {
@@ -67,6 +84,29 @@ function applyFreeze(xml: string, freeze: XlsxFreezePane): string {
     return xml.replace(emptyViews, views);
   }
   return xml.replace(/(<(?:[A-Za-z_][\w.-]*:)?worksheet\b[^>]*>)/, `$1${views}`);
+}
+
+function applyPrintSetup(xml: string, print: XlsxPrintSetup): string {
+  const prefix = namespacePrefix(xml, "worksheet");
+  const margins = print.margins ?? {
+    left: 0.25,
+    right: 0.25,
+    top: 0.5,
+    bottom: 0.5,
+    header: 0.2,
+    footer: 0.2,
+  };
+  const pageMargins = `<${prefix}pageMargins left="${margins.left}" right="${margins.right}" top="${margins.top}" bottom="${margins.bottom}" header="${margins.header}" footer="${margins.footer}"/>`;
+  const pageSetup = `<${prefix}pageSetup paperSize="${print.paperSize ?? 9}" orientation="${print.orientation}" fitToWidth="${print.fitToWidth}" fitToHeight="${print.fitToHeight ?? 0}"/>`;
+  const existingMargins = /<(?:[A-Za-z_][\w.-]*:)?pageMargins\b[^>]*\/?>(?:[\s\S]*?<\/(?:[A-Za-z_][\w.-]*:)?pageMargins>)?/;
+  const existingSetup = /<(?:[A-Za-z_][\w.-]*:)?pageSetup\b[^>]*\/?>(?:[\s\S]*?<\/(?:[A-Za-z_][\w.-]*:)?pageSetup>)?/;
+  let result = existingMargins.test(xml)
+    ? xml.replace(existingMargins, pageMargins)
+    : xml.replace(`</${prefix}worksheet>`, `${pageMargins}</${prefix}worksheet>`);
+  result = existingSetup.test(result)
+    ? result.replace(existingSetup, pageSetup)
+    : result.replace(`</${prefix}worksheet>`, `${pageSetup}</${prefix}worksheet>`);
+  return result;
 }
 
 function dxfXml(rule: XlsxConditionalFormat, prefix: string): string {
@@ -167,6 +207,7 @@ export function applyXlsxPresentation(
     const path = `xl/worksheets/sheet${sheet.sheetIndex}.xml`;
     let xml = textDecoder(path);
     if (sheet.freeze) xml = applyFreeze(xml, sheet.freeze);
+    if (sheet.print) xml = applyPrintSetup(xml, sheet.print);
     const rules = sheet.conditionalFormats ?? [];
     xml = appendConditionalFormats(xml, rules, dxfOffset, priority);
     dxfOffset += rules.length;
