@@ -12,6 +12,7 @@ import type { DeriveDailyAttendanceResult } from "./daily-attendance";
 import type { GenerateLateArrivalStatus, GenerateLateArrivalResult } from "./late-arrival";
 import type { GenerateEarlyDepartureStatus, GenerateEarlyDepartureResult } from "./early-departure";
 import type { GenerateOvertimeCandidateStatus, GenerateOvertimeCandidateResult } from "./overtime-confirmation";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../shared/workforce-constants";
 
 /**
  * Los generadores devuelven `{status, <id>, <minutos>}`. El orquestador solo
@@ -1026,6 +1027,68 @@ test("runRuleEngineForDate: persiste y cierra la corrida con el company_id expl�
   assert.equal(rpcCalls[2].args.p_company_id, COMPANY_ID);
   assert.equal(rpcCalls[2].args.p_rule_engine_run_id, "run-1");
   assert.equal(rpcCalls[2].args.p_status, "SUCCEEDED");
+});
+
+test("runRuleEngineForDate: ARCOTEX abre y procesa sólo el padrón autorizado de 45", async () => {
+  const authorizedIds = Array.from(
+    { length: 45 },
+    (_, index) => `a0450000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  );
+  const previousRoster = process.env.ARCOTEX_PILOT_EMPLOYEE_IDS;
+  process.env.ARCOTEX_PILOT_EMPLOYEE_IDS = [...authorizedIds].reverse().join(",");
+  const { client, rpcCalls } = ruleEngineRunStub();
+  const script = Object.fromEntries(
+    authorizedIds.map((employeeId) => [employeeId, { attendance: noRecord("EXEMPT") }]),
+  );
+
+  try {
+    const outcome = await runRuleEngineForDate(client as never, DATE, {
+      companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+      triggeredBy: "CRON",
+      deps: scriptedDeps(script),
+    });
+
+    assert.equal(outcome.status, "SUCCEEDED");
+    assert.equal(outcome.result?.employeesProcessed, 45);
+    assert.deepEqual(rpcCalls[1], {
+      name: "begin_attendance_rule_engine_run",
+      args: {
+        p_company_id: ARCOTEX_WORKFORCE_COMPANY_ID,
+        p_work_date: DATE,
+        p_triggered_by: "CRON",
+        p_triggered_by_profile: null,
+        p_employee_ids: [...authorizedIds].sort(),
+      },
+    });
+    assert.deepEqual(
+      outcome.result?.outcomes.map((item) => item.employeeId),
+      [...authorizedIds].sort(),
+    );
+  } finally {
+    if (previousRoster === undefined) delete process.env.ARCOTEX_PILOT_EMPLOYEE_IDS;
+    else process.env.ARCOTEX_PILOT_EMPLOYEE_IDS = previousRoster;
+  }
+});
+
+test("runRuleEngineForDate: ARCOTEX falla cerrado si falta el padrón autorizado", async () => {
+  const previousRoster = process.env.ARCOTEX_PILOT_EMPLOYEE_IDS;
+  delete process.env.ARCOTEX_PILOT_EMPLOYEE_IDS;
+  const { client, rpcCalls } = ruleEngineRunStub();
+
+  try {
+    await assert.rejects(
+      runRuleEngineForDate(client as never, DATE, {
+        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        triggeredBy: "MANUAL",
+        deps: scriptedDeps({}),
+      }),
+      /Falta ARCOTEX_PILOT_EMPLOYEE_IDS/,
+    );
+    assert.equal(rpcCalls.length, 0, "sin padrón no recupera ni abre un lease");
+  } finally {
+    if (previousRoster === undefined) delete process.env.ARCOTEX_PILOT_EMPLOYEE_IDS;
+    else process.env.ARCOTEX_PILOT_EMPLOYEE_IDS = previousRoster;
+  }
 });
 
 test("runRuleEngineForDate: no sobrescribe una corrida cuyo lease fue recuperado", async () => {

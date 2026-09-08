@@ -18,6 +18,7 @@ import { generateOvertimeCandidate, type GenerateOvertimeCandidateStatus } from 
 import type { BirthdayContext } from "./birthday";
 import { loadHolidaySet } from "./holidays";
 import { resolveEffectiveEmployeeGroup } from "./effective-employee-group";
+import { authorizedRosterForCompany } from "../shared/arcotex-authorized-roster";
 
 /**
  * Orquestador del motor de reglas (MB-2) -- la pieza que faltaba entre la
@@ -627,11 +628,18 @@ export async function runRuleEngineForDate(
   }
 ): Promise<RuleEngineRunOutcome> {
   const companyId = requireCompanyId(params.companyId);
+  const authorizedRoster = authorizedRosterForCompany(
+    companyId,
+    process.env.ARCOTEX_PILOT_EMPLOYEE_IDS,
+  );
+  const authorizedEmployeeIds = authorizedRoster
+    ? [...authorizedRoster.employeeIds]
+    : undefined;
   // Una fila SUCCEEDED es evidencia autoritativa para READY_TO_CLOSE. Por
-  // eso este entrypoint registrado nunca admite un subconjunto: employeeIds,
-  // areaCode o incluso un arreglo vacío podrían hacer pasar por completa una
-  // corrida parcial. processAttendanceDay conserva esos filtros únicamente
-  // para pruebas/utilidades que no escriben el ledger autoritativo.
+  // eso este entrypoint registrado nunca admite un subconjunto entregado por
+  // el llamador. ARCOTEX es la excepción cerrada: el servidor resuelve el
+  // padrón de 45 desde configuración confiable y la base atestigua ese mismo
+  // alcance en el ledger; no proviene del navegador ni de una opción libre.
   if ("options" in params) {
     throw new Error("runRuleEngineForDate: una corrida registrada debe procesar el día completo.");
   }
@@ -648,6 +656,7 @@ export async function runRuleEngineForDate(
     p_work_date: date,
     p_triggered_by: params.triggeredBy,
     p_triggered_by_profile: params.triggeredByProfile ?? null,
+    ...(authorizedEmployeeIds ? { p_employee_ids: authorizedEmployeeIds } : {}),
   });
 
   if (runError) {
@@ -661,7 +670,7 @@ export async function runRuleEngineForDate(
     const result = await processAttendanceDay(
       supabase,
       date,
-      { companyId, ruleEngineRunId: runId },
+      { companyId, ruleEngineRunId: runId, employeeIds: authorizedEmployeeIds },
       params.deps ?? DEFAULT_DEPS
     );
     const status = result.failures.length > 0 ? "PARTIAL" : "SUCCEEDED";

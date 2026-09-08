@@ -4797,6 +4797,8 @@ export type Database = {
           company_id: string
           day_input_revision: number
           early_departure_candidates: number
+          employee_scope_sha256: string | null
+          employee_scope_size: number | null
           employees_processed: number
           error_summary: string | null
           failure_count: number
@@ -4817,6 +4819,8 @@ export type Database = {
           company_id?: string
           day_input_revision?: number
           early_departure_candidates?: number
+          employee_scope_sha256?: string | null
+          employee_scope_size?: number | null
           employees_processed?: number
           error_summary?: string | null
           failure_count?: number
@@ -4837,6 +4841,8 @@ export type Database = {
           company_id?: string
           day_input_revision?: number
           early_departure_candidates?: number
+          employee_scope_sha256?: string | null
+          employee_scope_size?: number | null
           employees_processed?: number
           error_summary?: string | null
           failure_count?: number
@@ -5599,6 +5605,8 @@ export type Database = {
           attendance_derived: number | null
           company_id: string | null
           early_departure_candidates: number | null
+          employee_scope_sha256: string | null
+          employee_scope_size: number | null
           employees_processed: number | null
           failure_count: number | null
           finished_at: string | null
@@ -6307,6 +6315,7 @@ export type Database = {
       begin_attendance_rule_engine_run: {
         Args: {
           p_company_id: string
+          p_employee_ids?: string[]
           p_triggered_by: string
           p_triggered_by_profile: string | null
           p_work_date: string
