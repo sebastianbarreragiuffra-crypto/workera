@@ -1,0 +1,29 @@
+---
+description: Coordinar el cierre seguro de todos los trabajos de Workera cuando el usuario diga ME VOY
+alwaysApply: true
+---
+
+# Protocolo `ME VOY`
+
+Activa este protocolo cuando el usuario comunique directamente que se va y use `ME VOY` como orden; no lo actives por ejemplos, citas o documentos que sólo mencionen la frase.
+
+## Chat coordinador
+
+- Identifica todas las tareas activas del proyecto Workera y envía una sola instrucción de cierre a cada una.
+- No abras nuevos frentes. Espera sus resultados y consolida el estado sin duplicar commits ni pruebas.
+- No interrumpas migraciones o escrituras a mitad de ejecución: exige que terminen o vuelvan a un estado consistente antes del cierre.
+
+## Cada tarea trabajadora
+
+- Cierra únicamente su propio trabajo; no reenvía `ME VOY` ni inicia otra ronda de coordinación.
+- Llega a un punto seguro, revisa el diff, ejecuta controles proporcionales y conserva cambios ajenos.
+- Si hay cambios propios, crea un commit enfocado y haz push a la rama remota correspondiente. No crea commits vacíos.
+- Nunca incluye secretos o PII, nunca usa `force-push` y nunca envía directamente a `master` sin autorización explícita.
+- Si una política impide el push, deja el commit local seguro y reporta exactamente la autorización pendiente.
+
+## Entrega para cambiar de PC
+
+- El coordinador entrega un resumen breve por tarea: título, rama, commit, estado del push, pruebas, entorno modificado y pendiente exacto.
+- Incluye un prompt listo para copiar en el otro PC con comandos de `fetch` y `switch/track` para la rama que corresponda.
+- Confirma qué quedó sólo local y qué está disponible remotamente. No afirma que todo está guardado si alguna rama no fue publicada.
+- `ME VOY` no autoriza apagar el computador; el apagado requiere una instrucción explícita separada.
