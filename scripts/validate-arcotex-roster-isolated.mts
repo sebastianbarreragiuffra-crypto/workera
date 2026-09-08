@@ -5,12 +5,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import {
+  ARCOTEX_ATTENDANCE_ROSTER_SIZE,
   approvedArcotexEmployeeIds,
   computeArcotexAttendanceRosterPreview,
   parseArcotexAttendanceRoster,
   type ArcotexExplicitResolution,
 } from "../src/lib/employees/arcotex-attendance-roster";
-import { ensureClaudioBarreraProvisional } from "../src/lib/employees/local-provisional-employee";
 
 const sourcePath = process.argv[2];
 const approvedPreviewPath = process.argv[3];
@@ -61,7 +61,11 @@ const { data: administrationGroup, error: groupError } = await supabase
 if (groupError || !administrationGroup) throw new Error(`No se encontró ADMINISTRATION en la base aislada: ${groupError?.message ?? "sin fila"}`);
 
 const matchedRows = approvedReport.preview.rows.filter((row) => row.matchedEmployee !== null);
-if (matchedRows.length !== 59) throw new Error(`Se esperaban 59 fichas aprobadas para sembrar; se recibieron ${matchedRows.length}.`);
+if (matchedRows.length !== ARCOTEX_ATTENDANCE_ROSTER_SIZE) {
+  throw new Error(
+    `Se esperaban ${ARCOTEX_ATTENDANCE_ROSTER_SIZE} fichas aprobadas para sembrar; se recibieron ${matchedRows.length}.`,
+  );
+}
 const isolatedSeedRows = matchedRows.map((row) => {
   const matched = row.matchedEmployee!;
   const tokens = matched.displayName.trim().split(/\s+/);
@@ -79,12 +83,8 @@ const isolatedSeedRows = matchedRows.map((row) => {
   };
 });
 const { error: seedError } = await supabase.from("employees").upsert(isolatedSeedRows, { onConflict: "id" });
-if (seedError) throw new Error(`No se pudieron cargar las 59 fichas aisladas: ${seedError.message}`);
-
-const firstEnsure = await ensureClaudioBarreraProvisional(supabase, companyId);
-const secondEnsure = await ensureClaudioBarreraProvisional(supabase, companyId);
-if (secondEnsure.created || firstEnsure.employeeId !== secondEnsure.employeeId) {
-  throw new Error("La creación provisional de Claudio no fue idempotente en la base aislada.");
+if (seedError) {
+  throw new Error(`No se pudieron cargar las ${ARCOTEX_ATTENDANCE_ROSTER_SIZE} fichas aisladas: ${seedError.message}`);
 }
 
 const { data: isolatedEmployees, error: employeesError } = await supabase
@@ -121,7 +121,12 @@ if (unresolvedRows.length > 0) {
   throw new Error(`La conciliación aislada dejó pendientes: ${unresolvedRows.join(", ")}.`);
 }
 const approvedIds = approvedArcotexEmployeeIds(preview);
-if (preview.rows.length !== 60 || preview.linkedCount !== 60 || preview.possibleNewCount !== 0 || approvedIds.size !== 60) {
+if (
+  preview.rows.length !== ARCOTEX_ATTENDANCE_ROSTER_SIZE
+  || preview.linkedCount !== ARCOTEX_ATTENDANCE_ROSTER_SIZE
+  || preview.possibleNewCount !== 0
+  || approvedIds.size !== ARCOTEX_ATTENDANCE_ROSTER_SIZE
+) {
   throw new Error(
     `Conciliación aislada incompleta: filas=${preview.rows.length}, vinculadas=${preview.linkedCount}, provisionales pendientes=${preview.possibleNewCount}, ids=${approvedIds.size}.`,
   );
@@ -135,13 +140,6 @@ const report = {
   productionDataUsed: false,
   sourceSha256,
   seededExistingEmployees: isolatedSeedRows.length,
-  claudio: {
-    employeeId: firstEnsure.employeeId,
-    temporaryCode: firstEnsure.temporaryCode,
-    firstCallCreated: firstEnsure.created,
-    secondCallCreated: secondEnsure.created,
-    idempotent: true,
-  },
   preview,
   approvedEmployeeIds: approvedIds.size,
 };
@@ -150,8 +148,6 @@ fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 console.log(JSON.stringify({
   outputPath,
   seededExistingEmployees: isolatedSeedRows.length,
-  claudioCreated: firstEnsure.created,
-  claudioSecondCallCreated: secondEnsure.created,
   linked: preview.linkedCount,
   ambiguous: preview.ambiguousCount,
   missingIdentity: preview.missingIdentityCount,

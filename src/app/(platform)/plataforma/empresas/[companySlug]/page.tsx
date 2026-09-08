@@ -30,7 +30,7 @@ import {
 } from "@/lib/platform/portfolio";
 import { createClient } from "@/lib/supabase/server";
 import { presentOnboardingStatus } from "@/components/platform/status-presenters";
-import { requireArcotexPilotEmployeeIds } from "@/lib/employees/arcotex-pilot-roster";
+import { requireArcotexAuthorizedRoster } from "@/lib/employees/arcotex-pilot-roster";
 import { resolveActiveCompany } from "@/lib/tenant/resolve-active-company";
 import { workforceEntryPathForCompany } from "@/lib/tenant/active-workforce-company";
 
@@ -399,11 +399,11 @@ export default async function CompanyDetailPage({
   if (detail.header.slug === "arcotex") {
     try {
       employeeMetric = {
-        label: "Padrón piloto",
-        value: requireArcotexPilotEmployeeIds(process.env.ARCOTEX_PILOT_EMPLOYEE_IDS).length,
+        label: "Padrón autorizado",
+        value: requireArcotexAuthorizedRoster(process.env.ARCOTEX_PILOT_EMPLOYEE_IDS).employeeCount,
       };
     } catch {
-      employeeMetric = { label: "Padrón piloto", value: "Bloqueado" };
+      employeeMetric = { label: "Padrón autorizado", value: "Bloqueado" };
     }
   }
 

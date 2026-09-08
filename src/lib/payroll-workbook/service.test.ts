@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   acceptTrustedPayrollWorkbook,
+  downloadTrustedPayrollWorkbook,
   removeUnregisteredPayrollWorkbook,
   type AcceptTrustedPayrollWorkbookInput,
 } from "./service";
@@ -227,6 +228,32 @@ test("la huella es estable ante el orden de propiedades y cambia ante una decisi
   }, dependencies().deps);
   assert.equal(first.idempotencyKey, reordered.idempotencyKey);
   assert.notEqual(first.idempotencyKey, changed.idempotencyKey);
+});
+
+test("la descarga server-only devuelve únicamente bytes con hash y tamaño registrados", async () => {
+  const { calls, deps } = dependencies();
+  const bytes = await downloadTrustedPayrollWorkbook({
+    companyId: INPUT.companyId,
+    periodStart: INPUT.periodStart,
+    periodEnd: INPUT.periodEnd,
+    storagePath: INPUT.storagePath,
+    contentSha256: HASH,
+    fileSize: BYTES.byteLength,
+  }, deps);
+  assert.deepEqual(bytes, BYTES);
+  assert.deepEqual(calls, [{ name: "download", args: INPUT.storagePath }]);
+
+  await assert.rejects(
+    () => downloadTrustedPayrollWorkbook({
+      companyId: INPUT.companyId,
+      periodStart: INPUT.periodStart,
+      periodEnd: INPUT.periodEnd,
+      storagePath: INPUT.storagePath,
+      contentSha256: "f".repeat(64),
+      fileSize: BYTES.byteLength,
+    }, dependencies().deps),
+    /no coinciden/i,
+  );
 });
 
 test("la compensación privilegiada elimina únicamente la ruta XLSX exacta", async () => {

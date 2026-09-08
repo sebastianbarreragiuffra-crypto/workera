@@ -112,7 +112,7 @@ insert into public.reporting_period_approvals (
 
 insert into private.payroll_period_close_operations (
   id, company_id, reporting_period_id, actor_id, expected_status,
-  base_version_id, source_revision, content_sha256, file_size,
+  base_version_id, source_revision, readiness_sha256, content_sha256, file_size,
   storage_path, mfa_aal, expires_at
 ) values (
   '10700000-0000-4000-8000-000000000030',
@@ -122,6 +122,7 @@ insert into private.payroll_period_close_operations (
   '10700000-0000-4000-8000-000000000020',
   (select revision from private.payroll_source_revisions
    where company_id='0a4c0000-0000-0000-0000-000000000001'),
+  repeat('b', 64),
   repeat('c', 64), 4321,
   '0a4c0000-0000-0000-0000-000000000001/2026-06-16_2026-07-15/closed/10700000-0000-4000-8000-000000000010/10700000-0000-4000-8000-000000000030.xlsx',
   'aal2', clock_timestamp() + interval '15 minutes'
@@ -175,7 +176,7 @@ select throws_ok(
 
 insert into private.payroll_period_close_operations (
   id, company_id, reporting_period_id, actor_id, expected_status,
-  base_version_id, source_revision, content_sha256, file_size,
+  base_version_id, source_revision, readiness_sha256, content_sha256, file_size,
   storage_path, mfa_aal, expires_at
 ) values (
   '10700000-0000-4000-8000-000000000031',
@@ -185,6 +186,7 @@ insert into private.payroll_period_close_operations (
   '10700000-0000-4000-8000-000000000020',
   (select revision from private.payroll_source_revisions
    where company_id='0a4c0000-0000-0000-0000-000000000001'),
+  repeat('b', 64),
   repeat('d', 64), 4321,
   '0a4c0000-0000-0000-0000-000000000001/2026-06-16_2026-07-15/closed/10700000-0000-4000-8000-000000000010/10700000-0000-4000-8000-000000000031.xlsx',
   'aal2', clock_timestamp() + interval '15 minutes'

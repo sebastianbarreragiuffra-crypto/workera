@@ -2,6 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { strFromU8, unzipSync } from "fflate";
 import * as XLSX from "xlsx-js-style";
+import { canonicalRosterSha256 } from "../employees/arcotex-pilot-roster";
 
 export const PAYROLL_WORKBOOK_LIMITS = {
   maxBytes: 15 * 1024 * 1024,
@@ -56,6 +57,8 @@ export interface PayrollWorkbookIdentity {
   periodEnd: string;
   payrollMonth: string;
   baseVersion: string;
+  rosterCount: number | null;
+  rosterSha256: string;
 }
 
 const OFFICIAL_VISIBLE_SHEETS = ["RESUMEN_NOMINA", "CONTROL_PENDIENTES", "MATRIZ_DIARIA_SABANA"] as const;
@@ -155,11 +158,23 @@ function readIdentity(book: XLSX.WorkBook): PayrollWorkbookIdentity {
   if (!sheet) fail("falta la identificación técnica.");
   const rows = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, { header: 1, raw: false });
   const values = new Map(rows.map((row) => [String(row[0] ?? ""), String(row[1] ?? "")]));
-  const identity = { schema: values.get("Esquema") ?? "", companyId: values.get("Empresa") ?? "", periodType: values.get("Tipo de período") ?? "", periodStart: values.get("Inicio") ?? "", periodEnd: values.get("Fin") ?? "", payrollMonth: values.get("Mes de remuneración") ?? "", baseVersion: values.get("Versión base") ?? "" };
+  const rosterCountValue = values.get("Cantidad padrón autorizado") ?? "";
+  const rosterCount = rosterCountValue === "" ? null : Number(rosterCountValue);
+  const rosterSha256 = values.get("Huella padrón autorizado") ?? "";
+  const identity = { schema: values.get("Esquema") ?? "", companyId: values.get("Empresa") ?? "", periodType: values.get("Tipo de período") ?? "", periodStart: values.get("Inicio") ?? "", periodEnd: values.get("Fin") ?? "", payrollMonth: values.get("Mes de remuneración") ?? "", baseVersion: values.get("Versión base") ?? "", rosterCount, rosterSha256 };
   if (identity.schema !== "GESTORA_PRENOMINA_2026_V2") fail("la versión del esquema no es compatible.");
   if (!UUID_PATTERN.test(identity.companyId)) fail("la empresa técnica no contiene un UUID válido.");
   if (!["DIARIO", "SEMANAL", "QUINCENAL", "PAGO"].includes(identity.periodType)) fail("el tipo de período técnico no es válido.");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(identity.periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(identity.periodEnd)) fail("el período técnico no es válido.");
+  if (identity.rosterCount !== null && (!Number.isSafeInteger(identity.rosterCount) || identity.rosterCount < 1)) {
+    fail("la cantidad del padrón autorizado no es válida.");
+  }
+  if ((identity.rosterCount === null) !== (identity.rosterSha256 === "")) {
+    fail("la atestación del padrón autorizado está incompleta.");
+  }
+  if (identity.rosterSha256 !== "" && !/^[a-f0-9]{64}$/.test(identity.rosterSha256)) {
+    fail("la huella del padrón autorizado no es válida.");
+  }
   return identity as PayrollWorkbookIdentity;
 }
 
@@ -201,7 +216,18 @@ export function parsePayrollWorkbook(bytes: Uint8Array): { book: XLSX.WorkBook; 
     cells += rows * columns;
   }
   if (cells > PAYROLL_WORKBOOK_LIMITS.maxCells) fail("contiene demasiadas celdas.");
-  return { book, identity: readIdentity(book), sha256: createHash("sha256").update(bytes).digest("hex") };
+  const identity = readIdentity(book);
+  if (identity.rosterCount !== null) {
+    const summary = indexSummary(book, "atestiguado");
+    const codes = [...summary.employeesByCode.keys()];
+    if (codes.length !== identity.rosterCount) {
+      fail("la cantidad declarada del padrón no coincide con las filas de trabajadores.");
+    }
+    if (canonicalRosterSha256(codes) !== identity.rosterSha256) {
+      fail("la huella declarada del padrón no coincide con los códigos Workera del libro.");
+    }
+  }
+  return { book, identity, sha256: createHash("sha256").update(bytes).digest("hex") };
 }
 
 interface StableCellIdentity {
@@ -519,7 +545,9 @@ function addOrderDifference(changes: PayrollWorkbookChange[], sheet: string, cel
 
 export function comparePayrollWorkbooks(baseBytes: Uint8Array, uploadedBytes: Uint8Array): { identity: PayrollWorkbookIdentity; sha256: string; changes: PayrollWorkbookChange[] } {
   const base = parsePayrollWorkbook(baseBytes); const uploaded = parsePayrollWorkbook(uploadedBytes);
-  if (JSON.stringify(base.identity) !== JSON.stringify(uploaded.identity)) fail("empresa, período o versión base no coincide con la descarga original.");
+  if (JSON.stringify(base.identity) !== JSON.stringify(uploaded.identity)) {
+    fail("la identidad técnica de empresa, período, versión base o padrón no coincide con la descarga original.");
+  }
   const baseSummary = indexSummary(base.book, "original");
   const uploadedSummary = indexSummary(uploaded.book, "subido");
   validateStableRowIdentity(baseSummary, uploadedSummary);

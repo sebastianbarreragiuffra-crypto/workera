@@ -20,6 +20,36 @@ Quedan fuera de esta marcha blanca:
 
 ## Control de entrada
 
+### Padrón autoritativo de 45 personas
+
+En un computador o ambiente nuevo, copiar primero `.env.staging.example` como
+`.env.staging` y completar ahí las credenciales de Supabase:
+
+```powershell
+Copy-Item .env.staging.example .env.staging
+```
+
+Luego conciliar directamente el archivo autoritativo
+que contiene las hojas `FEBRERO` y `MARZO`; no se necesita generar antes otro
+Excel desde la aplicación:
+
+```powershell
+npm run preview:arcotex-authorized-roster -- "C:\ruta\padron-arcotex.xls" --approve-authoritative-roster
+```
+
+El resultado correcto informa 45 vinculadas, cero ambiguas, cero faltantes y
+`authorizedCodesMatch: true`. La vista previa es de solo lectura y sólo emite
+conteos agregados. Para guardar el padrón privado, MFA y el secreto de
+previsualización en el entorno local:
+
+```powershell
+npm run configure:arcotex-authorized-roster -- "C:\ruta\padron-arcotex.xls" ".env.staging" --apply --secure-staging --approve-authoritative-roster
+```
+
+El configurador sólo permite `.env.staging` o `.env.local` en la raíz del
+repositorio, ambos ignorados por Git. No escribe el libro ni crea, edita,
+desactiva o elimina personas en la base.
+
 Ejecutar desde un entorno con las credenciales de staging, sin imprimirlas:
 
 ```powershell
@@ -74,7 +104,10 @@ que existe una semana más nueva todavía incompleta.
 
 - La semana 31 de agosto–6 de septiembre tiene 2/7 días sincronizados.
 - La última semana completamente recolectada es 24–30 de agosto.
-- ARCOTEX tiene 98 trabajadores activos en la foto actual.
+- El conteo técnico de fichas activas de la base no define quién aparece en
+  una planilla: el padrón Excel autorizado contiene exactamente 45 personas,
+  acreditadas por los conjuntos coincidentes de FEBRERO y MARZO. Las demás
+  fichas permanecen intactas en la base y quedan fuera de las planillas.
 - La semana elegida contiene 396 marcaciones fuente vigentes y 195 registros
   diarios derivados vigentes.
 - El motor de reglas terminó correctamente 2/7 días; cinco días quedaron en

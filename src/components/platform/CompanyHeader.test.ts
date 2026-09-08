@@ -8,10 +8,10 @@ const companyPageSource = readFileSync(
   "utf8",
 );
 
-test("la ficha de Arcotex presenta el padrón piloto configurado, no el total técnico heredado", () => {
+test("la ficha de Arcotex presenta el padrón autorizado, no el total técnico heredado", () => {
   assert.match(headerSource, /employeeMetric\?\.label \?\? "Trabajadores"/);
   assert.match(headerSource, /employeeMetric\?\.value \?\? company\.employeeCount/);
   assert.match(companyPageSource, /detail\.header\.slug === "arcotex"/);
-  assert.match(companyPageSource, /label: "Padrón piloto"/);
-  assert.match(companyPageSource, /requireArcotexPilotEmployeeIds\(process\.env\.ARCOTEX_PILOT_EMPLOYEE_IDS\)\.length/);
+  assert.match(companyPageSource, /label: "Padrón autorizado"/);
+  assert.match(companyPageSource, /requireArcotexAuthorizedRoster\(process\.env\.ARCOTEX_PILOT_EMPLOYEE_IDS\)\.employeeCount/);
 });

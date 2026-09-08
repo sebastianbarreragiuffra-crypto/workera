@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { strToU8, zipSync } from "fflate";
 import * as XLSX from "xlsx-js-style";
+import { canonicalRosterSha256 } from "../employees/arcotex-pilot-roster";
 import { applyPayrollWorkbookConflictResolutions, comparePayrollWorkbooks, expandPayrollWorkbookBusinessChanges, inspectXlsxContainer, parsePayrollWorkbook, validatePayrollWorkbookBusinessChanges } from "./payroll-workbook-upload";
 
 const VISIBLE_SHEETS = ["RESUMEN_NOMINA", "CONTROL_PENDIENTES", "MATRIZ_DIARIA_SABANA"] as const;
@@ -32,6 +33,9 @@ interface WorkbookOptions {
   reorderMatrixDates?: boolean;
   matrixDates?: readonly string[];
   definedNameRef?: string;
+  rosterCount?: number | string;
+  rosterSha256?: string;
+  workerCode?: string;
 }
 
 function workbook(options: WorkbookOptions = {}): Uint8Array {
@@ -39,10 +43,11 @@ function workbook(options: WorkbookOptions = {}): Uint8Array {
   const headers = ["Estado", "RUT", "Nombre completo", "Área", "Centro de costo", "Jornada", "Días con presencia", "Horas ordinarias registradas", "HH50 pagables", "HH100 pagables", "Atrasos descontables", "Salidas anticipadas descontables", "Días con bono", "Bono total", "Pendientes", "Observaciones", "HH50 reales", "Ajuste HH50 (minutos)", "Motivo ajuste HH50", "HH100 reales", "Ajuste HH100 (minutos)", "Motivo ajuste HH100", "Bono HE automático", "Ajuste bono (CLP)", "Motivo ajuste bono", "Fechas de bono", "Fechas pendientes", "Código Workera", "Identificador técnico", "HH50 aprobado automático", "HH100 aprobado automático"];
   headers[17] = options.adjustmentHeader ?? headers[17];
   const firstEmployeeId = options.employeeId ?? "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const firstWorkerCode = options.workerCode ?? "WK-1";
   const workerRow = (employeeId: string, code: string, name: string, first: boolean) =>
     ["REVISAR", first ? "11111111-1" : "22222222-2", name, "Producción", "CC", "08:00-17:00", 1, options.ordinaryHours ?? 8 / 24, options.payableCachedValue ?? 0, 0, 0, 0, 0, 0, 0, options.observation ?? "", 0, first ? options.adjustmentHH50 ?? 0 : 0, first ? options.adjustmentReasonHH50 ?? "" : "", 0, 0, "", 0, 0, "", "", "", code, employeeId, (first ? options.automaticHH50Minutes ?? 0 : 0) / 1_440, 0];
   const summaryWorkers = [
-    workerRow(firstEmployeeId, "WK-1", "Persona uno", true),
+    workerRow(firstEmployeeId, firstWorkerCode, "Persona uno", true),
     ...(options.secondEmployeeId ? [workerRow(options.secondEmployeeId, "WK-2", "Persona dos", false)] : []),
   ];
   if (options.reorderSummaryRows) summaryWorkers.reverse();
@@ -63,7 +68,7 @@ function workbook(options: WorkbookOptions = {}): Uint8Array {
   const semanticDates = [...(options.matrixDates ?? ["2026-07-16"])];
   const displayedDates = options.reorderMatrixDates ? [...semanticDates].reverse() : semanticDates;
   const matrixWorkers = [
-    { rut: "11111111-1", code: options.matrixWorkerCode ?? "WK-1", name: "Persona uno" },
+    { rut: "11111111-1", code: options.matrixWorkerCode ?? firstWorkerCode, name: "Persona uno" },
     ...(options.secondEmployeeId ? [{ rut: "22222222-2", code: "WK-2", name: "Persona dos" }] : []),
   ];
   if (options.reorderMatrixRows) matrixWorkers.reverse();
@@ -87,7 +92,10 @@ function workbook(options: WorkbookOptions = {}): Uint8Array {
   for (const name of options.visibleOrder ?? VISIBLE_SHEETS) XLSX.utils.book_append_sheet(book, sheets[name], name);
   if (options.addVisibleSheet) XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["No permitida"]]), "HOJA_EXTRA");
   if (options.addHiddenSheet) XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["No permitida"]]), "HOJA_OCULTA");
-  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["Esquema", "GESTORA_PRENOMINA_2026_V2"], ["Empresa", options.companyId ?? "11111111-1111-4111-8111-111111111111"], ["Tipo de período", "PAGO"], ["Inicio", "2026-07-16"], ["Fin", "2026-08-15"], ["Mes de remuneración", "2026-08"], ["Versión base", "2"]]), "_GESTORA_TECNICA");
+  const technicalRows: unknown[][] = [["Esquema", "GESTORA_PRENOMINA_2026_V2"], ["Empresa", options.companyId ?? "11111111-1111-4111-8111-111111111111"], ["Tipo de período", "PAGO"], ["Inicio", "2026-07-16"], ["Fin", "2026-08-15"], ["Mes de remuneración", "2026-08"], ["Versión base", "2"]];
+  if (options.rosterCount !== undefined) technicalRows.push(["Cantidad padrón autorizado", options.rosterCount]);
+  if (options.rosterSha256 !== undefined) technicalRows.push(["Huella padrón autorizado", options.rosterSha256]);
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(technicalRows), "_GESTORA_TECNICA");
   book.Workbook = {
     Sheets: book.SheetNames.map((name) => ({ Hidden: name === "_GESTORA_TECNICA" ? options.technicalVisibility ?? 2 : name === "HOJA_OCULTA" ? 1 : 0 })),
     Names: options.definedNameRef ? [{ Name: "DatoExterno", Ref: options.definedNameRef }] : undefined,
@@ -105,6 +113,42 @@ test("subida XLSX: valida identidad, hash y ajuste por clave estable permitida",
   assert.equal(change?.stableKey, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa|Ajuste HH50 (minutos)");
   assert.equal(change?.consequence, "AJUSTE_EMPRESARIAL");
   assert.equal(change?.sourceValueAtComparison, 0);
+});
+
+test("subida XLSX: la identidad técnica conserva y enlaza la atestación del padrón", () => {
+  const rosterSha256 = canonicalRosterSha256(["WK-1"]);
+  const parsed = parsePayrollWorkbook(workbook({ rosterCount: 1, rosterSha256 }));
+  assert.equal(parsed.identity.rosterCount, 1);
+  assert.equal(parsed.identity.rosterSha256, rosterSha256);
+
+  assert.throws(
+    () => comparePayrollWorkbooks(
+      workbook({ rosterCount: 1, rosterSha256 }),
+      workbook({ workerCode: "WK-OTRO", rosterCount: 1, rosterSha256: canonicalRosterSha256(["WK-OTRO"]) }),
+    ),
+    /identidad técnica.*padrón/i,
+  );
+});
+
+test("subida XLSX: rechaza una atestación de padrón incompleta o inválida", () => {
+  assert.throws(() => parsePayrollWorkbook(workbook({ rosterCount: 45 })), /atestación.*incompleta/i);
+  assert.throws(() => parsePayrollWorkbook(workbook({ rosterSha256: "a".repeat(64) })), /atestación.*incompleta/i);
+  assert.throws(
+    () => parsePayrollWorkbook(workbook({ rosterCount: "45.5", rosterSha256: "a".repeat(64) })),
+    /cantidad.*no es válida/i,
+  );
+  assert.throws(
+    () => parsePayrollWorkbook(workbook({ rosterCount: 45, rosterSha256: "NO-ES-UNA-HUELLA" })),
+    /huella.*no es válida/i,
+  );
+  assert.throws(
+    () => parsePayrollWorkbook(workbook({ rosterCount: 45, rosterSha256: canonicalRosterSha256(["WK-1"]) })),
+    /cantidad declarada.*no coincide/i,
+  );
+  assert.throws(
+    () => parsePayrollWorkbook(workbook({ rosterCount: 1, rosterSha256: "f".repeat(64) })),
+    /huella declarada.*no coincide/i,
+  );
 });
 
 test("subida XLSX: limita los ajustes empresariales a columnas explícitas de ajuste y motivo", () => {
@@ -306,7 +350,7 @@ test("subida XLSX: exige Empresa como UUID técnico y bloquea otra empresa", () 
   assert.throws(() => parsePayrollWorkbook(workbook({ companyId: "empresa-invalida" })), /empresa técnica no contiene un UUID válido/);
   assert.throws(
     () => comparePayrollWorkbooks(workbook(), workbook({ companyId: "22222222-2222-4222-8222-222222222222" })),
-    /empresa, período o versión base no coincide/
+    /identidad técnica.*no coincide/
   );
 });
 

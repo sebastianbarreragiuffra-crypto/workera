@@ -488,21 +488,9 @@ export interface StorageConsumerSurface {
 
 export const STORAGE_CONSUMER_SURFACES = [
   {
-    source: "src/app/(app)/dashboard/export-asistencia/route.ts", bucket: "payroll-workbooks", operation: "download", occurrences: 1,
-    domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
-    authorization: "ADMIN_RRHH o SUPER_ADMIN del tenant; solo CLOSED descarga el snapshot exacto y verifica hash/tamaño antes de responder.",
-    securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
-  },
-  {
     source: "src/app/(app)/dashboard/import-asistencia/route.ts", bucket: "payroll-workbooks", operation: "upload", occurrences: 1,
     domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
     authorization: "ADMIN_RRHH; policy repite rol y membresía por prefijo de empresa.",
-    securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
-  },
-  {
-    source: "src/app/(app)/dashboard/import-asistencia/route.ts", bucket: "payroll-workbooks", operation: "download", occurrences: 1,
-    domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
-    authorization: "ADMIN_RRHH o SUPER_ADMIN; RLS repite membresía y la respuesta es attachment privada.",
     securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
   },
   {
@@ -589,21 +577,15 @@ export const STORAGE_CONSUMER_SURFACES = [
     securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
   },
   {
-    source: "src/lib/payroll/payroll-period-close.ts", bucket: "payroll-workbooks", operation: "remove", occurrences: 1,
-    domain: "workforce", executionIdentity: "SESSION", tenantScope: "LEGACY_ARCOTEX",
-    authorization: "Compensación acotada al objeto nuevo si falla el cierre; la policy impide borrar un snapshot ya referenciado.",
-    securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
-  },
-  {
     source: "src/lib/payroll-close/service.ts", bucket: "payroll-workbooks", operation: "download", occurrences: 1,
     domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "LEGACY_ARCOTEX",
     authorization: "Capability cerrado; solo verifica la ruta de una operación preparada y entrega al RPC el hash de los bytes reales.",
     securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
   },
   {
-    source: "src/lib/payroll-workbook/service.ts", bucket: "payroll-workbooks", operation: "download", occurrences: 1,
+    source: "src/lib/payroll-workbook/service.ts", bucket: "payroll-workbooks", operation: "download", occurrences: 2,
     domain: "workforce", executionIdentity: "SERVICE_ROLE_CAPABILITY", tenantScope: "LEGACY_ARCOTEX",
-    authorization: "Capability cerrado; fija identidad Storage antes/después y recalcula SHA-256/tamaño antes del RPC service_role-only.",
+    authorization: "Capability cerrado; acepta o descarga sólo una ruta tenant/período exacta y recalcula SHA-256/tamaño antes de entregar bytes.",
     securityState: "PRIVATE_UNSCANNED", blockers: ["ANTIMALWARE_PROVIDER", "LABOR_MULTI_TENANCY"],
   },
   {

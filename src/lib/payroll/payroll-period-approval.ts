@@ -10,6 +10,7 @@ import {
   type AttendanceExportCloseReadiness,
 } from "../business-rules/attendance-export";
 import { resolvePayrollPeriod } from "../business-rules/attendance-export-periods";
+import { authorizedRosterForCompany } from "../employees/arcotex-pilot-roster";
 import { commitPayrollPeriodApproval } from "../payroll-close/approval-service";
 import type { Database } from "../supabase/database.types";
 import { loadAcceptedPayrollWorkbookAdjustments } from "./payroll-workbook-adjustments";
@@ -51,6 +52,7 @@ export interface ApprovePayrollPeriodDependencies {
   getReadiness(data: AttendanceExportData): AttendanceExportCloseReadiness;
   loadAdjustments: typeof loadAcceptedPayrollWorkbookAdjustments;
   commitApproval: typeof commitPayrollPeriodApproval;
+  resolveAuthorizedRoster(companyId: string): ReturnType<typeof authorizedRosterForCompany>;
 }
 
 const DEFAULT_DEPENDENCIES: ApprovePayrollPeriodDependencies = {
@@ -58,6 +60,8 @@ const DEFAULT_DEPENDENCIES: ApprovePayrollPeriodDependencies = {
   getReadiness: getAttendanceExportCloseReadiness,
   loadAdjustments: loadAcceptedPayrollWorkbookAdjustments,
   commitApproval: commitPayrollPeriodApproval,
+  resolveAuthorizedRoster: (companyId) =>
+    authorizedRosterForCompany(companyId, process.env.ARCOTEX_PILOT_EMPLOYEE_IDS),
 };
 
 export class PayrollPeriodApprovalBlockedError extends Error {
@@ -90,7 +94,7 @@ function approvalBlocked(readiness: AttendanceExportCloseReadiness): PayrollPeri
   );
 }
 
-function readinessDigest(input: {
+export function payrollReadinessDigest(input: {
   companyId: string;
   periodId: string;
   periodStart: string;
@@ -98,8 +102,12 @@ function readinessDigest(input: {
   sourceRevision: number;
   acceptedVersionId: string;
   readiness: AttendanceExportCloseReadiness;
+  rosterCount: number | null;
+  rosterSha256: string | null;
 }): string {
-  return createHash("sha256").update(JSON.stringify(input)).digest("hex");
+  return createHash("sha256")
+    .update(JSON.stringify({ schema: "GESTORA_PAYROLL_READINESS_V2", ...input }))
+    .digest("hex");
 }
 
 /**
@@ -126,6 +134,7 @@ export async function approvePayrollPeriodReady(
   ) {
     throw new Error("La identidad de la aprobación no es válida.");
   }
+  const authorizedRoster = dependencies.resolveAuthorizedRoster(input.companyId);
 
   const client = supabase as unknown as ApprovalClient;
   const periodResult = await client
@@ -177,7 +186,10 @@ export async function approvePayrollPeriodReady(
   let openConflicts: LooseListResult;
   try {
     [data, adjustments, openConflicts] = await Promise.all([
-      dependencies.buildExportData(supabase, input.callerRole, period, input.companyId),
+      dependencies.buildExportData(supabase, input.callerRole, period, input.companyId, {
+        employeeIds: authorizedRoster?.employeeIds,
+        expectedEmployeeCodeSha256: authorizedRoster?.expectedEmployeeCodeSha256,
+      }),
       dependencies.loadAdjustments(supabase, {
         companyId: input.companyId,
         windowType: "MENSUAL",
@@ -206,6 +218,12 @@ export async function approvePayrollPeriodReady(
   data.reportingPeriodStatus = "READY_TO_CLOSE";
   data.workbookBaseVersionId = acceptedVersionId;
   data.workbookAdjustments = adjustments;
+  if (authorizedRoster && (
+    data.rosterCount !== authorizedRoster.employeeCount
+    || data.rosterSha256 !== authorizedRoster.expectedEmployeeCodeSha256
+  )) {
+    throw new Error("El padrón recalculado no corresponde a las 45 personas autorizadas de Arcotex.");
+  }
   const readiness = dependencies.getReadiness(data);
   if (!readiness.ready || readiness.pendingCount > 0 || readiness.issues.length > 0) {
     throw approvalBlocked(readiness);
@@ -218,7 +236,7 @@ export async function approvePayrollPeriodReady(
     expectedStatus: input.from,
     expectedSourceRevision: sourceRevision,
     expectedAcceptedVersionId: acceptedVersionId,
-    readinessSha256: readinessDigest({
+    readinessSha256: payrollReadinessDigest({
       companyId: input.companyId,
       periodId: input.reportingPeriodId,
       periodStart: period.startDate,
@@ -226,6 +244,8 @@ export async function approvePayrollPeriodReady(
       sourceRevision,
       acceptedVersionId,
       readiness,
+      rosterCount: data.rosterCount ?? null,
+      rosterSha256: data.rosterSha256 ?? null,
     }),
   });
 

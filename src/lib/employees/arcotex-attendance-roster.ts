@@ -1,7 +1,17 @@
+import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
 import { normalizeName } from "../business-rules/name-matching";
 
-export const ARCOTEX_ATTENDANCE_SHEETS = ["NOV25", "DIC25", "ENERO", "FEBRERO", "MARZO"] as const;
+export const ARCOTEX_ATTENDANCE_SHEETS = ["FEBRERO", "MARZO"] as const;
+export const ARCOTEX_ATTENDANCE_ROSTER_SIZE = 45;
+export const ARCOTEX_ATTENDANCE_ROSTER_NAMES_SHA256 =
+  "1f224d70077accbd55030e13c7d6d815396030374563d4a16c0661848db27829";
+
+export function canonicalArcotexRosterNamesSha256(names: readonly string[]): string {
+  return createHash("sha256")
+    .update(names.map(normalizeName).sort().join("\n"))
+    .digest("hex");
+}
 
 type AttendanceSheetName = (typeof ARCOTEX_ATTENDANCE_SHEETS)[number];
 
@@ -21,7 +31,8 @@ export type ArcotexRosterParseIssueCode =
   | "INVALID_WORKBOOK"
   | "MISSING_SHEET"
   | "EMPTY_NAME"
-  | "UNEXPECTED_ROSTER_COUNT";
+  | "UNEXPECTED_ROSTER_COUNT"
+  | "ROSTER_SHEET_MISMATCH";
 
 export interface ArcotexRosterParseIssue {
   code: ArcotexRosterParseIssueCode;
@@ -118,7 +129,9 @@ function toRows(sheet: XLSX.WorkSheet): unknown[][] {
 
 /**
  * Lee el formato histórico de Asistencia de Arcotex sin modificarlo.
- * Sólo las filas nominales de las cinco hojas autorizadas forman el padrón.
+ * Sólo las filas nominales de FEBRERO y MARZO forman el padrón vigente. Las
+ * dos hojas deben acreditar exactamente el mismo conjunto de 45 personas;
+ * los meses anteriores no autorizan a incorporar personas a la exportación.
  * Ninguna fecha, RUT, horario o anotación del libro se usa como dato maestro.
  */
 export function parseArcotexAttendanceRoster(fileBytes: Uint8Array): ParsedArcotexAttendanceRoster {
@@ -135,7 +148,7 @@ export function parseArcotexAttendanceRoster(fileBytes: Uint8Array): ParsedArcot
   }
 
   const issues: ArcotexRosterParseIssue[] = [];
-  const occurrencesByName = new Map<string, ArcotexRosterOccurrence[]>();
+  const occurrencesBySheet = new Map<AttendanceSheetName, Map<string, ArcotexRosterOccurrence[]>>();
   const preferredNameByNormalized = new Map<string, string>();
 
   for (const sheetName of ARCOTEX_ATTENDANCE_SHEETS) {
@@ -145,6 +158,7 @@ export function parseArcotexAttendanceRoster(fileBytes: Uint8Array): ParsedArcot
       continue;
     }
 
+    const sheetOccurrences = new Map<string, ArcotexRosterOccurrence[]>();
     const rows = toRows(sheet);
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index] ?? [];
@@ -162,9 +176,48 @@ export function parseArcotexAttendanceRoster(fileBytes: Uint8Array): ParsedArcot
         rowNumber: index + 1,
         rawName: String(row[0] ?? ""),
       };
-      const previous = occurrencesByName.get(normalizedName) ?? [];
+      const previous = sheetOccurrences.get(normalizedName) ?? [];
       previous.push(occurrence);
-      occurrencesByName.set(normalizedName, previous);
+      sheetOccurrences.set(normalizedName, previous);
+    }
+    occurrencesBySheet.set(sheetName, sheetOccurrences);
+  }
+
+  for (const sheetName of ARCOTEX_ATTENDANCE_SHEETS) {
+    const sheetOccurrences = occurrencesBySheet.get(sheetName);
+    if (sheetOccurrences && sheetOccurrences.size !== ARCOTEX_ATTENDANCE_ROSTER_SIZE) {
+      issues.push({
+        code: "UNEXPECTED_ROSTER_COUNT",
+        blocking: true,
+        detail: `${sheetName} debe contener exactamente ${ARCOTEX_ATTENDANCE_ROSTER_SIZE} personas y contiene ${sheetOccurrences.size}.`,
+      });
+    }
+  }
+
+  const februaryNames = occurrencesBySheet.get("FEBRERO");
+  const marchNames = occurrencesBySheet.get("MARZO");
+  if (
+    februaryNames
+    && marchNames
+    && (
+      februaryNames.size !== marchNames.size
+      || [...februaryNames.keys()].some((normalizedName) => !marchNames.has(normalizedName))
+    )
+  ) {
+    issues.push({
+      code: "ROSTER_SHEET_MISMATCH",
+      blocking: true,
+      detail: "FEBRERO y MARZO no contienen el mismo conjunto de personas.",
+    });
+  }
+
+  const occurrencesByName = new Map<string, ArcotexRosterOccurrence[]>();
+  for (const sheetName of ARCOTEX_ATTENDANCE_SHEETS) {
+    for (const [normalizedName, occurrences] of occurrencesBySheet.get(sheetName) ?? []) {
+      occurrencesByName.set(normalizedName, [
+        ...(occurrencesByName.get(normalizedName) ?? []),
+        ...occurrences,
+      ]);
     }
   }
 
@@ -180,10 +233,6 @@ export function parseArcotexAttendanceRoster(fileBytes: Uint8Array): ParsedArcot
       const rows = person.occurrences.filter((occurrence) => occurrence.sheetName === sheetName).map((occurrence) => occurrence.rowNumber);
       if (rows.length > 1) duplicateRowsWithinSheet.push({ normalizedName: person.normalizedName, sheetName, rowNumbers: rows });
     }
-  }
-
-  if (people.length !== 60) {
-    issues.push({ code: "UNEXPECTED_ROSTER_COUNT", blocking: true, detail: `Se esperaban 60 nombres autorizados de Arcotex y se obtuvieron ${people.length}.` });
   }
 
   return {
@@ -337,7 +386,16 @@ export function approvedArcotexEmployeeIds(preview: ArcotexRosterPreview): Set<s
       `El padrón Arcotex tiene ${unpersistedRows.length} altas autorizadas aún no persistidas; deben crearse y volver a conciliarse antes de exportar.`,
     );
   }
-  return new Set(
+  const approvedIds = new Set(
     preview.rows.map((row) => row.matchedEmployee!.employeeId),
   );
+  if (
+    preview.rows.length !== ARCOTEX_ATTENDANCE_ROSTER_SIZE
+    || approvedIds.size !== ARCOTEX_ATTENDANCE_ROSTER_SIZE
+  ) {
+    throw new Error(
+      `El padrón Arcotex debe resolver exactamente ${ARCOTEX_ATTENDANCE_ROSTER_SIZE} personas a ${ARCOTEX_ATTENDANCE_ROSTER_SIZE} fichas distintas.`,
+    );
+  }
+  return approvedIds;
 }

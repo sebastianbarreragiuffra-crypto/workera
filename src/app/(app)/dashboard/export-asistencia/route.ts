@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createHash } from "node:crypto";
 import { createClient } from "../../../../lib/supabase/server";
 import { getCurrentProfile } from "../../../../lib/auth/session";
 import {
@@ -20,7 +19,10 @@ import { isCalendarDate } from "../../../../lib/view-models/date-utils";
 import { resolveActiveWorkforceCompany } from "../../../../lib/tenant/active-workforce-company";
 import { loadAcceptedPayrollWorkbookAdjustments } from "../../../../lib/payroll/payroll-workbook-adjustments";
 import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
-import { requireArcotexPilotEmployeeIds } from "../../../../lib/employees/arcotex-pilot-roster";
+import { authorizedRosterForCompany } from "../../../../lib/employees/arcotex-pilot-roster";
+import { parsePayrollWorkbook } from "../../../../lib/payroll/payroll-workbook-upload";
+import { downloadTrustedPayrollWorkbook } from "../../../../lib/payroll-workbook/service";
+import { requireYearMonth } from "./route-utils";
 
 /**
  * Descarga del Excel de asistencia, siempre generado en el momento de la
@@ -38,18 +40,6 @@ import { requireArcotexPilotEmployeeIds } from "../../../../lib/employees/arcote
  * Postgres rechaza recién dentro de la consulta, y `2026-13` devolvía enero del
  * año siguiente en silencio. Se exige el mes real antes de llegar ahí.
  */
-export function requireYearMonth(value: string | null): string {
-  if (!value) throw new Error("Falta el parámetro 'mes' (formato YYYY-MM).");
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
-    throw new Error("El parámetro 'mes' debe tener el formato YYYY-MM, con un mes entre 01 y 12.");
-  }
-  return value;
-}
-
-export function canDownloadPayrollWorkbook(role: string): boolean {
-  return role === "SUPER_ADMIN" || role === "ADMIN_RRHH";
-}
-
 interface LatestPayrollWorkbookQuery {
   select(columns: string): LatestPayrollWorkbookQuery;
   eq(column: string, value: string): LatestPayrollWorkbookQuery;
@@ -126,14 +116,12 @@ export async function GET(request: NextRequest) {
   if (access.status !== "ALLOWED") {
     return workforceDataAccessFailureResponse(access)!;
   }
-  let pilotEmployeeIds: readonly string[] | undefined;
+  let authorizedRoster: ReturnType<typeof authorizedRosterForCompany>;
   try {
-    pilotEmployeeIds = workforceCompany.companySlug === "arcotex"
-      ? requireArcotexPilotEmployeeIds(process.env.ARCOTEX_PILOT_EMPLOYEE_IDS)
-      : undefined;
+    authorizedRoster = authorizedRosterForCompany(companyId, process.env.ARCOTEX_PILOT_EMPLOYEE_IDS);
   } catch (err) {
-    console.error("[attendance-export] configuración inválida del padrón piloto", err instanceof Error ? err.message : "error desconocido");
-    return NextResponse.json({ error: "La configuración del padrón piloto no es válida." }, { status: 503 });
+    console.error("[attendance-export] configuración inválida del padrón autorizado", err instanceof Error ? err.message : "error desconocido");
+    return NextResponse.json({ error: "La configuración del padrón autorizado no es válida." }, { status: 503 });
   }
 
   // Un período CLOSED se descarga desde el snapshot exacto que fue verificado
@@ -151,14 +139,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "No pudimos comprobar el estado del período." }, { status: 500 });
     }
     if (periodResult.data?.status === "CLOSED") {
-      if (pilotEmployeeIds) {
-        return NextResponse.json(
-          { error: "El snapshot cerrado no acredita el padrón acotado de la marcha blanca." },
-          { status: 409 },
-        );
-      }
       const snapshot = await loose.from("payroll_workbook_versions")
-        .select("storage_path, content_sha256, file_size")
+        .select("storage_path, content_sha256, file_size, base_version_id")
         .eq("company_id", companyId)
         .eq("reporting_period_id", periodResult.data.id)
         .eq("status", "CLOSED_SNAPSHOT")
@@ -168,15 +150,47 @@ export async function GET(request: NextRequest) {
       if (snapshot.error || !snapshot.data || typeof snapshot.data.storage_path !== "string") {
         return NextResponse.json({ error: "El período cerrado no tiene un snapshot verificable." }, { status: 500 });
       }
-      const stored = await supabase.storage.from("payroll-workbooks").download(snapshot.data.storage_path);
-      if (stored.error || !stored.data) {
-        return NextResponse.json({ error: "No pudimos recuperar el snapshot cerrado." }, { status: 500 });
-      }
-      const bytes = Buffer.from(await stored.data.arrayBuffer());
-      const actualHash = createHash("sha256").update(bytes).digest("hex");
-      if (actualHash !== snapshot.data.content_sha256 || bytes.byteLength !== Number(snapshot.data.file_size)) {
-        console.error("[attendance-export] el snapshot CLOSED no superó la verificación de integridad");
+      let bytes: Uint8Array<ArrayBuffer>;
+      try {
+        bytes = await downloadTrustedPayrollWorkbook({
+          companyId,
+          periodStart: period.startDate,
+          periodEnd: period.endDate,
+          storagePath: snapshot.data.storage_path,
+          contentSha256: String(snapshot.data.content_sha256 ?? ""),
+          fileSize: Number(snapshot.data.file_size),
+        });
+      } catch (error) {
+        console.error(
+          "[attendance-export] el snapshot CLOSED no superó la verificación de integridad",
+          error instanceof Error ? error.message : "error desconocido",
+        );
         return NextResponse.json({ error: "El snapshot cerrado no superó la verificación de integridad." }, { status: 500 });
+      }
+      if (authorizedRoster) {
+        try {
+          const identity = parsePayrollWorkbook(bytes).identity;
+          if (
+            identity.companyId !== companyId
+            || identity.periodType !== "PAGO"
+            || identity.periodStart !== period.startDate
+            || identity.periodEnd !== period.endDate
+            || identity.payrollMonth !== period.endDate.slice(0, 7)
+            || identity.baseVersion !== String(snapshot.data.base_version_id ?? "")
+            || identity.rosterCount !== authorizedRoster.employeeCount
+            || identity.rosterSha256 !== authorizedRoster.expectedEmployeeCodeSha256
+          ) {
+            return NextResponse.json(
+              { error: "El snapshot cerrado no acredita el padrón autorizado de 45 personas." },
+              { status: 409 },
+            );
+          }
+        } catch {
+          return NextResponse.json(
+            { error: "El snapshot cerrado no acredita el padrón autorizado de 45 personas." },
+            { status: 409 },
+          );
+        }
       }
       const filename = `pre-nomina-${period.startDate}-al-${period.endDate}-cierre.xlsx`;
       return new NextResponse(bytes, {
@@ -190,7 +204,10 @@ export async function GET(request: NextRequest) {
 
   let data;
   try {
-    data = await buildAttendanceExportData(supabase, payrollRole, period, companyId, { employeeIds: pilotEmployeeIds });
+    data = await buildAttendanceExportData(supabase, payrollRole, period, companyId, {
+      employeeIds: authorizedRoster?.employeeIds,
+      expectedEmployeeCodeSha256: authorizedRoster?.expectedEmployeeCodeSha256,
+    });
     const windowType = workbookWindowType(period);
     const latestQuery = (supabase as unknown as { from(name: string): LatestPayrollWorkbookQuery })
       .from(windowType === "MENSUAL" ? "payroll_workbook_versions" : "payroll_working_versions")

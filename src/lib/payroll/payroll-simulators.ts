@@ -24,6 +24,7 @@ import {
   closePayrollPeriodWithSnapshot,
   type PayrollPeriodCloseDependencies,
 } from "./payroll-period-close";
+import { payrollReadinessDigest } from "./payroll-period-approval";
 import {
   applyPayrollWorkbookConflictResolutions,
   comparePayrollWorkbooks,
@@ -271,6 +272,26 @@ async function simulateCloseAndReopenLifecycle(): Promise<{
           if (table === "payroll_workbook_versions") {
             return { data: { id: baseVersionId, content_sha256: "a".repeat(64), file_size: 64, storage_path: `${COMPANY_A}/${PERIOD.startDate}_${PERIOD.endDate}/accepted.xlsx` }, error: null };
           }
+          if (table === "reporting_period_approvals") {
+            return {
+              data: {
+                accepted_workbook_version_id: baseVersionId,
+                source_revision: 41,
+                readiness_sha256: payrollReadinessDigest({
+                  companyId: COMPANY_A,
+                  periodId,
+                  periodStart: PERIOD.startDate,
+                  periodEnd: PERIOD.endDate,
+                  sourceRevision: 41,
+                  acceptedVersionId: baseVersionId,
+                  readiness: { ready: true, pendingCount: 0, issues: [] },
+                  rosterCount: null,
+                  rosterSha256: null,
+                }),
+              },
+              error: null,
+            };
+          }
           return { data: null, error: { message: `Tabla inesperada ${table}` } };
         },
       };
@@ -319,7 +340,11 @@ async function simulateCloseAndReopenLifecycle(): Promise<{
       }
       return snapshotVersionId;
     },
+    removeUnregisteredWorkbook: async () => {
+      calls.push("trusted.remove-unregistered");
+    },
     randomUuid: () => operationId,
+    resolveAuthorizedRoster: () => undefined,
   };
 
   const closed = await closePayrollPeriodWithSnapshot(

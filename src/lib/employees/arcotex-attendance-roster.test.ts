@@ -2,28 +2,54 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
 import {
+  ARCOTEX_ATTENDANCE_ROSTER_SIZE,
   ARCOTEX_ATTENDANCE_SHEETS,
   approvedArcotexEmployeeIds,
+  canonicalArcotexRosterNamesSha256,
   computeArcotexAttendanceRosterPreview,
   parseArcotexAttendanceRoster,
   type ArcotexExistingEmployee,
 } from "./arcotex-attendance-roster";
 
+test("huella nominal Arcotex: es estable frente a orden, tildes y espacios", () => {
+  assert.equal(
+    canonicalArcotexRosterNamesSha256(["  José Pérez ", "Ana Soto"]),
+    canonicalArcotexRosterNamesSha256(["ANA SOTO", "JOSE PEREZ"]),
+  );
+});
+
 function personName(index: number): string {
   return `APELLIDO${String(index).padStart(2, "0")} NOMBRE${String(index).padStart(2, "0")}`;
 }
 
-function buildRosterBytes(options?: { differentCurrentSheets?: boolean; includeAuxiliary?: boolean }): Uint8Array {
+function buildRosterBytes(options?: {
+  differentCurrentSheets?: boolean;
+  februaryCount?: number;
+  includeAuxiliary?: boolean;
+}): Uint8Array {
   const workbook = XLSX.utils.book_new();
+  for (const sheetName of ["NOV25", "DIC25", "ENERO"] as const) {
+    const rows: unknown[][] = [["Nombre", "Tipo"]];
+    for (let index = 1; index <= 60; index += 1) {
+      rows.push([`${personName(index)} TURNO HISTÓRICO`, "Asistencia"]);
+    }
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), sheetName);
+  }
+
   for (const sheetName of ARCOTEX_ATTENDANCE_SHEETS) {
-    const count = sheetName === "FEBRERO" || sheetName === "MARZO" ? 45 : 60;
+    const count = sheetName === "FEBRERO"
+      ? options?.februaryCount ?? ARCOTEX_ATTENDANCE_ROSTER_SIZE
+      : ARCOTEX_ATTENDANCE_ROSTER_SIZE;
     const rows: unknown[][] = [["Nombre", "Tipo"]];
     for (let index = 1; index <= count; index += 1) {
-      const actualIndex = options?.differentCurrentSheets && sheetName === "MARZO" && index === 45 ? 46 : index;
-      const suffix = sheetName === "NOV25" && actualIndex === 60 ? " FINIQUITO MUTUO ACUERDO" : " Lunes a Viernes 08:00 a 17:00";
+      const actualIndex = options?.differentCurrentSheets
+        && sheetName === "MARZO"
+        && index === ARCOTEX_ATTENDANCE_ROSTER_SIZE
+        ? ARCOTEX_ATTENDANCE_ROSTER_SIZE + 1
+        : index;
+      const suffix = " Lunes a Viernes 08:00 a 17:00";
       rows.push([`${personName(actualIndex)}${suffix}`, "Asistencia"]);
     }
-    if (sheetName === "ENERO") rows.push([`${personName(10)} TURNO ESPECIAL`, "Asistencia"]);
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), sheetName);
   }
 
@@ -55,28 +81,45 @@ function employee(index: number, overrides: Partial<ArcotexExistingEmployee> = {
   };
 }
 
-test("padrón Arcotex: une 60 nombres sin inferir vigencia y deduplica la repetida de ENERO", () => {
+test("padrón Arcotex: usa únicamente los mismos 45 nombres de FEBRERO y MARZO", () => {
   const parsed = parseArcotexAttendanceRoster(buildRosterBytes());
 
-  assert.equal(parsed.rosterCount, 60);
+  assert.equal(parsed.rosterCount, ARCOTEX_ATTENDANCE_ROSTER_SIZE);
   assert.equal(parsed.issues.length, 0);
-  assert.deepEqual(parsed.duplicateRowsWithinSheet, [
-    { normalizedName: personName(10), sheetName: "ENERO", rowNumbers: [11, 62] },
-  ]);
+  assert.deepEqual(parsed.duplicateRowsWithinSheet, []);
+  assert.ok(parsed.people.every((person) =>
+    person.occurrences.some((occurrence) => occurrence.sheetName === "FEBRERO")
+      && person.occurrences.some((occurrence) => occurrence.sheetName === "MARZO")
+  ));
+  assert.equal(parsed.people.some((person) => person.normalizedName === personName(60)), false);
 });
 
 test("padrón Arcotex: una persona que sólo está en una hoja auxiliar nunca se agrega al padrón", () => {
   const parsed = parseArcotexAttendanceRoster(buildRosterBytes({ includeAuxiliary: true }));
 
   assert.equal(parsed.people.some((person) => person.normalizedName === "PERSONA SOLO AUXILIAR"), false);
-  assert.equal(parsed.rosterCount, 60);
+  assert.equal(parsed.rosterCount, ARCOTEX_ATTENDANCE_ROSTER_SIZE);
 });
 
-test("padrón Arcotex: diferencias entre meses no se interpretan como altas, bajas ni vigencia laboral", () => {
+test("padrón Arcotex: bloquea si FEBRERO y MARZO no contienen el mismo conjunto", () => {
   const parsed = parseArcotexAttendanceRoster(buildRosterBytes({ differentCurrentSheets: true }));
+  const preview = computeArcotexAttendanceRosterPreview(
+    parsed,
+    Array.from({ length: ARCOTEX_ATTENDANCE_ROSTER_SIZE + 1 }, (_, index) => employee(index + 1)),
+  );
 
-  assert.equal(parsed.issues.length, 0);
-  assert.equal(parsed.rosterCount, 60);
+  assert.ok(parsed.issues.some((issue) => issue.code === "ROSTER_SHEET_MISMATCH" && issue.blocking));
+  assert.equal(preview.okToApply, false);
+  assert.throws(() => approvedArcotexEmployeeIds(preview), /no está aprobado/);
+});
+
+test("padrón Arcotex: exige 45 personas en cada hoja vigente", () => {
+  const parsed = parseArcotexAttendanceRoster(buildRosterBytes({ februaryCount: 44 }));
+
+  assert.ok(parsed.issues.some((issue) =>
+    issue.code === "UNEXPECTED_ROSTER_COUNT" && issue.detail.includes("FEBRERO")
+  ));
+  assert.ok(parsed.issues.some((issue) => issue.code === "ROSTER_SHEET_MISMATCH"));
 });
 
 test("conciliación Arcotex: sólo vincula nombre completo exacto o resolución explícita con evidencia", () => {
@@ -114,18 +157,37 @@ test("conciliación Arcotex: una resolución explícita inválida nunca vincula 
   assert.equal(preview.okToApply, false);
 });
 
-test("filtro Arcotex: falla cerrado con pendientes y entrega los 60 nombres autorizados sólo cuando todo está respaldado", () => {
+test("conciliación Arcotex: dos nombres no pueden resolverse a la misma ficha", () => {
   const parsed = parseArcotexAttendanceRoster(buildRosterBytes());
-  const blocked = computeArcotexAttendanceRosterPreview(parsed, Array.from({ length: 59 }, (_, index) => employee(index + 1)));
+  const preview = computeArcotexAttendanceRosterPreview(
+    parsed,
+    Array.from({ length: ARCOTEX_ATTENDANCE_ROSTER_SIZE }, (_, index) => employee(index + 1)),
+    [{
+      sourceNormalizedName: personName(ARCOTEX_ATTENDANCE_ROSTER_SIZE),
+      employeeId: `employee-${ARCOTEX_ATTENDANCE_ROSTER_SIZE - 1}`,
+      evidence: "Resolución ficticia duplicada para comprobar el bloqueo.",
+    }],
+  );
+
+  assert.equal(preview.okToApply, true);
+  assert.throws(() => approvedArcotexEmployeeIds(preview), /45 fichas distintas/);
+});
+
+test("filtro Arcotex: falla cerrado con pendientes y entrega los 45 nombres autorizados sólo cuando todo está respaldado", () => {
+  const parsed = parseArcotexAttendanceRoster(buildRosterBytes());
+  const blocked = computeArcotexAttendanceRosterPreview(
+    parsed,
+    Array.from({ length: ARCOTEX_ATTENDANCE_ROSTER_SIZE - 1 }, (_, index) => employee(index + 1)),
+  );
   assert.throws(() => approvedArcotexEmployeeIds(blocked), /no está aprobado/);
 
   const provisional = computeArcotexAttendanceRosterPreview(
     parsed,
-    Array.from({ length: 59 }, (_, index) => employee(index + 1)),
+    Array.from({ length: ARCOTEX_ATTENDANCE_ROSTER_SIZE - 1 }, (_, index) => employee(index + 1)),
     [],
     [{
-      sourceNormalizedName: personName(60),
-      temporaryCode: "LOCAL-PROVISIONAL:PERSONA-60",
+      sourceNormalizedName: personName(ARCOTEX_ATTENDANCE_ROSTER_SIZE),
+      temporaryCode: `LOCAL-PROVISIONAL:PERSONA-${ARCOTEX_ATTENDANCE_ROSTER_SIZE}`,
       groupCode: "ADMINISTRATION",
       evidence: "Alta local provisional expresamente autorizada.",
     }],
@@ -134,7 +196,10 @@ test("filtro Arcotex: falla cerrado con pendientes y entrega los 60 nombres auto
   assert.equal(provisional.possibleNewCount, 1);
   assert.throws(() => approvedArcotexEmployeeIds(provisional), /aún no persistidas/);
 
-  const approved = computeArcotexAttendanceRosterPreview(parsed, Array.from({ length: 60 }, (_, index) => employee(index + 1)));
+  const approved = computeArcotexAttendanceRosterPreview(
+    parsed,
+    Array.from({ length: ARCOTEX_ATTENDANCE_ROSTER_SIZE }, (_, index) => employee(index + 1)),
+  );
   assert.equal(approved.okToApply, true);
-  assert.equal(approvedArcotexEmployeeIds(approved).size, 60);
+  assert.equal(approvedArcotexEmployeeIds(approved).size, ARCOTEX_ATTENDANCE_ROSTER_SIZE);
 });
