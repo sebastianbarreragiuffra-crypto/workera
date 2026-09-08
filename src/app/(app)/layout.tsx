@@ -62,6 +62,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex h-full min-h-screen bg-background">
+      <a
+        href="#contenido-principal"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-arcotex-navy focus:shadow-lg focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-arcotex-blue"
+      >
+        Saltar al contenido principal
+      </a>
       <Sidebar
         sections={sections}
         weeklyReview={periodStatus.weeklyReview}
@@ -74,7 +80,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main id="contenido-principal" tabIndex={-1} className="flex-1 overflow-y-auto p-6 focus:outline-none">
+          {children}
+        </main>
       </div>
     </div>
   );

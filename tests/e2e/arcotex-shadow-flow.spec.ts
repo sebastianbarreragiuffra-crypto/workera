@@ -23,6 +23,14 @@ async function setScenario(page: Page, scenario: ArcotexShadowScenario): Promise
   });
 }
 
+async function expectNoHorizontalOverflow(page: Page): Promise<void> {
+  const dimensions = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
+}
+
 test.beforeEach(async ({ page }) => {
   await setScenario(page, "ready");
   await page.route("**/dashboard/import-asistencia?**", async (route) => {
@@ -171,19 +179,114 @@ test.describe("flujo móvil", () => {
     await expect(summaryLink).toBeVisible();
     await expect(summaryLink).toHaveAttribute("aria-current", "page");
     await expect(pendingLink).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
-      await page.evaluate(() => document.documentElement.clientWidth),
-    );
+    await expectNoHorizontalOverflow(page);
 
     await pendingLink.click();
     await expect(page.getByRole("heading", { name: "Pendientes", level: 1 })).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Navegación de fecha" })).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Área" })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
-      await page.evaluate(() => document.documentElement.clientWidth),
-    );
+    await expectNoHorizontalOverflow(page);
 
     await page.locator("summary").filter({ hasText: "Sin novedades (1)" }).click();
     await expect(page.getByRole("link", { name: /Caso Sintético Sin Novedades/ })).toBeVisible();
   });
+});
+
+test.describe("teléfono compacto", () => {
+  test.use({ viewport: { width: 320, height: 568 } });
+
+  test("recorre lista y detalle sin perder contexto ni crear overflow", async ({ page }) => {
+    await page.goto("/revision-diaria");
+
+    await expect(page.getByRole("heading", { name: "Pendientes", level: 1 })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    const pendingCase = page.getByRole("link", { name: /Caso Sintético Pendiente/ });
+    await pendingCase.focus();
+    await expect(pendingCase).toBeFocused();
+    await pendingCase.press("Enter");
+
+    await expect(page).toHaveURL((url) => url.searchParams.has("empleado"));
+    await expect(page.getByRole("complementary", { name: "Detalle de Caso Sintético Pendiente" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Volver a la lista" })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    const backToList = page.getByRole("link", { name: "Volver a la lista" });
+    await backToList.focus();
+    await backToList.press("Enter");
+    await expect(page).toHaveURL((url) => !url.searchParams.has("empleado"));
+    await expect(page.getByRole("link", { name: /Caso Sintético Pendiente/ })).toBeVisible();
+  });
+
+  test("mantiene comprensibles los estados de carga, error, reintento y vacío", async ({ page }) => {
+    await setScenario(page, "slow-review");
+    await page.goto("/revision-diaria", { waitUntil: "commit" });
+    await expect(page.getByRole("status", { name: "Cargando revisión diaria" })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await expect(page.getByRole("heading", { name: "Pendientes", level: 1 })).toBeVisible();
+
+    await setScenario(page, "review-error");
+    await page.goto("/revision-diaria");
+    await expect(page.locator("main").getByRole("alert")).toContainText("No pudimos cargar esta información.");
+    await expectNoHorizontalOverflow(page);
+
+    await setScenario(page, "ready");
+    const retryLink = page.getByRole("link", { name: "Reintentar" });
+    await retryLink.focus();
+    await retryLink.press("Enter");
+    await expect(page.getByRole("heading", { name: "Pendientes", level: 1 })).toBeVisible();
+
+    await page.getByRole("navigation", { name: "Área" }).getByRole("link", { name: "Instalación" }).click();
+    await expect(page.getByText(/Revisión completada — no quedan casos pendientes para Instalación/)).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+  });
+});
+
+test.describe("tablet", () => {
+  test.use({ viewport: { width: 768, height: 1024 } });
+
+  test("permite colapsar y expandir la navegación con teclado", async ({ page }) => {
+    await page.goto("/dashboard");
+
+    const primaryNavigation = page.getByRole("complementary", { name: "Navegación principal" });
+    const collapseButton = primaryNavigation.getByRole("button", { name: "Colapsar navegación" });
+    await expect(primaryNavigation.getByRole("link", { name: "Resumen Diario", exact: true })).toBeVisible();
+    await expect(collapseButton).toHaveAttribute("aria-expanded", "true");
+    await expectNoHorizontalOverflow(page);
+
+    await collapseButton.focus();
+    await collapseButton.press("Enter");
+    const expandButton = primaryNavigation.getByRole("button", { name: "Expandir navegación" });
+    await expect(expandButton).toHaveAttribute("aria-expanded", "false");
+    await expect(primaryNavigation.getByRole("link", { name: "Pendientes", exact: true })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    await expandButton.press("Enter");
+    await expect(primaryNavigation.getByRole("button", { name: "Colapsar navegación" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+});
+
+test("ofrece un salto de teclado directo al contenido principal", async ({ page }) => {
+  await page.goto("/dashboard");
+
+  await page.keyboard.press("Tab");
+  const skipLink = page.getByRole("link", { name: "Saltar al contenido principal" });
+  await expect(skipLink).toBeVisible();
+  await expect(skipLink).toBeFocused();
+
+  await skipLink.press("Enter");
+  await expect(page.locator("main")).toBeFocused();
+});
+
+test("expone el progreso diario a tecnologías de asistencia", async ({ page }) => {
+  await page.goto("/revision-diaria");
+
+  const progress = page.getByRole("progressbar", { name: "Progreso de revisión diaria" });
+  await expect(progress).toHaveAttribute("aria-valuemin", "0");
+  await expect(progress).toHaveAttribute("aria-valuemax", "100");
+  await expect(progress).toHaveAttribute("aria-valuenow", "50");
+  await expect(progress).toHaveAttribute("aria-valuetext", "1 de 2 trabajadores revisados");
 });

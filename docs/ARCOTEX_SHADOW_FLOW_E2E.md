@@ -38,6 +38,9 @@ El comando levanta un servidor Next de desarrollo aislado en el puerto 3107
 - error seguro y reintento funcional;
 - navegación básica por teclado;
 - navegación móvil con nombres accesibles completos y sin overflow horizontal;
+- teléfono compacto (320 px) en lista, detalle, carga, error, reintento y vacío;
+- tablet (768 px) con colapso y expansión del sidebar por teclado;
+- salto directo al contenido principal y progreso diario anunciado con valor y conteo;
 - ausencia de `console.error` y errores no capturados del navegador.
 
 Todos los nombres, identificadores y estados del fixture son sintéticos. El
@@ -81,3 +84,7 @@ rama.
   y reutilizar la misma respuesta fallida antes del clic.
 - El sidebar conserva el nombre completo de cada enlace para lectores de
   pantalla cuando la interfaz móvil o colapsada solo muestra una inicial.
+- El shell ofrece un enlace de salto visible al recibir foco para evitar
+  recorrer toda la navegación lateral en cada cambio de página.
+- La barra visual de avance se expone como `progressbar`, con porcentaje y
+  conteo de trabajadores revisados disponibles para tecnologías de asistencia.
