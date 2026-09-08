@@ -1267,10 +1267,13 @@ test("cierre 16-15: un ajuste diario aceptado a ? permanece bloqueante en el gat
 
 test("libro 2026: ajustes tienen formato condicional real, paneles congelados y recálculo", async () => {
   const { bytes } = await buildWorkbook({ employees: ONE_WORKER });
+  const archive = unzipSync(bytes);
   const summary = readSheet(bytes, "RESUMEN_NOMINA");
   const summaryXml = workbookXml(bytes, "xl/worksheets/sheet1.xml");
   const stylesXml = workbookXml(bytes, "xl/styles.xml");
   const bookXml = workbookXml(bytes, "xl/workbook.xml");
+  const relationshipsXml = workbookXml(bytes, "xl/_rels/workbook.xml.rels");
+  const contentTypesXml = workbookXml(bytes, "[Content_Types].xml");
 
   assert.match(summaryXml, /<[^>]*pane [^>]*xSplit="5"[^>]*ySplit="5"[^>]*topLeftCell="F6"/);
   assert.match(summaryXml, /<[^>]*pageMargins [^>]*left="0\.25"[^>]*right="0\.25"/);
@@ -1281,6 +1284,13 @@ test("libro 2026: ajustes tienen formato condicional real, paneles congelados y 
   assert.match(summaryXml, /conditionalFormatting sqref="A6:A6"/);
   assert.match(stylesXml, /<[^>]*dxfs count="18">/);
   assert.match(bookXml, /calcMode="auto"[^>]*fullCalcOnLoad="1"[^>]*forceFullCalc="1"/);
+  assert.deepEqual(
+    Object.keys(archive).filter((path) => /^xl\/metadata\d*\.xml$/.test(path)),
+    [],
+    "no conserva metadata Office 2017 sin referencias",
+  );
+  assert.doesNotMatch(relationshipsXml, /sheetMetadata/);
+  assert.doesNotMatch(contentTypesXml, /sheetMetadata/);
 });
 
 test("libro 2026: fórmulas, filtros y estilos crecen con la dotación sin un límite fijo", async () => {

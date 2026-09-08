@@ -22,6 +22,8 @@ import { loadAcceptedPayrollWorkbookAdjustments } from "../../../../lib/payroll/
 import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
 import { requireArcotexPilotEmployeeIds } from "../../../../lib/employees/arcotex-pilot-roster";
 
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
 /**
  * Descarga del Excel de asistencia, siempre generado en el momento de la
  * descarga a partir de los datos actuales -- nunca un archivo pre-generado ni
@@ -48,6 +50,14 @@ export function requireYearMonth(value: string | null): string {
 
 export function canDownloadPayrollWorkbook(role: string): boolean {
   return role === "SUPER_ADMIN" || role === "ADMIN_RRHH";
+}
+
+export function attendanceWorkbookHeaders(
+  filename: string,
+  byteLength: number,
+  rateLimit?: { limit: number; remaining: number },
+): Record<string, string> {
+  return privateAttachmentHeaders(filename, byteLength, rateLimit, XLSX_MIME);
 }
 
 interface LatestPayrollWorkbookQuery {
@@ -180,7 +190,7 @@ export async function GET(request: NextRequest) {
       }
       const filename = `pre-nomina-${period.startDate}-al-${period.endDate}-cierre.xlsx`;
       return new NextResponse(bytes, {
-        headers: privateAttachmentHeaders(filename, bytes.byteLength, {
+        headers: attendanceWorkbookHeaders(filename, bytes.byteLength, {
           limit: access.requestLimit,
           remaining: access.remaining,
         }),
@@ -229,7 +239,7 @@ export async function GET(request: NextRequest) {
 
   return new NextResponse(bytes, {
     status: 200,
-    headers: privateAttachmentHeaders(filename, bytes.byteLength, {
+    headers: attendanceWorkbookHeaders(filename, bytes.byteLength, {
       limit: access.requestLimit,
       remaining: access.remaining,
     }),

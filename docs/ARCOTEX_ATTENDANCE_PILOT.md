@@ -101,3 +101,26 @@ Pausar la revisión si aparece un día sin sincronización, una ejecución de re
 distinta de `SUCCEEDED`, un conteo inconsistente o un error de consulta. La
 reversa consiste en detener la revisión en sombra; como este control no escribe
 datos ni activa proveedores, no requiere borrar ni restaurar información.
+
+## Comprobación de descarga para RR. HH.
+
+Antes del primer uso operativo, RR. HH. debe descargar el libro desde el
+dashboard de GESTORA usando el navegador y abrir esa copia guardada con
+**Archivo → Abrir** en su Excel de escritorio. La respuesta declara el tipo
+oficial de `.xlsx`; Excel 2013 o posterior puede abrirlo sin conversión a
+`.xls`.
+
+La comprobación queda aprobada solamente si:
+
+1. el nombre descargado termina en `.xlsx` y el archivo no pesa cero bytes;
+2. Excel abre el libro sin reparación, bloqueo ni advertencias;
+3. aparecen `RESUMEN_NOMINA`, `CONTROL_PENDIENTES` y
+   `MATRIZ_DIARIA_SABANA`;
+4. la ventana y cantidad de trabajadores coinciden con el corte ARCOTEX;
+5. la vista de impresión conserva orientación horizontal y una página de
+   ancho, sin exigir una sola página de alto.
+
+Si el navegador o Windows bloquean el archivo, registrar el mensaje exacto,
+la versión de Excel y el tamaño descargado. No renombrar `.xlsx` a `.xls`: esa
+conversión debe realizarla Excel y puede perder fórmulas si solo se cambia la
+extensión o se usa un conversor genérico.

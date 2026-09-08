@@ -178,10 +178,44 @@ function forceFormulaRecalculation(workbookXml: string): string {
   return workbookXml.replace(`</${prefix}workbook>`, `${calcPr}</${prefix}workbook>`);
 }
 
+function removeUnreferencedSheetMetadata(archive: Record<string, Uint8Array>): void {
+  const metadataPaths = Object.keys(archive).filter((path) => /^xl\/metadata\d*\.xml$/.test(path));
+  if (metadataPaths.length === 0) return;
+
+  const metadataIsReferenced = Object.entries(archive).some(([path, value]) =>
+    /^xl\/worksheets\/[^/]+\.xml$/.test(path)
+    && /<(?:[A-Za-z_][\w.-]*:)?c\b[^>]*\b(?:cm|vm)\s*=\s*(?:"\d+"|'\d+')/.test(strFromU8(value))
+  );
+  if (metadataIsReferenced) return;
+
+  for (const path of metadataPaths) delete archive[path];
+
+  const relationshipsPath = "xl/_rels/workbook.xml.rels";
+  const relationships = archive[relationshipsPath];
+  if (relationships) {
+    const xml = strFromU8(relationships).replace(
+      /<(?:[A-Za-z_][\w.-]*:)?Relationship\b(?=[^>]*\bType\s*=\s*(?:"[^"]*\/sheetMetadata"|'[^']*\/sheetMetadata'))[^>]*\/>/g,
+      "",
+    );
+    archive[relationshipsPath] = strToU8(xml);
+  }
+
+  const contentTypesPath = "[Content_Types].xml";
+  const contentTypes = archive[contentTypesPath];
+  if (contentTypes) {
+    const xml = strFromU8(contentTypes).replace(
+      /<(?:[A-Za-z_][\w.-]*:)?Override\b(?=[^>]*(?:\bPartName\s*=\s*(?:"\/xl\/metadata\d*\.xml"|'\/xl\/metadata\d*\.xml')|\bContentType\s*=\s*(?:"[^"]*\.sheetMetadata\+xml"|'[^']*\.sheetMetadata\+xml')))[^>]*\/>/g,
+      "",
+    );
+    archive[contentTypesPath] = strToU8(xml);
+  }
+}
+
 /**
- * Corrige dos carencias de `xlsx-js-style`: no serializa `!freeze` ni reglas
- * de formato condicional. El postproceso opera sobre OOXML estándar y obliga
- * a Excel a recalcular las fórmulas editables al abrir el archivo.
+ * Corrige carencias de `xlsx-js-style`: no serializa `!freeze` ni reglas de
+ * formato condicional y agrega metadatos de Office 2017 aunque ninguna celda
+ * los use. El postproceso opera sobre OOXML estándar y obliga a Excel a
+ * recalcular las fórmulas editables al abrir el archivo.
  */
 export function applyXlsxPresentation(
   bytes: Uint8Array,
@@ -216,5 +250,6 @@ export function applyXlsxPresentation(
   }
 
   archive["xl/workbook.xml"] = strToU8(forceFormulaRecalculation(textDecoder("xl/workbook.xml")));
+  removeUnreferencedSheetMetadata(archive);
   return zipSync(archive, { level: 6 });
 }

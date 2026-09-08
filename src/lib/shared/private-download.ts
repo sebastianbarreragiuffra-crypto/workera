@@ -23,10 +23,11 @@ export function privateAttachmentHeaders(
   originalFilename: string,
   byteLength: number,
   rateLimit?: { limit: number; remaining: number },
+  contentType = "application/octet-stream",
 ): Record<string, string> {
   return {
     "Cache-Control": "private, no-store, max-age=0",
-    "Content-Type": "application/octet-stream",
+    "Content-Type": contentType,
     "Content-Disposition": attachmentContentDisposition(originalFilename),
     "Content-Length": String(byteLength),
     "Content-Security-Policy": "sandbox",

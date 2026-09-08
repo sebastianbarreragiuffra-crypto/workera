@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canDownloadPayrollWorkbook, requireYearMonth } from "./route";
+import { attendanceWorkbookHeaders, canDownloadPayrollWorkbook, requireYearMonth } from "./route";
 import { readFileSync } from "node:fs";
 
 /**
@@ -43,6 +43,20 @@ test("canDownloadPayrollWorkbook: la pre-nómina queda solo para RRHH y owner", 
   assert.equal(canDownloadPayrollWorkbook("ADMIN_RRHH"), true);
   assert.equal(canDownloadPayrollWorkbook("SUPERVISOR_PRODUCTION"), false);
   assert.equal(canDownloadPayrollWorkbook("SUPERVISOR_INSTALLATION"), false);
+});
+
+test("descarga de pre-nómina: declara el MIME oficial de Excel sin perder las defensas", () => {
+  const headers = attendanceWorkbookHeaders("pre-nomina-arcotex.xlsx", 32768, {
+    limit: 20,
+    remaining: 19,
+  });
+
+  assert.equal(headers["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  assert.equal(headers["Content-Length"], "32768");
+  assert.match(headers["Content-Disposition"], /attachment;.*pre-nomina-arcotex\.xlsx/);
+  assert.equal(headers["Cache-Control"], "private, no-store, max-age=0");
+  assert.equal(headers["X-Content-Type-Options"], "nosniff");
+  assert.equal(headers["RateLimit-Remaining"], "19");
 });
 
 test("descarga de pre-nómina: exige rol del tenant y CLOSED usa el snapshot exacto", () => {
