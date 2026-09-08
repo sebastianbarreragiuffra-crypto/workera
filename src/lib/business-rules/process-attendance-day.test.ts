@@ -12,6 +12,7 @@ import type { DeriveDailyAttendanceResult } from "./daily-attendance";
 import type { GenerateLateArrivalStatus, GenerateLateArrivalResult } from "./late-arrival";
 import type { GenerateEarlyDepartureStatus, GenerateEarlyDepartureResult } from "./early-departure";
 import type { GenerateOvertimeCandidateStatus, GenerateOvertimeCandidateResult } from "./overtime-confirmation";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../shared/workforce-constants";
 
 /**
  * Los generadores devuelven `{status, <id>, <minutos>}`. El orquestador solo
@@ -839,6 +840,66 @@ test("processAttendanceDay: valida employeeIds contra company_id y descarta IDs 
     ),
     "la consulta service_role debe filtrar employees por el tenant explícito"
   );
+});
+
+test("processAttendanceDay: ARCOTEX procesa los 45 autorizados y excluye 43 fichas HOLDING del mismo tenant", async () => {
+  const authorizedIds = Array.from({ length: 45 }, (_, index) =>
+    `a7200000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`
+  );
+  const holdingIds = Array.from({ length: 43 }, (_, index) =>
+    `b7200000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`
+  );
+  const employees: EmployeeScopeRow[] = [...authorizedIds, ...holdingIds].map((id) => ({
+    id,
+    company_id: ARCOTEX_WORKFORCE_COMPANY_ID,
+    active: true,
+  }));
+  const { client, employeeFilters } = supabaseStub([], [], [], [], null, employees);
+  const deps = scriptedDeps(Object.fromEntries(
+    authorizedIds.map((id) => [id, { attendance: noRecord("EXEMPT") }]),
+  ));
+  deps.resolveAuthorizedEmployeeScope = async () => ({
+    employeeIds: authorizedIds,
+    employees: authorizedIds.map((id, index) => ({ id, externalWorkeraId: `AUTHORIZED-${index + 1}` })),
+  });
+
+  const result = await processAttendanceDay(
+    client,
+    DATE,
+    { companyId: ARCOTEX_WORKFORCE_COMPANY_ID, ruleEngineRunId: RUN_ID },
+    deps,
+  );
+
+  assert.equal(result.employeesProcessed, 45);
+  assert.deepEqual(result.outcomes.map((outcome) => outcome.employeeId).sort(), [...authorizedIds].sort());
+  assert.ok(result.outcomes.every((outcome) => !holdingIds.includes(outcome.employeeId)));
+  const authorizedFilter = employeeFilters.find((filter) =>
+    filter.method === "in" && filter.column === "id" && Array.isArray(filter.value)
+  );
+  assert.ok(authorizedFilter);
+  const filteredEmployeeIds = authorizedFilter.value;
+  assert.ok(Array.isArray(filteredEmployeeIds));
+  assert.equal(filteredEmployeeIds.length, 45);
+  assert.ok(holdingIds.every((id) => !filteredEmployeeIds.includes(id)));
+});
+
+test("processAttendanceDay: ARCOTEX falla cerrado antes de listar trabajadores si el padrón no se valida", async () => {
+  const { client, employeeFilters } = supabaseStub();
+  const deps = scriptedDeps({});
+  deps.resolveAuthorizedEmployeeScope = async () => {
+    throw new Error("padrón inválido");
+  };
+
+  await assert.rejects(
+    processAttendanceDay(
+      client,
+      DATE,
+      { companyId: ARCOTEX_WORKFORCE_COMPANY_ID, ruleEngineRunId: RUN_ID },
+      deps,
+    ),
+    /padrón inválido/,
+  );
+  assert.deepEqual(employeeFilters, []);
 });
 
 test("processAttendanceDay: rechaza companyId vacío antes de consultar datos", async () => {

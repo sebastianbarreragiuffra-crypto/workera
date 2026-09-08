@@ -7,6 +7,10 @@ import type { NormalizedWorkeraAttendanceEvent } from "../workera/types/attendan
 import type { Database } from "../supabase/database.types";
 import { classifySyncError, type SyncErrorCategory } from "./errors";
 import { WorkeraConfigurationError } from "../workera/errors";
+import {
+  resolveArcotexAuthorizedEmployeeScope,
+  type ArcotexAuthorizedEmployeeScope,
+} from "../employees/arcotex-authorized-employee-scope";
 
 /**
  * Ingesta controlada Workera -> Supabase (Fase 6A). Orquesta:
@@ -82,6 +86,8 @@ export interface SyncWorkeraAttendanceResult {
 export interface SyncWorkeraAttendanceDeps {
   workeraClient?: HttpWorkeraClient;
   supabaseAdmin?: SupabaseClient<Database>;
+  /** Punto de inyección para pruebas; producción usa el contrato cerrado compartido. */
+  resolveAuthorizedEmployeeScope?: typeof resolveArcotexAuthorizedEmployeeScope;
 }
 
 function buildFingerprint(
@@ -217,6 +223,27 @@ export async function syncWorkeraAttendance(
     return { ok: true, error: null };
   }
 
+  let authorizedEmployeeScope: ArcotexAuthorizedEmployeeScope | undefined;
+  try {
+    authorizedEmployeeScope = await (
+      deps.resolveAuthorizedEmployeeScope ?? resolveArcotexAuthorizedEmployeeScope
+    )(supabaseAdmin, companyId);
+  } catch {
+    const message = "No se pudo comprobar el padrón autorizado de ARCOTEX; no se persiste nada.";
+    const finished = await finishRun("FAILED", {
+      records_read: 0,
+      error_summary: { message },
+      error_category: "CONFIGURATION",
+    });
+    return {
+      syncRunId: syncRun?.id ?? null,
+      status: "FAILED",
+      errorMessage: finished.ok ? message : `${message}; además no se pudo cerrar la corrida: ${finished.error}`,
+      errorCategory: "CONFIGURATION",
+      ...emptyCounts(),
+    };
+  }
+
   // 1) Fetch completo (todas las páginas).
   let events: NormalizedWorkeraAttendanceEvent[];
   let pagesFetched: number;
@@ -255,6 +282,16 @@ export async function syncWorkeraAttendance(
       errorCategory: category,
       ...emptyCounts(),
     };
+  }
+
+  if (authorizedEmployeeScope) {
+    const authorizedWorkeraCodes = new Set(
+      authorizedEmployeeScope.employees.map((employee) => employee.externalWorkeraId)
+    );
+    // Workera sigue siendo la fuente remota íntegra. Para ARCOTEX, este
+    // proceso opera únicamente sobre las 45 fichas aprobadas: las fichas
+    // HOLDING/externas no entran a validaciones, métricas ni escrituras.
+    events = events.filter((event) => authorizedWorkeraCodes.has(event.employeeExternalId));
   }
 
   const seenFingerprints = new Set<string>();
@@ -327,32 +364,44 @@ export async function syncWorkeraAttendance(
     };
   }
 
-  const { data: existingEmployees, error: employeesLookupError } = await supabaseAdmin
-    .from("employees")
-    .select("id, external_workera_id")
-    .eq("company_id", companyId)
-    .in("external_workera_id", distinctCodes.length > 0 ? distinctCodes : ["__none__"]);
+  let existingEmployees: Array<{ id: string; external_workera_id: string }>;
+  if (authorizedEmployeeScope) {
+    const requestedCodes = new Set(distinctCodes);
+    existingEmployees = authorizedEmployeeScope.employees
+      .filter((employee) => requestedCodes.has(employee.externalWorkeraId))
+      .map((employee) => ({
+        id: employee.id,
+        external_workera_id: employee.externalWorkeraId,
+      }));
+  } else {
+    const { data, error } = await supabaseAdmin
+      .from("employees")
+      .select("id, external_workera_id")
+      .eq("company_id", companyId)
+      .in("external_workera_id", distinctCodes.length > 0 ? distinctCodes : ["__none__"]);
 
-  if (employeesLookupError) {
-    const message = `Fallo consultando employees existentes: ${employeesLookupError.message}`;
-    const finished = await finishRun("FAILED", {
-      records_read: events.length,
-      error_summary: { message },
-      error_category: "DATABASE",
-    });
-    return {
-      syncRunId: syncRun?.id ?? null,
-      status: "FAILED",
-      errorMessage: finished.ok ? message : `${message}; además no se pudo cerrar la corrida: ${finished.error}`,
-      errorCategory: "DATABASE",
-      ...emptyCounts(),
-      pagesFetched,
-      eventsFetched: events.length,
-    };
+    if (error) {
+      const message = `Fallo consultando employees existentes: ${error.message}`;
+      const finished = await finishRun("FAILED", {
+        records_read: events.length,
+        error_summary: { message },
+        error_category: "DATABASE",
+      });
+      return {
+        syncRunId: syncRun?.id ?? null,
+        status: "FAILED",
+        errorMessage: finished.ok ? message : `${message}; además no se pudo cerrar la corrida: ${finished.error}`,
+        errorCategory: "DATABASE",
+        ...emptyCounts(),
+        pagesFetched,
+        eventsFetched: events.length,
+      };
+    }
+    existingEmployees = data ?? [];
   }
 
   const codeToEmployeeId = new Map<string, string>();
-  for (const row of existingEmployees ?? []) {
+  for (const row of existingEmployees) {
     codeToEmployeeId.set(row.external_workera_id, row.id);
   }
 
@@ -362,6 +411,26 @@ export async function syncWorkeraAttendance(
   // manualmente"). RUT deliberadamente no se puebla desde este pipeline
   // (minimización de datos, PASO 9).
   const missingCodes = distinctCodes.filter((c) => !codeToEmployeeId.has(c));
+  if (authorizedEmployeeScope && missingCodes.length > 0) {
+    const message = "Una ficha autorizada de ARCOTEX dejó de estar disponible; no se persiste ningún trabajador ni marcación.";
+    const finished = await finishRun("FAILED", {
+      records_read: events.length,
+      error_summary: { message },
+      error_category: "EMPLOYEE_RESOLUTION",
+    });
+    return {
+      syncRunId: syncRun?.id ?? null,
+      status: "BLOCKED_UNRESOLVED_EMPLOYEES",
+      errorMessage: finished.ok ? message : `${message}; además no se pudo cerrar la corrida: ${finished.error}`,
+      errorCategory: "EMPLOYEE_RESOLUTION",
+      ...emptyCounts(),
+      pagesFetched,
+      eventsFetched: events.length,
+      employeesDistinct: distinctCodes.length,
+      employeesUnresolved: missingCodes.length,
+      unresolvedEmployeeCodes: ["(ficha autorizada no disponible)"],
+    };
+  }
   const bootstrapRows = missingCodes.map((code) => {
     const detail = distinctCodeMap.get(code)!;
     const firstName = detail.name?.trim() || "(sin nombre Workera)";

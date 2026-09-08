@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { getDailyReview, DailyReviewAuthorizationError } from "./daily-review";
+import {
+  getDailyReview,
+  DailyReviewAuthorizationError,
+  type DailyReviewDependencies,
+} from "./daily-review";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../shared/workforce-constants";
 
 function createMockSupabase() {
   return {
@@ -162,4 +167,136 @@ test("getDailyReview: oculta una flag reconciliada y conserva una flag manual vi
     selectedRelations.some((selection) => selection.includes("attendance_records!inner(is_current)")),
     "la consulta debe exigir el attendance_record vigente mediante inner join"
   );
+});
+
+function createAuthorizedRosterReviewMock(
+  employeeRows: Record<string, unknown>[],
+  missingPunchRows: Record<string, unknown>[],
+) {
+  const rowsByTable: Record<string, Record<string, unknown>[]> = {
+    employee_groups: [{
+      id: "grp-production",
+      code: "PRODUCTION",
+      company_id: ARCOTEX_WORKFORCE_COMPANY_ID,
+    }],
+    employees: employeeRows,
+    attendance_missing_punch_flags: missingPunchRows,
+    late_arrival_records: [],
+    early_departure_records: [],
+    absence_records: [],
+    overtime_records: [],
+  };
+  const filters: Array<{ table: string; method: "eq" | "in"; column: string; value: unknown }> = [];
+  const valueAt = (row: Record<string, unknown>, path: string): unknown =>
+    path.split(".").reduce<unknown>((value, segment) => {
+      if (!value || typeof value !== "object") return undefined;
+      return (value as Record<string, unknown>)[segment];
+    }, row);
+
+  return {
+    filters,
+    client: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      from(table: string): any {
+        let rows = [...(rowsByTable[table] ?? [])];
+        const builder = {
+          select() { return builder; },
+          eq(column: string, value: unknown) {
+            filters.push({ table, method: "eq" as const, column, value });
+            rows = rows.filter((row) => valueAt(row, column) === value);
+            return builder;
+          },
+          in(column: string, values: unknown[]) {
+            filters.push({ table, method: "in" as const, column, value: values });
+            rows = rows.filter((row) => values.includes(valueAt(row, column)));
+            return builder;
+          },
+          lte() { return builder; },
+          gte() { return builder; },
+          single: async () => ({ data: rows[0] ?? null, error: null }),
+          then(resolve: (value: { data: Record<string, unknown>[]; error: null }) => void) {
+            resolve({ data: rows, error: null });
+          },
+        };
+        return builder;
+      },
+    },
+  };
+}
+
+test("getDailyReview: ARCOTEX excluye 43 fichas extra aunque estén mal asociadas al tenant", async () => {
+  const authorizedIds = Array.from({ length: 45 }, (_, index) =>
+    `a7100000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`
+  );
+  const holdingIds = Array.from({ length: 43 }, (_, index) =>
+    `b7100000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`
+  );
+  const employees = [...authorizedIds, ...holdingIds].map((id) => ({
+    id,
+    display_name: id,
+    employee_group_id: "grp-production",
+    company_id: ARCOTEX_WORKFORCE_COMPANY_ID,
+    active: true,
+  }));
+  const missingPunches = [authorizedIds[0], ...holdingIds].map((employeeId) => ({
+    employee_id: employeeId,
+    work_date: "2026-08-17",
+    status: "PENDING_CONTACT",
+    attendance_records: { is_current: true },
+  }));
+  const { client, filters } = createAuthorizedRosterReviewMock(employees, missingPunches);
+  const dependencies: DailyReviewDependencies = {
+    resolveAuthorizedEmployeeScope: async () => ({
+      employeeIds: authorizedIds,
+      employees: authorizedIds.map((id, index) => ({ id, externalWorkeraId: `AUTHORIZED-${index + 1}` })),
+    }),
+  };
+
+  const result = await getDailyReview(
+    client as never,
+    "ADMIN_RRHH",
+    "PRODUCTION",
+    "2026-08-17",
+    ARCOTEX_WORKFORCE_COMPANY_ID,
+    dependencies,
+  );
+
+  assert.deepEqual(result.requiresReview.map((row) => row.employeeId), [authorizedIds[0]]);
+  assert.equal(result.noIssues.length, 44);
+  assert.ok(result.noIssues.every((row) => authorizedIds.includes(row.employeeId)));
+  assert.ok(filters.some((filter) =>
+    filter.table === "employees"
+    && filter.method === "in"
+    && filter.column === "id"
+    && Array.isArray(filter.value)
+    && filter.value.length === 45
+  ));
+});
+
+test("getDailyReview: ARCOTEX falla antes de leer la cola si el padrón no se puede validar", async () => {
+  let tableReads = 0;
+  const dependencies: DailyReviewDependencies = {
+    resolveAuthorizedEmployeeScope: async () => {
+      throw new Error("padrón inválido");
+    },
+  };
+  const client = {
+    from() {
+      tableReads += 1;
+      throw new Error("no debe consultar tablas");
+    },
+  };
+
+  await assert.rejects(
+    getDailyReview(
+      client as never,
+      "ADMIN_RRHH",
+      "PRODUCTION",
+      "2026-08-17",
+      ARCOTEX_WORKFORCE_COMPANY_ID,
+      dependencies,
+    ),
+    /padrón inválido/,
+  );
+  assert.equal(tableReads, 0);
 });

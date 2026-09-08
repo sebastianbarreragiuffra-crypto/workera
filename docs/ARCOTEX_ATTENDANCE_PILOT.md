@@ -112,7 +112,10 @@ que existe una semana más nueva todavía incompleta.
   diarios derivados vigentes.
 - El motor de reglas terminó correctamente 2/7 días; cinco días quedaron en
   estado `PARTIAL`, con 186 fallos agregados.
-- Hay 43 marcaciones faltantes pendientes de revisión humana.
+- Las 43 marcaciones faltantes observadas corresponden a personas fuera del
+  padrón autorizado de ARCOTEX. El control aplica ese padrón antes de contar:
+  esas marcaciones no aparecen en la cola ni bloquean
+  `READY_FOR_SHADOW_REVIEW`, y sus filas fuente permanecen intactas.
 
 Por lo tanto, la situación actual es `RULE_ENGINE_INCOMPLETE`: la fuente ya
 está recolectada y no debe volver a importarse, pero la semana debe reprocesarse

@@ -16,9 +16,9 @@ import { resolveTargetDate } from "../sync/target-date";
  */
 
 const GROUPS = [
-  { id: "grp-production", code: "PRODUCTION", company_id: "0a4c0000-0000-0000-0000-000000000001" },
-  { id: "grp-installation", code: "INSTALLATION", company_id: "0a4c0000-0000-0000-0000-000000000001" },
-  { id: "grp-administration", code: "ADMINISTRATION", company_id: "0a4c0000-0000-0000-0000-000000000001" },
+  { id: "grp-production", code: "PRODUCTION", company_id: "1a4c0000-0000-0000-0000-000000000001" },
+  { id: "grp-installation", code: "INSTALLATION", company_id: "1a4c0000-0000-0000-0000-000000000001" },
+  { id: "grp-administration", code: "ADMINISTRATION", company_id: "1a4c0000-0000-0000-0000-000000000001" },
 ];
 
 interface Fixture {
@@ -117,7 +117,9 @@ function mockSupabase(fixture: Fixture) {
 
 const CUTOFF = "2026-08-19";
 const NOW = new Date("2026-08-20T15:00:00Z"); // America/Santiago D-1 -> 2026-08-19
-const COMPANY_ID = "0a4c0000-0000-0000-0000-000000000001";
+// Este suite prueba el contrato multiempresa genérico. ARCOTEX tiene además
+// un padrón cerrado, cubierto en daily-review.test.ts.
+const COMPANY_ID = "1a4c0000-0000-0000-0000-000000000001";
 const OTHER_COMPANY_ID = "0b4c0000-0000-0000-0000-000000000002";
 
 // A) Sin novedades -> verde, sin bloqueadores.

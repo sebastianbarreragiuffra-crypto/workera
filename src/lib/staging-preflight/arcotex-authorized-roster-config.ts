@@ -1,5 +1,6 @@
 import "server-only";
 
+import { resolveArcotexAuthorizedEmployeeScope } from "../shared/arcotex-authorized-employee-scope";
 import {
   ARCOTEX_AUTHORIZED_ROSTER_SIZE,
   ARCOTEX_WORKFORCE_COMPANY_ID,
@@ -17,18 +18,35 @@ export interface ArcotexRosterPreviewEmployee {
   active: boolean;
 }
 
-/** Consulta exclusivamente las fichas ya existentes; nunca crea, edita ni desactiva personas. */
+/**
+ * Consulta exclusivamente las fichas ya existentes; nunca crea, edita ni
+ * desactiva personas. Sin argumento usa el padrón operacional cerrado; el
+ * argumento se conserva para la conciliación inicial por códigos Workera.
+ */
+export function resolveArcotexAuthorizedEmployeeIds(): Promise<string[]>;
 export async function resolveArcotexAuthorizedEmployeeIds(
   externalWorkeraIds: readonly string[],
+): Promise<string[]>;
+export async function resolveArcotexAuthorizedEmployeeIds(
+  externalWorkeraIds?: readonly string[],
 ): Promise<string[]> {
-  if (
+  if (externalWorkeraIds !== undefined && (
     externalWorkeraIds.length !== ARCOTEX_AUTHORIZED_ROSTER_SIZE
     || new Set(externalWorkeraIds).size !== ARCOTEX_AUTHORIZED_ROSTER_SIZE
-  ) {
+  )) {
     throw new Error(`Se requieren exactamente ${ARCOTEX_AUTHORIZED_ROSTER_SIZE} códigos Workera únicos.`);
   }
 
   const supabase = createAdminClient("arcotex-authorized-roster-config");
+  if (externalWorkeraIds === undefined) {
+    const scope = await resolveArcotexAuthorizedEmployeeScope(
+      supabase,
+      ARCOTEX_WORKFORCE_COMPANY_ID,
+    );
+    if (!scope) throw new Error("No se pudo resolver el alcance autorizado de ARCOTEX.");
+    return [...scope.employeeIds];
+  }
+
   const { data, error } = await supabase
     .from("employees")
     .select("id, external_workera_id")

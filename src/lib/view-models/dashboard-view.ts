@@ -2,9 +2,15 @@ import "server-only";
 import { currentIsoWeekRange } from "../shared/date-time";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
-import { getDailyReview, type CallerRole, type DailyReviewCategory } from "../business-rules/daily-review";
+import {
+  getDailyReview,
+  type CallerRole,
+  type DailyReviewCategory,
+  type DailyReviewDependencies,
+} from "../business-rules/daily-review";
 import { getWorkeraSyncHealth, type WorkeraSyncHealth } from "../sync/scheduler";
 import { areasVisibleToRole, type AreaCode } from "../access/scope";
+import { resolveArcotexAuthorizedEmployeeScope } from "../employees/arcotex-authorized-employee-scope";
 
 /**
  * Dashboards por rol (Fase 8, extendido en Fase 8B.1). Solo agrega/cuenta
@@ -120,6 +126,14 @@ export interface SupervisorDashboardViewModel {
 
 export type DashboardViewModel = AdminDashboardViewModel | SupervisorDashboardViewModel;
 
+export interface DashboardDependencies {
+  resolveAuthorizedEmployeeScope: typeof resolveArcotexAuthorizedEmployeeScope;
+}
+
+const DEFAULT_DEPENDENCIES: DashboardDependencies = {
+  resolveAuthorizedEmployeeScope: resolveArcotexAuthorizedEmployeeScope,
+};
+
 const REVIEW_QUEUE_PRIORITY: DailyReviewCategory[] = [
   "LATE",
   "OVERTIME_CANDIDATE",
@@ -159,7 +173,12 @@ export function currentWeekRange(date: string): { start: string; end: string } {
   return currentIsoWeekRange(date);
 }
 
-async function getScopedEmployeeIds(supabase: SupabaseClient<Database>, areaCodes: AreaCode[], companyId?: string): Promise<string[]> {
+async function getScopedEmployeeIds(
+  supabase: SupabaseClient<Database>,
+  areaCodes: AreaCode[],
+  companyId?: string,
+  authorizedEmployeeIds?: readonly string[],
+): Promise<string[]> {
   let groupsQuery = supabase.from("employee_groups").select("id, code").in("code", areaCodes);
   if (companyId) groupsQuery = groupsQuery.eq("company_id", companyId);
   const { data: groups, error: groupsError } = await groupsQuery;
@@ -173,6 +192,7 @@ async function getScopedEmployeeIds(supabase: SupabaseClient<Database>, areaCode
     .in("employee_group_id", groupIds)
     .eq("active", true);
   if (companyId) employeesQuery = employeesQuery.eq("company_id", companyId);
+  if (authorizedEmployeeIds) employeesQuery = employeesQuery.in("id", [...authorizedEmployeeIds]);
   const { data: employees, error: employeesError } = await employeesQuery;
   if (employeesError) throw new Error(`getScopedEmployeeIds: fallo leyendo employees: ${employeesError.message}`);
   return (employees ?? []).map((e) => e.id);
@@ -482,13 +502,27 @@ async function computeKpis(
   };
 }
 
-export async function getAdminDashboard(supabase: SupabaseClient<Database>, date: string, companyId?: string): Promise<AdminDashboardViewModel> {
+export async function getAdminDashboard(
+  supabase: SupabaseClient<Database>,
+  date: string,
+  companyId?: string,
+  dependencies: DashboardDependencies = DEFAULT_DEPENDENCIES,
+): Promise<AdminDashboardViewModel> {
   const areaCodes: AreaCode[] = ["PRODUCTION", "INSTALLATION", "ADMINISTRATION"];
+  const authorizedScope = companyId
+    ? await dependencies.resolveAuthorizedEmployeeScope(supabase, companyId)
+    : undefined;
+  const dailyReviewDependencies: DailyReviewDependencies = {
+    resolveAuthorizedEmployeeScope: async () => authorizedScope,
+  };
 
   const [reviews, syncHealth, employeeIds, periodStatus] = await Promise.all([
-    Promise.all(areaCodes.map(async (code) => ({ review: await getDailyReview(supabase, "SUPER_ADMIN", code, date, companyId), area: code }))),
+    Promise.all(areaCodes.map(async (code) => ({
+      review: await getDailyReview(supabase, "SUPER_ADMIN", code, date, companyId, dailyReviewDependencies),
+      area: code,
+    }))),
     getWorkeraSyncHealth(companyId ? { companyId } : undefined),
-    getScopedEmployeeIds(supabase, areaCodes, companyId),
+    getScopedEmployeeIds(supabase, areaCodes, companyId, authorizedScope?.employeeIds),
     getPeriodStatus(supabase, date, companyId),
   ]);
 
@@ -518,12 +552,19 @@ export async function getSupervisorDashboard(
   callerRole: CallerRole,
   date: string,
   companyId?: string,
+  dependencies: DashboardDependencies = DEFAULT_DEPENDENCIES,
 ): Promise<SupervisorDashboardViewModel> {
   const areaCode = areasVisibleToRole(callerRole)[0];
+  const authorizedScope = companyId
+    ? await dependencies.resolveAuthorizedEmployeeScope(supabase, companyId)
+    : undefined;
+  const dailyReviewDependencies: DailyReviewDependencies = {
+    resolveAuthorizedEmployeeScope: async () => authorizedScope,
+  };
 
   const [review, employeeIds, periodStatus] = await Promise.all([
-    getDailyReview(supabase, callerRole, areaCode, date, companyId),
-    getScopedEmployeeIds(supabase, [areaCode], companyId),
+    getDailyReview(supabase, callerRole, areaCode, date, companyId, dailyReviewDependencies),
+    getScopedEmployeeIds(supabase, [areaCode], companyId, authorizedScope?.employeeIds),
     getPeriodStatus(supabase, date, companyId),
   ]);
 
@@ -553,9 +594,10 @@ export async function getDashboardForRole(
   callerRole: CallerRole,
   date: string,
   companyId?: string,
+  dependencies: DashboardDependencies = DEFAULT_DEPENDENCIES,
 ): Promise<DashboardViewModel> {
   if (callerRole === "SUPER_ADMIN" || callerRole === "ADMIN_RRHH") {
-    return getAdminDashboard(supabase, date, companyId);
+    return getAdminDashboard(supabase, date, companyId, dependencies);
   }
-  return getSupervisorDashboard(supabase, callerRole, date, companyId);
+  return getSupervisorDashboard(supabase, callerRole, date, companyId, dependencies);
 }

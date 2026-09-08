@@ -35,3 +35,20 @@ test("el preflight consulta vigencia del ledger y bloquea estados fuente descono
   assert.match(source, /is_input_fresh/);
   assert.match(source, /UNKNOWN_EXTERNAL_STATUS/);
 });
+
+test("el padrón ARCOTEX se resuelve antes de contar y excluye marcaciones externas sin borrar fuentes", () => {
+  const rosterResolution = source.indexOf("resolveArcotexAuthorizedEmployeeIds()");
+  const firstMetric = source.indexOf("const activeEmployees");
+  const missingPunchQuery = source.indexOf('client.from("attendance_missing_punch_flags")');
+
+  assert.ok(rosterResolution >= 0 && rosterResolution < firstMetric);
+  assert.ok(firstMetric < missingPunchQuery);
+  assert.ok(
+    (source.match(/\.in\("employee_id", authorizedEmployeeIds\)/g) ?? []).length >= 12,
+    "cada métrica por persona debe quedar limitada al padrón autorizado",
+  );
+
+  const missingPunchScope = source.slice(missingPunchQuery, source.indexOf("const reviewQueue", missingPunchQuery));
+  assert.match(missingPunchScope, /\.in\("employee_id", authorizedEmployeeIds\)/);
+  assert.doesNotMatch(missingPunchScope, /\.(?:insert|update|upsert|delete)\(/);
+});
