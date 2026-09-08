@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
+import { authorizedRosterForCompany } from "../employees/arcotex-pilot-roster";
 
 /**
  * Work queue diaria por supervisor (Fase 7, PASO 12/45/46/47). Reune, para
@@ -75,6 +76,10 @@ async function getDailyReviewUncached(
     .eq("employee_group_id", group.id)
     .eq("active", true);
   if (companyId) employeesQuery = employeesQuery.eq("company_id", companyId);
+  const authorizedRoster = companyId
+    ? authorizedRosterForCompany(companyId, process.env.ARCOTEX_PILOT_EMPLOYEE_IDS)
+    : undefined;
+  if (authorizedRoster) employeesQuery = employeesQuery.in("id", [...authorizedRoster.employeeIds]);
   const { data: employees, error: employeesError } = await employeesQuery;
   if (employeesError) {
     throw new Error(`getDailyReview: fallo listando employees del área: ${employeesError.message}`);

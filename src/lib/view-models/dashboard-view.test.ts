@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { categoryToReviewQueueCategory, initialsOf, currentWeekRange, getSupervisorDashboard, getWeekSummary } from "./dashboard-view";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../shared/workforce-constants";
 
 test("categoryToReviewQueueCategory: mapea las 7 categorías de getDailyReview sin inventar ninguna nueva", () => {
   assert.equal(categoryToReviewQueueCategory("LATE"), "LATE");
@@ -166,15 +167,17 @@ function mockSupabaseForSupervisor(
   options: {
     missingPunchFlags?: Record<string, unknown>[];
     missingPunchSelections?: string[];
+    companyId?: string;
+    foreignEmployeeGroupId?: string;
   } = {}
 ) {
   const employeeGroups = [
-    { id: "grp-production", code: "PRODUCTION" },
-    { id: "grp-installation", code: "INSTALLATION" },
+    { id: "grp-production", code: "PRODUCTION", company_id: options.companyId },
+    { id: "grp-installation", code: "INSTALLATION", company_id: options.companyId },
   ];
   const employees = [
-    { id: scopedEmployeeId, display_name: "Empleado Producción", employee_group_id: "grp-production", active: true },
-    { id: foreignEmployeeId, display_name: "Empleado Instalación", employee_group_id: "grp-installation", active: true },
+    { id: scopedEmployeeId, display_name: "Empleado Producción", employee_group_id: "grp-production", company_id: options.companyId, active: true },
+    { id: foreignEmployeeId, display_name: "Empleado Instalación", employee_group_id: options.foreignEmployeeGroupId ?? "grp-installation", company_id: options.companyId, active: true },
   ];
   const birthdays = [
     { employee_id: scopedEmployeeId, birth_month: 8, birth_day: 20, employees: { display_name: "Empleado Producción" } },
@@ -271,6 +274,39 @@ test("getSupervisorDashboard: workersActive cuenta solo empleados del área del 
   const dashboard = await getSupervisorDashboard(supabase, "SUPERVISOR_PRODUCTION", "2026-08-19");
 
   assert.equal(dashboard.kpis.workersActive, 1);
+});
+
+test("getSupervisorDashboard: excluye trabajadores HOLDING aunque compartan empresa y área técnica con ARCOTEX", async () => {
+  const authorizedIds = Array.from(
+    { length: 45 },
+    (_, index) => `a7000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  );
+  const holdingId = "b7000000-0000-4000-8000-000000000001";
+  const previousRoster = process.env.ARCOTEX_PILOT_EMPLOYEE_IDS;
+  process.env.ARCOTEX_PILOT_EMPLOYEE_IDS = authorizedIds.join(",");
+
+  try {
+    const supabase = mockSupabaseForSupervisor(authorizedIds[0], holdingId, {
+      companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+      foreignEmployeeGroupId: "grp-production",
+    });
+    const dashboard = await getSupervisorDashboard(
+      supabase,
+      "SUPERVISOR_PRODUCTION",
+      "2026-08-19",
+      ARCOTEX_WORKFORCE_COMPANY_ID,
+    );
+
+    assert.equal(dashboard.kpis.workersActive, 1);
+    assert.deepEqual(
+      dashboard.upcomingEvents.birthdaysThisMonth.map((employee) => employee.employeeId),
+      [authorizedIds[0]],
+    );
+    assert.equal(dashboard.reviewQueue.some((employee) => employee.employeeId === holdingId), false);
+  } finally {
+    if (previousRoster === undefined) delete process.env.ARCOTEX_PILOT_EMPLOYEE_IDS;
+    else process.env.ARCOTEX_PILOT_EMPLOYEE_IDS = previousRoster;
+  }
 });
 
 test("getSupervisorDashboard: clockOutPending ignora la flag histórica de una asistencia reconciliada", async () => {

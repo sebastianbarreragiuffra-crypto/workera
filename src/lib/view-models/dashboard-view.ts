@@ -5,6 +5,7 @@ import type { Database } from "../supabase/database.types";
 import { getDailyReview, type CallerRole, type DailyReviewCategory } from "../business-rules/daily-review";
 import { getWorkeraSyncHealth, type WorkeraSyncHealth } from "../sync/scheduler";
 import { areasVisibleToRole, type AreaCode } from "../access/scope";
+import { authorizedRosterForCompany } from "../employees/arcotex-pilot-roster";
 
 /**
  * Dashboards por rol (Fase 8, extendido en Fase 8B.1). Solo agrega/cuenta
@@ -173,6 +174,10 @@ async function getScopedEmployeeIds(supabase: SupabaseClient<Database>, areaCode
     .in("employee_group_id", groupIds)
     .eq("active", true);
   if (companyId) employeesQuery = employeesQuery.eq("company_id", companyId);
+  const authorizedRoster = companyId
+    ? authorizedRosterForCompany(companyId, process.env.ARCOTEX_PILOT_EMPLOYEE_IDS)
+    : undefined;
+  if (authorizedRoster) employeesQuery = employeesQuery.in("id", [...authorizedRoster.employeeIds]);
   const { data: employees, error: employeesError } = await employeesQuery;
   if (employeesError) throw new Error(`getScopedEmployeeIds: fallo leyendo employees: ${employeesError.message}`);
   return (employees ?? []).map((e) => e.id);

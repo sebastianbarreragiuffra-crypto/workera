@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getDailyReview, DailyReviewAuthorizationError } from "./daily-review";
+import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../shared/workforce-constants";
 
 function createMockSupabase() {
   return {
@@ -162,4 +163,80 @@ test("getDailyReview: oculta una flag reconciliada y conserva una flag manual vi
     selectedRelations.some((selection) => selection.includes("attendance_records!inner(is_current)")),
     "la consulta debe exigir el attendance_record vigente mediante inner join"
   );
+});
+
+test("getDailyReview: 43 personas de HOLDING bajo el mismo company_id quedan fuera del padrón ARCOTEX", async () => {
+  const authorizedIds = Array.from(
+    { length: 45 },
+    (_, index) => `a7000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  );
+  const holdingIds = Array.from(
+    { length: 43 },
+    (_, index) => `b7000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  );
+  const previousRoster = process.env.ARCOTEX_PILOT_EMPLOYEE_IDS;
+  process.env.ARCOTEX_PILOT_EMPLOYEE_IDS = authorizedIds.join(",");
+
+  const rowsByTable: Record<string, Record<string, unknown>[]> = {
+    employee_groups: [{ id: "grp-production", code: "PRODUCTION", company_id: ARCOTEX_WORKFORCE_COMPANY_ID }],
+    employees: [
+      {
+        id: authorizedIds[0],
+        display_name: "Persona ARCOTEX",
+        employee_group_id: "grp-production",
+        company_id: ARCOTEX_WORKFORCE_COMPANY_ID,
+        active: true,
+      },
+      ...holdingIds.map((id, index) => ({
+        id,
+        display_name: `Persona HOLDING ${index + 1}`,
+        employee_group_id: "grp-production",
+        company_id: ARCOTEX_WORKFORCE_COMPANY_ID,
+        active: true,
+      })),
+    ],
+  };
+  const client = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    from(table: string): any {
+      let rows = [...(rowsByTable[table] ?? [])];
+      const builder = {
+        select() { return builder; },
+        eq(column: string, value: unknown) {
+          rows = rows.filter((row) => row[column] === value);
+          return builder;
+        },
+        in(column: string, values: unknown[]) {
+          rows = rows.filter((row) => values.includes(row[column]));
+          return builder;
+        },
+        lte() { return builder; },
+        gte() { return builder; },
+        single: async () => ({ data: rows[0] ?? null, error: rows[0] ? null : { message: "sin fila" } }),
+        then(resolve: (value: { data: Record<string, unknown>[]; error: null }) => void) {
+          resolve({ data: rows, error: null });
+        },
+      };
+      return builder;
+    },
+  };
+
+  try {
+    const result = await getDailyReview(
+      client as never,
+      "ADMIN_RRHH",
+      "PRODUCTION",
+      "2026-08-24",
+      ARCOTEX_WORKFORCE_COMPANY_ID,
+    );
+    assert.deepEqual(result.requiresReview, []);
+    assert.deepEqual(result.noIssues.map((employee) => employee.employeeId), [authorizedIds[0]]);
+    assert.equal(
+      result.noIssues.some((employee) => holdingIds.includes(employee.employeeId)),
+      false,
+    );
+  } finally {
+    if (previousRoster === undefined) delete process.env.ARCOTEX_PILOT_EMPLOYEE_IDS;
+    else process.env.ARCOTEX_PILOT_EMPLOYEE_IDS = previousRoster;
+  }
 });
