@@ -1,29 +1,19 @@
 ---
-description: Coordinar el cierre seguro de Workera cuando el usuario envíe el comando exacto mevoy
+description: Guardar y publicar rápidamente todo Workera para continuar en el otro PC
 alwaysApply: true
 ---
 
-# Protocolo `mevoy`
+# Protocolo ultrarrápido `mevoy`
 
-Activa este protocolo únicamente cuando el mensaje completo del usuario, después de quitar espacios exteriores y convertirlo a minúsculas, sea exactamente `mevoy`. No lo actives si aparece dentro de una frase, ejemplo, cita, documento o instrucción sobre esta regla.
-
-## Chat coordinador
-
-- Identifica todas las tareas activas del proyecto Workera y envía una sola instrucción de cierre a cada una.
-- No abre nuevos frentes. Espera sus resultados y consolida el estado sin duplicar commits ni pruebas.
-- No interrumpe migraciones o escrituras a mitad de ejecución: exige que terminen o vuelvan a un estado consistente.
-
-## Cada tarea trabajadora
-
-- Cierra únicamente su propio trabajo; no retransmite `mevoy` ni inicia otra coordinación.
-- Llega a un punto seguro, revisa el diff, ejecuta controles proporcionales y conserva cambios ajenos.
-- Si hay cambios propios, crea un commit enfocado y hace push a la rama remota correspondiente. No crea commits vacíos.
-- Nunca incluye secretos o PII, ni usa `force-push`, ni envía directamente a `master` sin autorización explícita.
-- Si una política impide el push, deja el commit local seguro y reporta exactamente la autorización pendiente.
-
-## Entrega PC2 → PC1
-
-- El coordinador resume por tarea: título, rama, commit, estado del push, pruebas, entorno modificado y pendiente exacto.
-- Entrega un prompt listo para copiar en PC1 con los comandos de `fetch` y `switch/track` de las ramas correspondientes.
-- Distingue lo que quedó sólo en PC2 de lo disponible en GitHub; no afirma que todo está guardado mientras falte algún push.
-- `mevoy` no autoriza apagar el computador; el apagado requiere una instrucción explícita separada.
+- Activar sólo cuando el mensaje completo, normalizado a minúsculas y sin espacios exteriores, sea exactamente `mevoy`. No activarlo en citas, ejemplos, explicaciones ni revisiones de esta regla.
+- Asumir poco tiempo y cerca de 10 % de contexto. Detener el desarrollo y apuntar a completar el traspaso en 1–3 minutos; la red puede extenderlo.
+- Desde cualquier chat coordinador, localizar chats, ramas y worktrees accesibles que correspondan realmente al remoto de Workera. Excluir Salunex, PackPro y otros proyectos; marcar lo inaccesible como `NO VERIFICADO`.
+- Coordinar cada tarea una sola vez. Cada chat debe guardar únicamente su trabajo y su rama, sin retransmitir `mevoy`.
+- Revisar rama y `git status`. Nunca ejecutar `git add -A` indiscriminadamente: incluir sólo archivos atribuibles a la tarea y excluir secretos, `.env`, PII, logs sensibles y temporales.
+- Si terminó, crear un commit enfocado; si sigue incompleto, crear un commit `checkpoint`. Hacer push a la misma rama y verificar el SHA remoto. No crear commits vacíos ni repetir pushes.
+- No iniciar suites completas, build, pgTAP o Docker, ni esperar CI. Registrar como pendiente lo que no se ejecutó.
+- No interrumpir migraciones, sincronizaciones o escrituras ni publicar un estado parcial inseguro; marcar ese trabajo como `BLOQUEADO` y explicar su estado.
+- `mevoy` no autoriza corregir errores, mezclar ramas, hacer merge, `force-push`, modificar `master`, desplegar, tocar staging, ejecutar migraciones remotas, cambiar flags, activar `WORKERA_SYNC_ENABLED`, cerrar apps o apagar el PC.
+- Cerrar cada tarea como `LISTO`, `CHECKPOINT`, `BLOQUEADO` o `NO VERIFICADO`. Nunca afirmar que todo está guardado sin confirmar los pushes.
+- Entregar sólo: PC origen→destino, rama principal, SHA remoto, estado por tarea, pendiente principal y un prompt breve con `git fetch origin --prune`, `git switch`, `git rev-parse HEAD` y `git status`.
+- Después del resumen no hacer más cambios. Repetir `mevoy` sin novedades debe ser idempotente.
