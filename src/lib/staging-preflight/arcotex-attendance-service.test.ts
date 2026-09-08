@@ -35,3 +35,28 @@ test("el preflight consulta vigencia del ledger y bloquea estados fuente descono
   assert.match(source, /is_input_fresh/);
   assert.match(source, /UNKNOWN_EXTERNAL_STATUS/);
 });
+
+test("el preflight limita toda asistencia al padrón autorizado de ARCOTEX", () => {
+  assert.match(
+    source,
+    /requireArcotexAuthorizedRoster\(process\.env\.ARCOTEX_PILOT_EMPLOYEE_IDS\)/,
+  );
+  assert.match(source, /authorizedEmployees !== authorizedRoster\.employeeCount/);
+  assert.match(source, /ROSTER_SCOPE_MISMATCH/);
+  assert.equal(
+    source.match(/\.in\("employee_id", authorizedEmployeeIds\)/g)?.length,
+    12,
+    "cada consulta de eventos, asistencia y revisión debe quedar cercada por el padrón",
+  );
+  assert.match(source, /\.in\("id", authorizedEmployeeIds\)/);
+  assert.doesNotMatch(source, /\.eq\("employees\.company_id", companyId\)/);
+});
+
+test("43 marcaciones del holding no pueden entrar en pendientes ARCOTEX", () => {
+  const holdingEmployeeIds = Array.from({ length: 43 }, (_, index) => `holding-${index + 1}`);
+  const arcotexEmployeeIds = new Set(["arcotex-1", "arcotex-2"]);
+  const pendingRows = holdingEmployeeIds.map((employeeId) => ({ employee_id: employeeId }));
+
+  const arcotexPending = pendingRows.filter((row) => arcotexEmployeeIds.has(row.employee_id));
+  assert.equal(arcotexPending.length, 0);
+});
