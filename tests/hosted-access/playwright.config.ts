@@ -1,9 +1,7 @@
 import { defineConfig } from "@playwright/test";
+import { validateHostedPreflight } from "./preflight";
 
-const baseURL = process.env.HOSTED_BASE_URL;
-if (!baseURL || !/^https:\/\//.test(baseURL)) {
-  throw new Error("HOSTED_BASE_URL debe ser un origen HTTPS de staging.");
-}
+const { baseUrl } = validateHostedPreflight(process.env);
 
 export default defineConfig({
   testDir: ".",
@@ -14,7 +12,7 @@ export default defineConfig({
   timeout: 45_000,
   reporter: [["list"]],
   use: {
-    baseURL,
+    baseURL: baseUrl,
     channel: process.env.PLAYWRIGHT_CHANNEL ?? (process.platform === "win32" ? "chrome" : undefined),
     screenshot: "off",
     trace: "off",
