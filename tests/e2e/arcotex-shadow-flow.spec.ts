@@ -40,9 +40,15 @@ test.afterEach(async ({ page }) => {
   expect(browserErrors.get(page) ?? [], "el navegador no debe emitir errores").toEqual([]);
 });
 
-test("rechaza una entrada que no trae la clave efímera del harness", async ({ baseURL }) => {
-  const response = await fetch(new URL("/dashboard", baseURL));
-  expect(response.status).toBe(404);
+test("rechaza entradas sin clave o con una clave incorrecta", async ({ baseURL }) => {
+  const target = new URL("/dashboard", baseURL);
+  const missingKey = await fetch(target);
+  const wrongKey = await fetch(target, {
+    headers: { [ARCOTEX_SHADOW_KEY_HEADER]: "clave-sintetica-incorrecta" },
+  });
+
+  expect(missingKey.status).toBe(404);
+  expect(wrongKey.status).toBe(404);
 });
 
 test("entra al workspace ARCOTEX y opera Hoy, Ayer y una fecha elegida", async ({ page }) => {
@@ -100,8 +106,13 @@ test("navega por teclado a Revisión diaria, cambia fecha y área, y distingue p
   await expect(page.getByText(/Revisión completada — no quedan casos pendientes/)).toBeVisible();
 
   await page.getByRole("navigation", { name: "Navegación de fecha" }).getByRole("link", { name: "Hoy" }).click();
+  await expect(page).toHaveURL((url) =>
+    url.searchParams.get("fecha") === today && url.searchParams.get("area") === "PRODUCTION"
+  );
   await page.getByRole("navigation", { name: "Área" }).getByRole("link", { name: "Instalación" }).click();
-  await expect(page).toHaveURL((url) => url.searchParams.get("area") === "INSTALLATION");
+  await expect(page).toHaveURL((url) =>
+    url.searchParams.get("fecha") === today && url.searchParams.get("area") === "INSTALLATION"
+  );
   await expect(page.getByText(/Revisión completada — no quedan casos pendientes para Instalación/)).toBeVisible();
   await expect(page.getByText("Sin novedades (1)", { exact: false })).toBeVisible();
 });
