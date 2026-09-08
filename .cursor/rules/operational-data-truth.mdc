@@ -1,0 +1,13 @@
+---
+description: Preservar la verdad operacional e histórica de los datos de Workera
+alwaysApply: true
+---
+
+# Verdad operacional e histórica
+
+- Nunca inventar asistencia, horarios, licencias, ausencias, personas ni decisiones para completar vacíos.
+- No proyectar el padrón, grupo, contrato o estado actual hacia una fecha histórica sin evidencia temporal válida.
+- Conservar datos desconocidos, incompletos o contradictorios como pendientes de revisión; nunca convertirlos silenciosamente en presencia, ausencia o aprobación.
+- Conciliar las fuentes aplicables —Workera, Excel aprobado, base de datos y decisiones humanas— antes de automatizar o cerrar un período.
+- Mantener trazabilidad de la fuente, fecha efectiva, transformación y decisión humana de cada dato operativo.
+- Fallar de forma segura y visible cuando falte evidencia necesaria para una decisión laboral o de pago.

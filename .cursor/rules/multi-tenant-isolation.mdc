@@ -1,0 +1,13 @@
+---
+description: Exigir aislamiento multiempresa y autorización verificable en Workera
+alwaysApply: true
+---
+
+# Aislamiento multiempresa
+
+- Toda consulta, RPC, migración, importación, exportación y prueba debe preservar el alcance por empresa.
+- Resolver la empresa y los permisos desde la sesión y autoridades verificadas; no confiar en identificadores, roles o banderas enviados por formularios o clientes.
+- Verificar pertenencia de cada recurso antes de leerlo, modificarlo, relacionarlo o exportarlo.
+- Aplicar mínimo privilegio, RLS y controles del servidor; las operaciones privilegiadas deben fallar cerradas.
+- Incluir pruebas negativas que demuestren que una empresa no puede observar ni alterar información de otra.
+- Nunca mezclar ARCOTEX, PackPro, GISBA u otros tenants durante conciliaciones, sincronizaciones o reportes.

@@ -1,0 +1,13 @@
+---
+description: Proteger staging, producción y las marchas blancas de Workera
+alwaysApply: true
+---
+
+# Seguridad de despliegues y marchas blancas
+
+- Respetar el alcance autorizado: no desplegar módulos, empresas ni integraciones ajenas a la solicitud.
+- Probar migraciones y cambios de datos primero en una instancia aislada y ejecutar los gates relevantes con resultados reales.
+- Respaldar el entorno remoto antes de migraciones, reparaciones masivas o cambios difíciles de revertir.
+- Mantener las sincronizaciones automáticas desactivadas hasta aprobar preflight, ejecución controlada, comparación de resultados y revisión humana.
+- Desplegar por etapas, con observabilidad y un procedimiento verificable de reversión.
+- No confundir una aplicación compilada con una marcha blanca aprobada: datos, permisos, operación y recuperación también deben quedar validados.

@@ -1,0 +1,13 @@
+---
+description: Diseñar integraciones externas de Workera idempotentes, observables y recuperables
+alwaysApply: true
+---
+
+# Integraciones resilientes
+
+- Toda sincronización debe ser idempotente: repetir una solicitud no puede duplicar ni corromper información.
+- Procesar paginación completa y validar conteos, cursores, esquema, identidad de fuente y límites antes de aceptar resultados.
+- Diseñar reintentos acotados, backoff, timeouts y manejo explícito de fallos parciales sin declarar éxito falso.
+- Usar escrituras atómicas o una compensación auditable; impedir carreras mediante claves únicas, versiones o bloqueos apropiados.
+- Registrar identificadores de correlación, inicio, resultado, error sanitizado y elementos afectados sin exponer secretos ni PII innecesaria.
+- Conservar la fuente cruda y permitir reproceso seguro cuando corresponda; no ocultar registros incompletos o no reconocidos.
