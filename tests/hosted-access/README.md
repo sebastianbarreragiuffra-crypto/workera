@@ -9,22 +9,35 @@ con UUID sintéticos.
 
 ## Preparación
 
-1. Confirmar el SHA desplegado en Vercel y compararlo con el candidato.
+1. Obtener el SHA completo del candidato con `git rev-parse HEAD`. Obtener el
+   SHA desplegado desde los metadatos del proveedor (no desde la aplicación
+   bajo prueba), registrarlo en `HOSTED_DEPLOYED_SHA` y comprobar que coincide.
 2. Crear las cuatro cuentas y fixtures sintéticos mediante el procedimiento
    aprobado del entorno. No usar nombres, RUT, correos ni documentos reales.
 3. Copiar `.env.hosted.example` a un archivo fuera del repositorio, completar
-   secretos por canal privado y cambiar `HOSTED_EXECUTION_APPROVED` a
-   `staging-deployed` sólo durante la ventana autorizada.
+   secretos por canal privado, completar ambos SHA completos y cambiar
+   `HOSTED_EXECUTION_APPROVED` a `staging-deployed` sólo durante la ventana
+   autorizada. El preflight falla cerrado si los SHA no son idénticos.
 4. Cada `ALLOWED_EMPLOYEE_ID` debe pertenecer al área/empresa/padrón del rol.
    Los tres canarios deben estar presentes únicamente en los registros que el
    rol probado no puede leer. `HOSTED_OUTSIDE_ROSTER_EMPLOYEE_ID` debe existir
    como fixture sintético fuera del padrón ARCOTEX autorizado.
+
+El preflight también exige las cuatro credenciales, los siete UUID con formato
+válido y tres canarios distintos antes de iniciar el navegador. Los secretos
+TOTP son opcionales en configuración, pero pasan a ser obligatorios si la
+cuenta correspondiente presenta el desafío MFA.
 
 Ejecutar desde la raíz, sin imprimir el archivo de entorno:
 
 ```powershell
 node --env-file="C:\ruta-privada\arcotex-hosted.env" .\node_modules\@playwright\test\cli.js test --config=tests/hosted-access/playwright.config.ts
 ```
+
+No usar `set`, `Get-Content`, `--debug` ni reporteros HTML durante la ventana.
+El archivo privado debe estar fuera del repositorio y su ruta no se registra en
+el acta. Si el proveedor no entrega un SHA completo confirmado, el resultado es
+`NO EJECUTADO`, nunca una aprobación condicional.
 
 ## Criterio de aprobación
 

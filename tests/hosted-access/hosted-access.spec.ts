@@ -70,10 +70,6 @@ async function record(info: TestInfo) {
 }
 
 test.beforeAll(async () => {
-  required("HOSTED_EXECUTION_APPROVED");
-  if (process.env.HOSTED_EXECUTION_APPROVED !== "staging-deployed") {
-    throw new Error("Ejecución bloqueada: HOSTED_EXECUTION_APPROVED debe ser staging-deployed.");
-  }
   await mkdir(outputDir, { recursive: true });
   await writeFile(resultsPath, "", "utf8");
 });

@@ -5,6 +5,7 @@
 - Origen HTTPS probado:
 - SHA candidato:
 - SHA desplegado verificado:
+- Fuente independiente del SHA (referencia sanitizada del proveedor):
 - Ventana autorizada:
 - Resultado: `APROBADO` / `FALLÓ` / `NO EJECUTADO`
 - Totales: aprobados __ / fallidos __ / omitidos __
