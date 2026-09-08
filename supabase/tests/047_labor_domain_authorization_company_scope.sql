@@ -39,7 +39,11 @@ select ok(not public.can_manage_employee('aa000000-0000-0000-0000-000000000201')
 select is((select count(*)::int from public.employee_groups where id='aa000000-0000-0000-0000-000000000301'),0,'usuario ajeno no ve grupos');
 select is((select count(*)::int from public.supervisor_assignments where id='aa000000-0000-0000-0000-000000000401'),0,'usuario ajeno no ve asignaciones');
 select is((select count(*)::int from public.company_memberships where user_id='aa000000-0000-0000-0000-000000000102'),1,'usuario ajeno solo conserva su membresía');
-select lives_ok($$update public.employees set display_name='Hackeado' where id='aa000000-0000-0000-0000-000000000201'$$,'UPDATE ajeno se filtra por RLS');
+select throws_ok(
+  $$update public.employees set display_name='Hackeado' where id='aa000000-0000-0000-0000-000000000201'$$,
+  '42501', null,
+  'UPDATE directo se rechaza antes de RLS: toda mutacion usa el RPC atomico del padron'
+);
 reset role;
 select is((select display_name from public.employees where id='aa000000-0000-0000-0000-000000000201'),'Empleado Arcotex','UPDATE ajeno no modifica fila');
 select ok(not exists(select 1 from public.company_memberships where user_id='aa000000-0000-0000-0000-000000000102' and company_id=(select id from public.companies where slug='arcotex')),'empresa ajena no crea reflejo ARCOTEX');

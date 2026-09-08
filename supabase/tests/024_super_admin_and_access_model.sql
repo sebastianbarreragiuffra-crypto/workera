@@ -104,10 +104,11 @@ select throws_ok(
   '42501', null,
   'SUPER_ADMIN no puede mutar work_schedules: es autoridad exclusiva de ADMIN_RRHH'
 );
-select lives_ok(
+select throws_ok(
   $$ update public.employees set display_name = 'Fixture ProdS5D (editado)'
        where id = '90000000-0000-0000-0000-00000000a001' $$,
-  'SUPER_ADMIN puede editar employees'
+  '42501', null,
+  'SUPER_ADMIN no edita employees directamente: debe usar el RPC atomico del padron'
 );
 select throws_ok(
   $$ insert into public.reporting_periods (period_start, period_end, status)
