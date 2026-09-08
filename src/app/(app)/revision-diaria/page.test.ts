@@ -22,3 +22,10 @@ test("revision diaria usa area activa con aria-current y enlaces que envuelven e
   assert.ok(revisionPage.includes("const date = params.fecha && isCalendarDate(params.fecha) ? params.fecha : today;"), "Debe resolver date con fallback `today`");
   assert.ok(revisionPage.includes("const today = todayInSantiago();"), "Debe calcular `today` una sola vez y antes de resolver date");
 });
+
+test("revision diaria expone semántica y conteo accesible en su progreso", () => {
+  assert.ok(revisionPage.includes('role="progressbar"'), "La barra visual debe exponerse como progreso");
+  assert.ok(revisionPage.includes('aria-label="Progreso de revisión diaria"'));
+  assert.ok(revisionPage.includes("aria-valuenow={progressPct}"));
+  assert.ok(revisionPage.includes("aria-valuetext={`${completed} de ${total}"));
+});

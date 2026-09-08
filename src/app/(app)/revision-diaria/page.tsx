@@ -228,7 +228,15 @@ export default async function DailyReviewPage({
           </span>
           <span>{progressPct}%</span>
         </div>
-        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+        <div
+          role="progressbar"
+          aria-label="Progreso de revisión diaria"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progressPct}
+          aria-valuetext={`${completed} de ${total} trabajador${total === 1 ? "" : "es"} revisado${total === 1 ? "" : "s"}`}
+          className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
+        >
           <div className="h-full rounded-full bg-success transition-[width]" style={{ width: `${progressPct}%` }} />
         </div>
       </div>
