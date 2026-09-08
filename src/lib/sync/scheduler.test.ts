@@ -131,6 +131,7 @@ function fakeEvent(): NormalizedWorkeraAttendanceEvent {
 }
 
 const noSleep = async () => {};
+const resolveNoAuthorizedEmployeeScope = async () => undefined;
 
 // ---------------------------------------------------------------------------
 // runWorkeraSyncForDate
@@ -147,7 +148,7 @@ test("runWorkeraSyncForDate: primer intento exitoso -> attempts=1, sin reintento
 
   const result = await runWorkeraSyncForDate("2026-08-18", {
     triggeredBy: "CRON",
-    deps: { supabaseAdmin: mock as never, workeraClient },
+    deps: { supabaseAdmin: mock as never, workeraClient, resolveAuthorizedEmployeeScope: resolveNoAuthorizedEmployeeScope },
     sleep: noSleep,
   });
 
@@ -170,7 +171,7 @@ test("runWorkeraSyncForDate: falla retryable, reintenta, segundo intento exitoso
 
   const result = await runWorkeraSyncForDate("2026-08-18", {
     triggeredBy: "CRON",
-    deps: { supabaseAdmin: mock as never, workeraClient },
+    deps: { supabaseAdmin: mock as never, workeraClient, resolveAuthorizedEmployeeScope: resolveNoAuthorizedEmployeeScope },
     sleep: async () => {
       sleepCalls += 1;
     },
@@ -195,7 +196,7 @@ test("runWorkeraSyncForDate: falla NO retryable (payload inválido) -> NO reinte
 
   const result = await runWorkeraSyncForDate("2026-08-18", {
     triggeredBy: "CRON",
-    deps: { supabaseAdmin: mock as never, workeraClient },
+    deps: { supabaseAdmin: mock as never, workeraClient, resolveAuthorizedEmployeeScope: resolveNoAuthorizedEmployeeScope },
     sleep: async () => {
       sleepCalls += 1;
     },
@@ -221,7 +222,7 @@ test(`runWorkeraSyncForDate: fallo retryable persistente agota MAX_SYNC_ATTEMPTS
 
   const result = await runWorkeraSyncForDate("2026-08-18", {
     triggeredBy: "CRON",
-    deps: { supabaseAdmin: mock as never, workeraClient },
+    deps: { supabaseAdmin: mock as never, workeraClient, resolveAuthorizedEmployeeScope: resolveNoAuthorizedEmployeeScope },
     sleep: async () => {
       sleepCalls += 1;
     },
@@ -288,7 +289,11 @@ test("runScheduledWorkeraSync: WORKERA_SYNC_ENABLED != 'true' -> enabled=false, 
 
     const summary = await runScheduledWorkeraSync({
       now: new Date("2026-08-20T10:00:00Z"),
-      deps: { supabaseAdmin: createMockSupabase({}) as never, workeraClient },
+      deps: {
+        supabaseAdmin: createMockSupabase({}) as never,
+        workeraClient,
+        resolveAuthorizedEmployeeScope: resolveNoAuthorizedEmployeeScope,
+      },
       sleep: noSleep,
     });
 
@@ -318,7 +323,11 @@ test("runScheduledWorkeraSync: enabled=true resuelve D-1 + ventana de reconcilia
 
     const summary = await runScheduledWorkeraSync({
       now: new Date("2026-08-20T10:00:00Z"),
-      deps: { supabaseAdmin: createMockSupabase({}) as never, workeraClient },
+      deps: {
+        supabaseAdmin: createMockSupabase({}) as never,
+        workeraClient,
+        resolveAuthorizedEmployeeScope: resolveNoAuthorizedEmployeeScope,
+      },
       sleep: noSleep,
     });
 
@@ -394,7 +403,11 @@ test("rerunWorkeraSync: SUPER_ADMIN autorizado -> ejecuta el rerun", async () =>
 
   const result = await rerunWorkeraSync(
     { startDate: "2026-08-18", endDate: "2026-08-18" },
-    { supabaseAdmin: createMockSupabase({}) as never, workeraClient },
+    {
+      supabaseAdmin: createMockSupabase({}) as never,
+      workeraClient,
+      resolveAuthorizedEmployeeScope: resolveNoAuthorizedEmployeeScope,
+    },
     noSleep,
     async () => ({ actorId: "admin-1", actorRole: "SUPER_ADMIN" })
   );
@@ -411,7 +424,11 @@ test("rerunWorkeraSync: ADMIN_RRHH autorizado -> ejecuta el rerun", async () => 
 
   const result = await rerunWorkeraSync(
     { startDate: "2026-08-18", endDate: "2026-08-18" },
-    { supabaseAdmin: createMockSupabase({}) as never, workeraClient },
+    {
+      supabaseAdmin: createMockSupabase({}) as never,
+      workeraClient,
+      resolveAuthorizedEmployeeScope: resolveNoAuthorizedEmployeeScope,
+    },
     noSleep,
     async () => ({ actorId: "rrhh-1", actorRole: "ADMIN_RRHH" })
   );
@@ -463,7 +480,11 @@ test("rerunWorkeraSync: recorre cada día del rango, uno por uno", async () => {
 
   const result = await rerunWorkeraSync(
     { startDate: "2026-08-18", endDate: "2026-08-20" },
-    { supabaseAdmin: createMockSupabase({}) as never, workeraClient },
+    {
+      supabaseAdmin: createMockSupabase({}) as never,
+      workeraClient,
+      resolveAuthorizedEmployeeScope: resolveNoAuthorizedEmployeeScope,
+    },
     noSleep,
     async () => ({ actorId: "admin-1", actorRole: "SUPER_ADMIN" })
   );

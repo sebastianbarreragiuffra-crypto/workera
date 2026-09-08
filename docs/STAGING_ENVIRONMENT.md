@@ -1,7 +1,10 @@
 # Ambiente compartido de staging — arcotex-workera-staging
 
 > **SECURITY HOLD — NO-GO para nuevas pruebas con PII o conectores reales.** Este
-> inventario agregado del 7 de septiembre detectó 98 empleados y 2 perfiles, y
+> inventario agregado del 7 de septiembre detectó 98 fichas técnicas en toda la
+> base y 2 perfiles. Ese total histórico no es el padrón de ARCOTEX ni autoriza
+> a incluir esas fichas: ARCOTEX opera únicamente con sus 45 personas
+> autorizadas. Además,
 > no existe evidencia de que estén anonimizados. Aunque MFA/AAL2 ya está
 > desplegado, todavía no están cerrados
 > antimalware, backup y restauración DB+Storage, blast radius de `service_role`, incident response ni el

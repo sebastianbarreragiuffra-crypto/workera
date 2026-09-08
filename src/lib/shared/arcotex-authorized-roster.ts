@@ -9,8 +9,8 @@ export { ARCOTEX_AUTHORIZED_ROSTER_SIZE };
 
 /**
  * Huella de los 45 códigos Workera del XLS autorizado por el usuario.
- * Los códigos no se versionan en claro; cada consumidor comprueba el mismo
- * contrato compartido antes de limitar datos de ARCOTEX.
+ * Los códigos no se versionan en claro; cada consumidor comprueba esta huella
+ * después de resolver los UUID configurados contra el tenant ARCOTEX.
  */
 export const ARCOTEX_AUTHORIZED_WORKERA_CODES_SHA256 =
   "7016f7cf445cb0ce65b20fa6a71646ed7a569ecc4382d318d46fff82cbd17c79";

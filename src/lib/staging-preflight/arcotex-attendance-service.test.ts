@@ -36,27 +36,19 @@ test("el preflight consulta vigencia del ledger y bloquea estados fuente descono
   assert.match(source, /UNKNOWN_EXTERNAL_STATUS/);
 });
 
-test("el preflight limita toda asistencia al padrón autorizado de ARCOTEX", () => {
-  assert.match(
-    source,
-    /requireArcotexAuthorizedRoster\(process\.env\.ARCOTEX_PILOT_EMPLOYEE_IDS\)/,
-  );
-  assert.match(source, /authorizedEmployees !== authorizedRoster\.employeeCount/);
-  assert.match(source, /ROSTER_SCOPE_MISMATCH/);
-  assert.equal(
-    source.match(/\.in\("employee_id", authorizedEmployeeIds\)/g)?.length,
-    12,
-    "cada consulta de eventos, asistencia y revisión debe quedar cercada por el padrón",
-  );
-  assert.match(source, /\.in\("id", authorizedEmployeeIds\)/);
-  assert.doesNotMatch(source, /\.eq\("employees\.company_id", companyId\)/);
-});
+test("el padrón ARCOTEX se resuelve antes de contar y excluye marcaciones externas sin borrar fuentes", () => {
+  const rosterResolution = source.indexOf("resolveArcotexAuthorizedEmployeeIds()");
+  const firstMetric = source.indexOf("const activeEmployees");
+  const missingPunchQuery = source.indexOf('client.from("attendance_missing_punch_flags")');
 
-test("43 marcaciones del holding no pueden entrar en pendientes ARCOTEX", () => {
-  const holdingEmployeeIds = Array.from({ length: 43 }, (_, index) => `holding-${index + 1}`);
-  const arcotexEmployeeIds = new Set(["arcotex-1", "arcotex-2"]);
-  const pendingRows = holdingEmployeeIds.map((employeeId) => ({ employee_id: employeeId }));
+  assert.ok(rosterResolution >= 0 && rosterResolution < firstMetric);
+  assert.ok(firstMetric < missingPunchQuery);
+  assert.ok(
+    (source.match(/\.in\("employee_id", authorizedEmployeeIds\)/g) ?? []).length >= 12,
+    "cada métrica por persona debe quedar limitada al padrón autorizado",
+  );
 
-  const arcotexPending = pendingRows.filter((row) => arcotexEmployeeIds.has(row.employee_id));
-  assert.equal(arcotexPending.length, 0);
+  const missingPunchScope = source.slice(missingPunchQuery, source.indexOf("const reviewQueue", missingPunchQuery));
+  assert.match(missingPunchScope, /\.in\("employee_id", authorizedEmployeeIds\)/);
+  assert.doesNotMatch(missingPunchScope, /\.(?:insert|update|upsert|delete)\(/);
 });

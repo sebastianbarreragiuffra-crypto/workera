@@ -72,7 +72,8 @@ El comando de inventario agregado terminó en `CONFIGURATION_DRIFT`:
 - controles seguros declarados en `.env.staging`: 0/15;
 - empresas: 3;
 - perfiles: 2;
-- trabajadores: 98;
+- fichas técnicas en toda la base: 98 (no constituyen ni amplían el padrón de
+  ARCOTEX; el alcance operativo autorizado de ARCOTEX es de 45 personas);
 - filas que requieren clasificación: 100;
 - documentos, aprobaciones médicas, rendiciones, comprobantes y transacciones
   bancarias del inventario: 0.

@@ -3,8 +3,13 @@ import assert from "node:assert/strict";
 import { syncWorkeraAttendance } from "./workera-attendance-sync";
 import { HttpWorkeraClient } from "../workera/http-client";
 import type { NormalizedWorkeraAttendanceEvent } from "../workera/types/attendance-event";
+import type { ArcotexAuthorizedEmployeeScope } from "../employees/arcotex-authorized-employee-scope";
+import {
+  ARCOTEX_AUTHORIZED_ROSTER_SIZE,
+  ARCOTEX_WORKFORCE_COMPANY_ID,
+} from "../shared/workforce-constants";
 
-const COMPANY_ID = "0a4c0000-0000-0000-0000-000000000001";
+const COMPANY_ID = "b7000000-0000-4000-8000-000000000001";
 
 /**
  * Mock mínimo de un cliente Supabase estilo PostgREST: cada `.from(table)`
@@ -156,6 +161,17 @@ function fakeWorkeraClient(events: NormalizedWorkeraAttendanceEvent[]): HttpWork
   } as unknown as HttpWorkeraClient;
 }
 
+function fakeArcotexAuthorizedScope(): ArcotexAuthorizedEmployeeScope {
+  const employees = Array.from({ length: ARCOTEX_AUTHORIZED_ROSTER_SIZE }, (_, index) => ({
+    id: `11300000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    externalWorkeraId: `AUTORIZADO-${String(index + 1).padStart(3, "0")}`,
+  }));
+  return {
+    employeeIds: employees.map((employee) => employee.id),
+    employees,
+  };
+}
+
 test("rango > 1 día: BLOCKED_RANGE_TOO_LARGE, cero llamadas a Workera", async () => {
   let workeraCalled = false;
   const workeraClient = {
@@ -236,6 +252,72 @@ test("empleado nuevo: bootstrap crea fila en employees con campos mínimos, nunc
   assert.equal(result.employeesBootstrapped, 1);
   assert.ok(Array.isArray(employeesInsertPayload));
   assert.equal((employeesInsertPayload as { external_workera_id: string }[])[0].external_workera_id, "NEW-001");
+});
+
+test("ARCOTEX: 45 fichas autorizadas + 43 fichas HOLDING procesan solo el padrón sin bootstrap ni PII", async () => {
+  const authorizedScope = fakeArcotexAuthorizedScope();
+  const authorizedEvents = authorizedScope.employees.map((employee) => fakeEvent({
+    employeeExternalId: employee.externalWorkeraId,
+    employee: {
+      ...fakeEvent().employee,
+      code: employee.externalWorkeraId,
+      identification: "",
+      name: "",
+      lastName: "",
+    },
+  }));
+  const extraCodes = Array.from({ length: 43 }, (_, index) =>
+    `HOLDING-EXTRA-${String(index + 1).padStart(3, "0")}`
+  );
+  const events = [
+    ...authorizedEvents,
+    ...extraCodes.map((extraCode) => fakeEvent({
+      employeeExternalId: extraCode,
+      employee: {
+        ...fakeEvent().employee,
+        code: extraCode,
+        identification: "",
+        name: "",
+        lastName: "",
+        employeeStatus: "Holding",
+      },
+    })),
+  ];
+  const mock = createMockSupabase({
+    syncRunBegin: () => ({ data: "sr-arcotex", error: null }),
+  });
+
+  const result = await syncWorkeraAttendance(
+    {
+      companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+      startDate: "2026-08-18",
+      endDate: "2026-08-18",
+    },
+    {
+      workeraClient: fakeWorkeraClient(events),
+      supabaseAdmin: mock as never,
+      resolveAuthorizedEmployeeScope: async () => authorizedScope,
+    }
+  );
+
+  assert.equal(result.status, "SUCCEEDED");
+  assert.equal(result.eventsFetched, ARCOTEX_AUTHORIZED_ROSTER_SIZE);
+  assert.equal(result.employeesDistinct, ARCOTEX_AUTHORIZED_ROSTER_SIZE);
+  assert.equal(result.employeesUnresolved, 0);
+  assert.equal(result.employeesBootstrapped, 0);
+  assert.equal(result.inserted, ARCOTEX_AUTHORIZED_ROSTER_SIZE);
+  assert.equal(mock.calls.filter((call) => call.table === "employees" && call.op === "insert").length, 0);
+  const eventWrites = mock.calls.filter((call) => call.table === "rpc:upsert_workera_attendance_event");
+  assert.equal(eventWrites.length, ARCOTEX_AUTHORIZED_ROSTER_SIZE);
+  const finishCall = mock.calls.find((call) => call.table === "rpc:finish_workera_sync_run");
+  assert.equal(
+    (finishCall?.payload as { p_records_read?: number } | undefined)?.p_records_read,
+    ARCOTEX_AUTHORIZED_ROSTER_SIZE,
+    "la ficha HOLDING tampoco entra a las métricas operativas"
+  );
+  const serialized = JSON.stringify({ result, eventWrites });
+  assert.ok(extraCodes.every((code) => !serialized.includes(code)), "la respuesta no expone fichas extra");
+  assert.ok(!serialized.includes("Holding"), "la respuesta no expone atributos de la persona extra");
 });
 
 test("idempotencia: segunda corrida con el mismo evento vigente lo clasifica UNCHANGED, no inserta", async () => {

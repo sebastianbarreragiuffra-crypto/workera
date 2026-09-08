@@ -120,7 +120,7 @@ test("una semana recolectada y procesada queda lista sólo para revisión humana
 test("si ninguna semana tiene siete días sincronizados el preflight falla cerrado", () => {
   const report = buildArcotexAttendancePilotReport({
     kind: "NO_COMPLETE_WEEK",
-    activeEmployees: 98,
+    activeEmployees: 45,
     latestCompletedWeek: { start: "2026-08-31", end: "2026-09-06" },
     latestWeekSuccessfulSyncDays: 2,
     searchedWeeks: 8,

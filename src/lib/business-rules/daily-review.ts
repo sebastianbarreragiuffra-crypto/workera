@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
-import { authorizedRosterForCompany } from "../employees/arcotex-pilot-roster";
+import { resolveArcotexAuthorizedEmployeeScope } from "../employees/arcotex-authorized-employee-scope";
 
 /**
  * Work queue diaria por supervisor (Fase 7, PASO 12/45/46/47). Reune, para
@@ -42,6 +42,14 @@ export interface DailyReviewResult {
 
 export type CallerRole = "SUPER_ADMIN" | "ADMIN_RRHH" | "SUPERVISOR_PRODUCTION" | "SUPERVISOR_INSTALLATION";
 
+export interface DailyReviewDependencies {
+  resolveAuthorizedEmployeeScope: typeof resolveArcotexAuthorizedEmployeeScope;
+}
+
+const DEFAULT_DEPENDENCIES: DailyReviewDependencies = {
+  resolveAuthorizedEmployeeScope: resolveArcotexAuthorizedEmployeeScope,
+};
+
 function assertGroupAccessAllowed(callerRole: CallerRole, groupCode: string): void {
   if (callerRole === "SUPER_ADMIN" || callerRole === "ADMIN_RRHH") return;
   if (callerRole === "SUPERVISOR_PRODUCTION" && groupCode === "PRODUCTION") return;
@@ -57,8 +65,13 @@ async function getDailyReviewUncached(
   groupCode: DailyReviewResult["groupCode"],
   date: string,
   companyId?: string,
+  dependencies: DailyReviewDependencies = DEFAULT_DEPENDENCIES,
 ): Promise<DailyReviewResult> {
   assertGroupAccessAllowed(callerRole, groupCode);
+
+  const authorizedScope = companyId
+    ? await dependencies.resolveAuthorizedEmployeeScope(supabase, companyId)
+    : undefined;
 
   let groupQuery = supabase
     .from("employee_groups")
@@ -76,10 +89,7 @@ async function getDailyReviewUncached(
     .eq("employee_group_id", group.id)
     .eq("active", true);
   if (companyId) employeesQuery = employeesQuery.eq("company_id", companyId);
-  const authorizedRoster = companyId
-    ? authorizedRosterForCompany(companyId, process.env.ARCOTEX_PILOT_EMPLOYEE_IDS)
-    : undefined;
-  if (authorizedRoster) employeesQuery = employeesQuery.in("id", [...authorizedRoster.employeeIds]);
+  if (authorizedScope) employeesQuery = employeesQuery.in("id", [...authorizedScope.employeeIds]);
   const { data: employees, error: employeesError } = await employeesQuery;
   if (employeesError) {
     throw new Error(`getDailyReview: fallo listando employees del área: ${employeesError.message}`);

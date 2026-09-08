@@ -75,6 +75,7 @@ type InjectableWorkeraClient = NonNullable<Parameters<typeof syncWorkeraAttendan
 interface SyncDeps {
   supabaseAdmin?: SupabaseClient<Database>;
   workeraClient?: InjectableWorkeraClient;
+  resolveAuthorizedEmployeeScope?: NonNullable<Parameters<typeof syncWorkeraAttendance>[1]>["resolveAuthorizedEmployeeScope"];
 }
 
 async function defaultSleep(ms: number): Promise<void> {
@@ -119,7 +120,11 @@ export async function runWorkeraSyncForDate(
   for (let attempt = 1; attempt <= MAX_SYNC_ATTEMPTS; attempt += 1) {
     const result = await syncWorkeraAttendance(
       { companyId, startDate: date, endDate: date, triggeredBy: opts.triggeredBy, attempt, retryOf },
-      { supabaseAdmin, workeraClient: opts.deps?.workeraClient }
+      {
+        supabaseAdmin,
+        workeraClient: opts.deps?.workeraClient,
+        resolveAuthorizedEmployeeScope: opts.deps?.resolveAuthorizedEmployeeScope,
+      }
     );
     lastResult = result;
 

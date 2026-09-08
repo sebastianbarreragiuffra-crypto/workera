@@ -1,7 +1,7 @@
 import "server-only";
 
-import { requireArcotexAuthorizedRoster } from "@/lib/shared/arcotex-authorized-roster";
 import { createAdminClient } from "@/lib/supabase/admin-client";
+import { resolveArcotexAuthorizedEmployeeIds } from "./arcotex-authorized-roster-config";
 import {
   ARCOTEX_PILOT_COMPANY_SLUG,
   ARCOTEX_PILOT_LOOKBACK_WEEKS,
@@ -76,16 +76,7 @@ export async function collectArcotexAttendancePilot(
       return { kind: "COMPANY_NOT_FOUND", companyMatches: companyResult.data?.length ?? 0 };
     }
     const companyId = companyResult.data![0].id;
-    const authorizedRoster = requireArcotexAuthorizedRoster(process.env.ARCOTEX_PILOT_EMPLOYEE_IDS);
-    const authorizedEmployeeIds = [...authorizedRoster.employeeIds];
-
-    const authorizedEmployees = await requireCount(
-      client.from("employees").select("id", { count: "exact", head: true })
-        .eq("company_id", companyId).in("id", authorizedEmployeeIds),
-    );
-    if (authorizedEmployees !== authorizedRoster.employeeCount) {
-      throw new SafeQueryFailure("ROSTER_SCOPE_MISMATCH");
-    }
+    const authorizedEmployeeIds = await resolveArcotexAuthorizedEmployeeIds();
 
     const activeEmployees = await requireCount(
       client.from("employees").select("id", { count: "exact", head: true })
@@ -136,19 +127,20 @@ export async function collectArcotexAttendancePilot(
         const [rawEvents, unresolvedSourceStatuses, attendanceRecords] = await Promise.all([
           requireCount(
             client.from("workera_attendance_events").select("id", { count: "exact", head: true })
-              .eq("company_id", companyId).eq("work_date", date).eq("is_current", true)
-              .in("employee_id", authorizedEmployeeIds),
+              .eq("company_id", companyId).in("employee_id", authorizedEmployeeIds)
+              .eq("work_date", date).eq("is_current", true),
           ),
           requireCount(
             client.from("workera_attendance_events").select("id", { count: "exact", head: true })
-              .eq("company_id", companyId).eq("work_date", date).eq("is_current", true)
-              .eq("attendance_status", "UNKNOWN_EXTERNAL_STATUS")
-              .in("employee_id", authorizedEmployeeIds),
+              .eq("company_id", companyId).in("employee_id", authorizedEmployeeIds)
+              .eq("work_date", date).eq("is_current", true)
+              .eq("attendance_status", "UNKNOWN_EXTERNAL_STATUS"),
           ),
           requireCount(
-            client.from("attendance_records").select("id", { count: "exact", head: true })
-              .eq("work_date", date).eq("is_current", true)
-              .in("employee_id", authorizedEmployeeIds),
+            client.from("attendance_records")
+              .select("id, employees!inner(company_id)", { count: "exact", head: true })
+              .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
+              .eq("work_date", date).eq("is_current", true),
           ),
         ]);
         const latestRule = latestRuleResult.data;
@@ -204,38 +196,54 @@ export async function collectArcotexAttendancePilot(
         .eq("is_current", true).gte("work_date", start).lte("work_date", end)
         .in("employee_id", authorizedEmployeeIds)),
       requireCount(client.from("late_arrival_records")
-        .select("id, late_arrival_decisions!inner(is_current)", { count: "exact", head: true })
+        .select("id, employees!inner(company_id)", { count: "exact", head: true })
+        .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
+        .eq("is_current", true).gte("work_date", start).lte("work_date", end)),
+      requireCount(client.from("late_arrival_records")
+        .select("id, employees!inner(company_id), late_arrival_decisions!inner(is_current)", { count: "exact", head: true })
+        .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
         .eq("is_current", true).gte("work_date", start).lte("work_date", end)
-        .in("employee_id", authorizedEmployeeIds)
         .eq("late_arrival_decisions.is_current", true)),
       requireCount(client.from("early_departure_records").select("id", { count: "exact", head: true })
         .eq("is_current", true).gte("work_date", start).lte("work_date", end)
         .in("employee_id", authorizedEmployeeIds)),
       requireCount(client.from("early_departure_records")
-        .select("id, early_departure_decisions!inner(is_current)", { count: "exact", head: true })
+        .select("id, employees!inner(company_id)", { count: "exact", head: true })
+        .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
+        .eq("is_current", true).gte("work_date", start).lte("work_date", end)),
+      requireCount(client.from("early_departure_records")
+        .select("id, employees!inner(company_id), early_departure_decisions!inner(is_current)", { count: "exact", head: true })
+        .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
         .eq("is_current", true).gte("work_date", start).lte("work_date", end)
-        .in("employee_id", authorizedEmployeeIds)
         .eq("early_departure_decisions.is_current", true)),
       requireCount(client.from("overtime_records").select("id", { count: "exact", head: true })
         .eq("is_current", true).gte("work_date", start).lte("work_date", end)
         .in("employee_id", authorizedEmployeeIds)),
       requireCount(client.from("overtime_records")
-        .select("id, overtime_decisions!inner(is_current)", { count: "exact", head: true })
+        .select("id, employees!inner(company_id)", { count: "exact", head: true })
+        .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
+        .eq("is_current", true).gte("work_date", start).lte("work_date", end)),
+      requireCount(client.from("overtime_records")
+        .select("id, employees!inner(company_id), overtime_decisions!inner(is_current)", { count: "exact", head: true })
+        .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
         .eq("is_current", true).gte("work_date", start).lte("work_date", end)
-        .in("employee_id", authorizedEmployeeIds)
         .eq("overtime_decisions.is_current", true)),
       requireCount(client.from("absence_records").select("id", { count: "exact", head: true })
         .eq("is_current", true).lte("start_date", end).gte("end_date", start)
         .in("employee_id", authorizedEmployeeIds)),
       requireCount(client.from("absence_records")
-        .select("id, absence_decisions!inner(is_current)", { count: "exact", head: true })
+        .select("id, employees!inner(company_id)", { count: "exact", head: true })
+        .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
+        .eq("is_current", true).lte("start_date", end).gte("end_date", start)),
+      requireCount(client.from("absence_records")
+        .select("id, employees!inner(company_id), absence_decisions!inner(is_current)", { count: "exact", head: true })
+        .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
         .eq("is_current", true).lte("start_date", end).gte("end_date", start)
-        .in("employee_id", authorizedEmployeeIds)
         .eq("absence_decisions.is_current", true)),
       requireCount(client.from("attendance_missing_punch_flags")
-        .select("id, attendance_records!inner(is_current)", { count: "exact", head: true })
+        .select("id, employees!inner(company_id), attendance_records!inner(is_current)", { count: "exact", head: true })
+        .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
         .eq("attendance_records.is_current", true)
-        .in("employee_id", authorizedEmployeeIds)
         .gte("work_date", start).lte("work_date", end).in("status", ["PENDING_CONTACT", "CONTACTED"])),
     ]);
 

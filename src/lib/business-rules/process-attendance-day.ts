@@ -19,6 +19,7 @@ import type { BirthdayContext } from "./birthday";
 import { loadHolidaySet } from "./holidays";
 import { resolveEffectiveEmployeeGroup } from "./effective-employee-group";
 import { authorizedRosterForCompany } from "../shared/arcotex-authorized-roster";
+import { resolveArcotexAuthorizedEmployeeScope } from "../employees/arcotex-authorized-employee-scope";
 
 /**
  * Orquestador del motor de reglas (MB-2) -- la pieza que faltaba entre la
@@ -72,6 +73,8 @@ export interface ProcessAttendanceDayDeps {
   retireCurrentLateArrivalCandidate: typeof retireCurrentLateArrivalCandidate;
   retireCurrentEarlyDepartureCandidate: typeof retireCurrentEarlyDepartureCandidate;
   generateOvertimeCandidate: typeof generateOvertimeCandidate;
+  /** Contrato único que limita ARCOTEX al padrón aprobado; otros tenants retornan undefined. */
+  resolveAuthorizedEmployeeScope?: typeof resolveArcotexAuthorizedEmployeeScope;
 }
 
 const DEFAULT_DEPS: ProcessAttendanceDayDeps = {
@@ -81,6 +84,7 @@ const DEFAULT_DEPS: ProcessAttendanceDayDeps = {
   retireCurrentLateArrivalCandidate,
   retireCurrentEarlyDepartureCandidate,
   generateOvertimeCandidate,
+  resolveAuthorizedEmployeeScope: resolveArcotexAuthorizedEmployeeScope,
 };
 
 export interface EmployeeProcessOutcome {
@@ -224,11 +228,25 @@ async function loadEmployeesWithHistoricalGroup(
 async function loadEmployeesInScope(
   supabase: SupabaseClient<Database>,
   date: string,
-  options: ProcessAttendanceDayOptions
+  options: ProcessAttendanceDayOptions,
+  authorizedEmployeeIds?: readonly string[],
 ): Promise<string[]> {
   if (options.employeeIds?.length === 0) return [];
 
-  const requestedBatches = options.employeeIds ? chunksOf([...new Set(options.employeeIds)]) : [null];
+  const explicitlyRequested = options.employeeIds
+    ? [...new Set(options.employeeIds)]
+    : undefined;
+  const authorizedSet = authorizedEmployeeIds
+    ? new Set(authorizedEmployeeIds)
+    : undefined;
+  const requestedIds = authorizedSet
+    ? explicitlyRequested
+      ? explicitlyRequested.filter((employeeId) => authorizedSet.has(employeeId))
+      : [...authorizedSet]
+    : explicitlyRequested;
+  if (requestedIds?.length === 0) return [];
+
+  const requestedBatches = requestedIds ? chunksOf(requestedIds) : [null];
   const pages = await Promise.all(
     requestedBatches.map((ids) =>
       fetchAllPages<EmployeeScopeRow>("processAttendanceDay: fallo listando employees", (from, to) => {
@@ -421,7 +439,15 @@ export async function processAttendanceDay(
 ): Promise<ProcessAttendanceDayResult> {
   const companyId = requireCompanyId(options.companyId);
   const ruleEngineRunId = requireRuleEngineRunId(options.ruleEngineRunId);
-  const employeeIds = await loadEmployeesInScope(supabase, date, { ...options, companyId });
+  const authorizedScope = await (
+    deps.resolveAuthorizedEmployeeScope ?? resolveArcotexAuthorizedEmployeeScope
+  )(supabase, companyId);
+  const employeeIds = await loadEmployeesInScope(
+    supabase,
+    date,
+    { ...options, companyId },
+    authorizedScope?.employeeIds,
+  );
   const birthdays = await loadBirthdays(supabase, employeeIds);
   // Se carga ANTES del bucle a propósito: una corrección solo puede existir
   // sobre un attendance_record que ya existía. Un registro recién derivado en
