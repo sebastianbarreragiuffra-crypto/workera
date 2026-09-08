@@ -20,6 +20,7 @@ export function ErrorState({ message = "No pudimos cargar esta información.", r
       <p className="text-sm text-red-700">{message}</p>
       <Link
         href={retryHref}
+        prefetch={false}
         className="mt-3 inline-block rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100"
       >
         Reintentar
