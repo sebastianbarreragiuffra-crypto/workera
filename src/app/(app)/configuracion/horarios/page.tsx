@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentProfile } from "../../../../lib/auth/session";
-import { createClient } from "../../../../lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "../../../../components/shell/PageHeader";
 import { SectionCard } from "../../../../components/shell/SectionCard";
 import { Badge } from "../../../../components/shell/Badge";

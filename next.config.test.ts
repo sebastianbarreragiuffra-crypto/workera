@@ -54,3 +54,29 @@ test("un origen temporal inválido no se agrega a ninguna allowlist", () => {
   assert.deepEqual(config.allowedDevOrigins, ["127.0.0.1"]);
   assert.equal(config.experimental?.serverActions?.allowedOrigins, undefined);
 });
+
+test("el harness ARCOTEX queda apagado por defecto", () => {
+  const config = createNextConfig(undefined, { nodeEnv: "development" });
+  assert.equal(config.turbopack, undefined);
+});
+
+test("el harness ARCOTEX solo reemplaza fronteras en next dev", () => {
+  const config = createNextConfig(undefined, {
+    nodeEnv: "development",
+    arcotexShadowE2E: "enabled",
+  });
+  const aliases = config.turbopack?.resolveAlias;
+
+  assert.ok(aliases);
+  assert.equal(config.distDir, ".next-arcotex-shadow-e2e");
+  assert.match(String(aliases["@/lib/supabase/middleware"]), /arcotex-shadow-middleware\.ts$/);
+  assert.match(String(aliases["@/lib/supabase/server"]), /arcotex-shadow-supabase\.ts$/);
+  assert.match(String(aliases["../sync/scheduler"]), /arcotex-shadow-sync-health\.ts$/);
+});
+
+test("el harness ARCOTEX falla cerrado si se intenta habilitar en producción", () => {
+  assert.throws(
+    () => createNextConfig(undefined, { nodeEnv: "production", arcotexShadowE2E: "enabled" }),
+    /solo puede habilitarse con next dev/,
+  );
+});
