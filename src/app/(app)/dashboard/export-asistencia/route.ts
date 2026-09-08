@@ -14,7 +14,6 @@ import {
   authorizeWorkforceDataAccess,
   workforceDataAccessFailureResponse,
 } from "../../../../lib/decisions/workforce-data-access";
-import { privateAttachmentHeaders } from "../../../../lib/shared/private-download";
 import { isCalendarDate } from "../../../../lib/view-models/date-utils";
 import { resolveActiveWorkforceCompany } from "../../../../lib/tenant/active-workforce-company";
 import { loadAcceptedPayrollWorkbookAdjustments } from "../../../../lib/payroll/payroll-workbook-adjustments";
@@ -22,7 +21,7 @@ import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-compa
 import { authorizedRosterForCompany } from "../../../../lib/employees/arcotex-pilot-roster";
 import { parsePayrollWorkbook } from "../../../../lib/payroll/payroll-workbook-upload";
 import { downloadTrustedPayrollWorkbook } from "../../../../lib/payroll-workbook/service";
-import { requireYearMonth } from "./route-utils";
+import { attendanceWorkbookHeaders, requireYearMonth } from "./route-utils";
 
 /**
  * Descarga del Excel de asistencia, siempre generado en el momento de la
@@ -194,7 +193,7 @@ export async function GET(request: NextRequest) {
       }
       const filename = `pre-nomina-${period.startDate}-al-${period.endDate}-cierre.xlsx`;
       return new NextResponse(bytes, {
-        headers: privateAttachmentHeaders(filename, bytes.byteLength, {
+        headers: attendanceWorkbookHeaders(filename, bytes.byteLength, {
           limit: access.requestLimit,
           remaining: access.remaining,
         }),
@@ -246,7 +245,7 @@ export async function GET(request: NextRequest) {
 
   return new NextResponse(bytes, {
     status: 200,
-    headers: privateAttachmentHeaders(filename, bytes.byteLength, {
+    headers: attendanceWorkbookHeaders(filename, bytes.byteLength, {
       limit: access.requestLimit,
       remaining: access.remaining,
     }),

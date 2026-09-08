@@ -24,3 +24,13 @@ test("archivo privado siempre se fuerza como adjunto sin cache ni render activo"
   assert.equal(headers["RateLimit-Limit"], "20");
   assert.equal(headers["RateLimit-Remaining"], "19");
 });
+
+test("archivo privado puede declarar su MIME real sin perder las defensas de descarga", () => {
+  const xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  const headers = privateAttachmentHeaders("asistencia.xlsx", 4096, undefined, xlsxMime);
+
+  assert.equal(headers["Content-Type"], xlsxMime);
+  assert.match(headers["Content-Disposition"], /^attachment;/);
+  assert.equal(headers["X-Content-Type-Options"], "nosniff");
+  assert.equal(headers["X-Download-Options"], "noopen");
+});
