@@ -1,0 +1,14 @@
+---
+description: Cerrar cada tarea de Workera con commit, push y entrega verificable
+alwaysApply: true
+---
+
+# Cierre obligatorio de tareas
+
+- Al finalizar una tarea autorizada, revisar el diff y ejecutar los controles proporcionales antes de confirmar resultados.
+- Crear un commit enfocado con sólo los archivos de la tarea; nunca incluir cambios ajenos, temporales, secretos, credenciales ni datos personales.
+- Publicar el commit en la rama remota correspondiente de GitHub y comprobar que la rama local y su upstream coincidan.
+- No usar `force-push`, no reescribir historia compartida y no enviar directamente a `master` salvo autorización explícita.
+- Si una política externa impide publicar, dejar el commit local seguro e informar exactamente la autorización o condición pendiente; nunca afirmar que hubo push si no ocurrió.
+- Terminar con el worktree limpio o documentar cualquier cambio ajeno conservado.
+- Entregar un resumen con rama, commit, push, pruebas ejecutadas, entorno modificado, riesgos pendientes y siguiente paso.
