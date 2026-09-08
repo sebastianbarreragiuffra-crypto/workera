@@ -68,7 +68,7 @@ test("todo consumidor RPC esta inventariado con sus nombres exactos", () => {
     ...surface.literalRpcs,
     ...surface.dynamicRpcs,
   ]));
-  assert.equal(RPC_CONSUMER_SURFACES.length, 48);
+  assert.equal(RPC_CONSUMER_SURFACES.length, 49);
   assert.equal(registeredNames.length, 122);
 });
 

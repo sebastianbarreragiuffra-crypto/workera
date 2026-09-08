@@ -1,5 +1,6 @@
 -- La reconstrucción inicial del historial de grupo incorporada en
 -- 20260906210000 consideraba hechos derivados, pero no las marcaciones crudas
+-- Este corte la ordena después de la reconciliación y precedencia del padrón.
 -- de Workera. Al importar una semana histórica para un trabajador nuevo, el
 -- grupo interno comenzaba en su primer día ya derivado (o hoy), y el motor no
 -- podía reconciliar atrasos/horas extra de los días crudos anteriores.
