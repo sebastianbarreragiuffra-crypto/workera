@@ -26,6 +26,10 @@ migraciones, integraciones o decisiones laborales. Durante toda la preparación:
 ## Control de la ventana
 
 - Alcance inmutable: `ARCOTEX_LABOR_PILOT`.
+- Empresa: ARCOTEX.
+- Población máxima: 45 trabajadores previamente autorizados, registrada solo
+  como conteo agregado.
+- Módulo: Asistencia solamente.
 - Estado de apertura: `BLOQUEADO`.
 - Ventana propuesta (inicio/fin y zona horaria): `PENDIENTE`.
 - Hora límite para decisión de apertura: `PENDIENTE`.
@@ -49,7 +53,7 @@ paquete no esté aceptado o mientras falte un prerequisito de
 | Respuesta a incidentes | Security/Incident Commander | plan, RACI, tabletop y paging | `BLOQUEADO` |
 | Privacidad y finalidad | Privacy/Legal/Product | RoPA/DPIA, finalidad, contratos, avisos, retención y derechos | `BLOQUEADO` |
 | Riesgo residual técnico | Security | registro y recomendación firmada | `PENDIENTE` |
-| Aceptación de riesgo de negocio/datos | Dueño de decisión de Negocio ARCOTEX y Data Owner | aceptación o rechazo con expiración | `PENDIENTE` |
+| Aceptación de riesgo residual | Negocio, Product, Data Owner y Plataforma, según corresponda | aceptación o rechazo con expiración | `PENDIENTE` |
 | Operación y pausa | Plataforma de guardia | cobertura de ventana y capacidad de detener | `PENDIENTE` |
 | Custodia de evidencia | Secretario de acta | referencias protegidas y acceso mínimo | `PENDIENTE` |
 
@@ -94,13 +98,23 @@ Para cambiarlo a `ACEPTADO`, Security/Incident Commander debe confirmar:
 
 Registro de decisión sanitizado:
 
-- Responsable firmante (rol): `PENDIENTE`.
-- Fecha/hora y zona: `PENDIENTE`.
-- Resultado: `BLOQUEADO | ACEPTADO`.
-- Referencia protegida al plan/RACI: `PENDIENTE`.
+- `evidence_id`: `INCIDENT_RESPONSE_APPROVAL`.
+- `evidence_type`: `HUMAN_GATE_APPROVAL`.
+- `owner_role`: `PENDING`.
+- `generated_at`: `PENDING`.
+- `expires_at`: `PENDING`.
+- `protected_reference`: `NONE`.
+- `sha256_digest`: `NONE`.
+- `verifier_role`: `PENDING`.
+- `verified_at`: `NONE`.
+- `status`: `PENDING | VERIFIED | FAILED | EXPIRED` (inicial: `PENDING`).
+- `notes`: observación sanitizada o `NONE`.
 - Referencia protegida al tabletop/paging: `PENDIENTE`.
 - Hallazgos abiertos por severidad, solo agregados: `PENDIENTE`.
-- Próxima revisión o expiración: `PENDIENTE`.
+
+Solo `VERIFIED`, con vigencia activa, referencia protegida y digest coincidente
+con el original consultado por el verificador, permite considerar satisfecho
+este gate dentro del paquete de evidencia. No equivale a `GO`.
 
 ## Gate `PRIVACY_AND_LEGAL`
 
@@ -125,13 +139,22 @@ Para cambiarlo a `ACEPTADO`, Privacy/Legal debe confirmar por escrito:
 
 Registro de decisión sanitizado:
 
-- Responsable firmante (rol): `PENDIENTE`.
-- Fecha/hora y zona: `PENDIENTE`.
-- Resultado: `BLOQUEADO | ACEPTADO`.
-- Referencia protegida al dictamen: `PENDIENTE`.
-- Referencia protegida al RoPA/DPIA y avisos aplicables: `PENDIENTE`.
+- `evidence_id`: `PRIVACY_AND_LEGAL_APPROVAL`.
+- `evidence_type`: `HUMAN_GATE_APPROVAL`.
+- `owner_role`: `PENDING`.
+- `generated_at`: `PENDING`.
+- `expires_at`: `PENDING`.
+- `protected_reference`: `NONE`.
+- `sha256_digest`: `NONE`.
+- `verifier_role`: `PENDING`.
+- `verified_at`: `NONE`.
+- `status`: `PENDING | VERIFIED | FAILED | EXPIRED` (inicial: `PENDING`).
+- `notes`: observación sanitizada o `NONE`.
 - Restricciones obligatorias de la ventana: `PENDIENTE`.
-- Fecha de revisión/expiración: `PENDIENTE`.
+
+La referencia protegida debe cubrir el dictamen, RoPA/DPIA y avisos aplicables,
+sin copiar esos artefactos. Solo `VERIFIED` vigente y con digest conciliado
+satisface el gate dentro del paquete; no equivale a `GO`.
 
 ## Gate `RESIDUAL_RISK_ACCEPTANCE`
 
@@ -148,7 +171,8 @@ Campos mínimos por riesgo:
 - Owner del tratamiento y owner de monitoreo, por rol.
 - Referencia protegida a la evidencia de eficacia.
 - Decisión `RECHAZADO | ACEPTADO_TEMPORALMENTE`.
-- Firmas separadas de Security, Dueño de decisión de Negocio y Data Owner.
+- Recomendación separada de Security y firmas de Negocio, Product, Data Owner y
+  Plataforma según el riesgo y su owner efectivo.
 - Fecha de decisión, expiración no posterior al fin de la ventana y condición de
   revocación.
 
@@ -163,6 +187,24 @@ Resumen sanitizado del registro:
 | Riesgo opaco | Severidad | Compensación | Owner por rol | Expira | Decisión | Referencia protegida |
 |---|---|---|---|---|---|---|
 | `PENDIENTE` | `PENDIENTE` | `PENDIENTE` | `PENDIENTE` | `PENDIENTE` | `BLOQUEADO` | `PENDIENTE` |
+
+Registro de aprobación compatible con el manifiesto:
+
+- `evidence_id`: `RESIDUAL_RISK_ACCEPTANCE`.
+- `evidence_type`: `HUMAN_GATE_APPROVAL`.
+- `owner_role`: `PENDING`.
+- `generated_at`: `PENDING`.
+- `expires_at`: `PENDING`.
+- `protected_reference`: `NONE`.
+- `sha256_digest`: `NONE`.
+- `verifier_role`: `PENDING`.
+- `verified_at`: `NONE`.
+- `status`: `PENDING | VERIFIED | FAILED | EXPIRED` (inicial: `PENDING`).
+- `notes`: observación sanitizada o `NONE`.
+
+Este registro agregado solo puede quedar `VERIFIED` cuando cada riesgo del
+registro protegido tiene las firmas, compensación y vigencia exigidas, y su
+digest fue conciliado. No equivale a `GO`.
 
 ## Criterios de pausa inmediata
 
@@ -208,6 +250,9 @@ acción autorizada es completar evidencia fuera de este repositorio.
   pausa y cierre de la marcha blanca.
 - `docs/ARCOTEX_SHADOW_OPERATION_RECORD_TEMPLATE.md`: acta sanitizada por
   sesión; no completar secciones operativas antes del GO.
+- `docs/ARCOTEX_SANITIZED_EVIDENCE_MANIFEST.md`: contrato de integración para
+  estado, vigencia, referencia protegida y digest de cada evidencia; se mantiene
+  en la rama propietaria hasta su integración en el candidato.
 - `docs/PILOT_READINESS_RUNBOOK.md`: gates de promoción, flags y evidencia
   mínima.
 - `docs/THREAT_MODEL_CURRENT.md`: riesgos vigentes y owners requeridos.
