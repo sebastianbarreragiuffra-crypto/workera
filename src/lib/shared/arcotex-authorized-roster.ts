@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { postgresUuid } from "./postgres-uuid";
+import { postgresUuid, requireCanonicalPostgresUuid } from "./postgres-uuid";
 import {
   ARCOTEX_AUTHORIZED_ROSTER_SIZE,
   ARCOTEX_WORKFORCE_COMPANY_ID,
@@ -58,7 +58,8 @@ export function authorizedRosterForCompany(
   companyId: string,
   configuredEmployeeIds: string | undefined,
 ): ArcotexAuthorizedRoster | undefined {
-  return companyId === ARCOTEX_WORKFORCE_COMPANY_ID
+  const canonicalCompanyId = requireCanonicalPostgresUuid(companyId);
+  return canonicalCompanyId === ARCOTEX_WORKFORCE_COMPANY_ID
     ? requireArcotexAuthorizedRoster(configuredEmployeeIds)
     : undefined;
 }

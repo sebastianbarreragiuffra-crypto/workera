@@ -7,6 +7,8 @@ import {
 } from "./daily-review";
 import { ARCOTEX_WORKFORCE_COMPANY_ID } from "../shared/workforce-constants";
 
+const OTHER_COMPANY_ID = "b7000000-0000-4000-8000-000000000001";
+
 function createMockSupabase() {
   return {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -86,9 +88,9 @@ test("getDailyReview: la empresa activa filtra tanto el área como sus trabajado
     },
   };
 
-  await getDailyReview(client as never, "ADMIN_RRHH", "PRODUCTION", "2026-08-17", "company-a");
-  assert.ok(filters.some((entry) => entry[0] === "employee_groups" && entry[1] === "company_id" && entry[2] === "company-a"));
-  assert.ok(filters.some((entry) => entry[0] === "employees" && entry[1] === "company_id" && entry[2] === "company-a"));
+  await getDailyReview(client as never, "ADMIN_RRHH", "PRODUCTION", "2026-08-17", OTHER_COMPANY_ID);
+  assert.ok(filters.some((entry) => entry[0] === "employee_groups" && entry[1] === "company_id" && entry[2] === OTHER_COMPANY_ID));
+  assert.ok(filters.some((entry) => entry[0] === "employees" && entry[1] === "company_id" && entry[2] === OTHER_COMPANY_ID));
 });
 
 function createMissingPunchReconciliationMock() {

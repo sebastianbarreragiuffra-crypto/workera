@@ -255,7 +255,7 @@ test("dry run: calcula wouldInsert/wouldVersion/wouldUnchanged, CERO escrituras 
   );
 });
 
-test("canario ARCOTEX dry-run: envía exactamente las 45 fichas al filtro provider-side y no persiste", async () => {
+test("canario ARCOTEX dry-run: UUID uppercase envía las 45 fichas al filtro provider-side y no persiste", async () => {
   const authorizedScope = fakeArcotexAuthorizedScope();
   const selectedEmployee = authorizedScope.employees[0];
   const event = fakeEvent({
@@ -271,6 +271,7 @@ test("canario ARCOTEX dry-run: envía exactamente las 45 fichas al filtro provid
   const mock = createMockSupabase({ eventsSelect: () => ({ data: [], error: null }) });
   let capturedParams: { employees?: string[] } | undefined;
   let capturedOptions: { requireEmployeeScope?: boolean } | undefined;
+  let resolvedCompanyId: string | undefined;
   let unscopedCalls = 0;
   const workeraClient = {
     getAllAttendanceEvents: async (
@@ -287,7 +288,7 @@ test("canario ARCOTEX dry-run: envía exactamente las 45 fichas al filtro provid
   const result = await withWorkeraSyncEnabled(undefined, () =>
     syncWorkeraAttendance(
       {
-        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        companyId: ARCOTEX_WORKFORCE_COMPANY_ID.toUpperCase(),
         startDate: "2026-08-18",
         endDate: "2026-08-18",
         dryRun: true,
@@ -295,7 +296,10 @@ test("canario ARCOTEX dry-run: envía exactamente las 45 fichas al filtro provid
       {
         workeraClient,
         supabaseAdmin: mock as never,
-        resolveAuthorizedEmployeeScope: async () => authorizedScope,
+        resolveAuthorizedEmployeeScope: async (_supabase, companyId) => {
+          resolvedCompanyId = companyId;
+          return authorizedScope;
+        },
         canaryRosterExpectation: canaryExpectation(authorizedScope),
       }
     )
@@ -309,6 +313,7 @@ test("canario ARCOTEX dry-run: envía exactamente las 45 fichas al filtro provid
   assert.equal(result.wouldInsert, 1);
   assert.deepEqual(capturedParams?.employees, expectedCodes);
   assert.equal(capturedOptions?.requireEmployeeScope, true);
+  assert.equal(resolvedCompanyId, ARCOTEX_WORKFORCE_COMPANY_ID);
   assert.equal(unscopedCalls, 0);
   assert.equal(mock.calls.length, 0, "el canario no llama RPC ni insert/update");
 
@@ -319,32 +324,72 @@ test("canario ARCOTEX dry-run: envía exactamente las 45 fichas al filtro provid
   assert.ok(!serializedResult.includes("PII-APELLIDO-CANARIO"));
 });
 
-test("canario ARCOTEX dry-run: WORKERA_SYNC_ENABLED=true lo bloquea antes de BD y proveedor", async () => {
+test("canario ARCOTEX dry-run: UUID uppercase respeta kill switch y bloqueo CRON antes de BD/proveedor", async () => {
+  for (const scenario of [
+    { syncEnabled: "true", triggeredBy: "MANUAL" as const },
+    { syncEnabled: "false", triggeredBy: "CRON" as const },
+  ]) {
+    let providerCalls = 0;
+    let scopeCalls = 0;
+    const mock = createMockSupabase({});
+    const result = await withWorkeraSyncEnabled(scenario.syncEnabled, () =>
+      syncWorkeraAttendance(
+        {
+          companyId: ARCOTEX_WORKFORCE_COMPANY_ID.toUpperCase(),
+          startDate: "2026-08-18",
+          endDate: "2026-08-18",
+          dryRun: true,
+          triggeredBy: scenario.triggeredBy,
+        },
+        {
+          workeraClient: {
+            getAllAttendanceEvents: async () => {
+              providerCalls += 1;
+              return { events: [], pagesFetched: 0, totalResult: 0 };
+            },
+          } as unknown as HttpWorkeraClient,
+          supabaseAdmin: mock as never,
+          resolveAuthorizedEmployeeScope: async () => {
+            scopeCalls += 1;
+            return fakeArcotexAuthorizedScope();
+          },
+        },
+      )
+    );
+
+    assert.equal(result.status, "FAILED");
+    assert.equal(result.errorCategory, "CONFIGURATION");
+    assert.equal(providerCalls, 0);
+    assert.equal(scopeCalls, 0);
+    assert.equal(mock.calls.length, 0);
+  }
+});
+
+test("companyId inválido falla cerrado antes de resolver, consultar BD o llamar al proveedor", async () => {
   let providerCalls = 0;
   let scopeCalls = 0;
   const mock = createMockSupabase({});
-  const result = await withWorkeraSyncEnabled("true", () =>
-    syncWorkeraAttendance(
-      {
-        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
-        startDate: "2026-08-18",
-        endDate: "2026-08-18",
-        dryRun: true,
-      },
-      {
-        workeraClient: {
-          getAllAttendanceEvents: async () => {
-            providerCalls += 1;
-            return { events: [], pagesFetched: 0, totalResult: 0 };
-          },
-        } as unknown as HttpWorkeraClient,
-        supabaseAdmin: mock as never,
-        resolveAuthorizedEmployeeScope: async () => {
-          scopeCalls += 1;
-          return fakeArcotexAuthorizedScope();
+
+  const result = await syncWorkeraAttendance(
+    {
+      companyId: "ARCOTEX-NO-ES-UUID",
+      startDate: "2026-08-18",
+      endDate: "2026-08-18",
+      dryRun: true,
+    },
+    {
+      workeraClient: {
+        getAllAttendanceEvents: async () => {
+          providerCalls += 1;
+          return { events: [], pagesFetched: 0, totalResult: 0 };
         },
-      }
-    )
+      } as unknown as HttpWorkeraClient,
+      supabaseAdmin: mock as never,
+      resolveAuthorizedEmployeeScope: async () => {
+        scopeCalls += 1;
+        return fakeArcotexAuthorizedScope();
+      },
+    },
   );
 
   assert.equal(result.status, "FAILED");
@@ -352,6 +397,7 @@ test("canario ARCOTEX dry-run: WORKERA_SYNC_ENABLED=true lo bloquea antes de BD 
   assert.equal(providerCalls, 0);
   assert.equal(scopeCalls, 0);
   assert.equal(mock.calls.length, 0);
+  assert.ok(!JSON.stringify(result).includes("ARCOTEX-NO-ES-UUID"));
 });
 
 test("canario ARCOTEX dry-run: falla cerrado si falta el padrón autorizado", async () => {
@@ -396,7 +442,7 @@ test("canario ARCOTEX dry-run: falla cerrado si las 45 fichas no coinciden con l
   const result = await withWorkeraSyncEnabled(undefined, () =>
     syncWorkeraAttendance(
       {
-        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        companyId: ARCOTEX_WORKFORCE_COMPANY_ID.toUpperCase(),
         startDate: "2026-08-18",
         endDate: "2026-08-18",
         dryRun: true,
@@ -428,7 +474,7 @@ test("canario ARCOTEX dry-run: proveedor que ignora el filtro queda bloqueado si
   const result = await withWorkeraSyncEnabled(undefined, () =>
     syncWorkeraAttendance(
       {
-        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        companyId: ARCOTEX_WORKFORCE_COMPANY_ID.toUpperCase(),
         startDate: "2026-08-18",
         endDate: "2026-08-18",
         dryRun: true,
@@ -464,7 +510,7 @@ test("canario ARCOTEX dry-run: sanitiza errores del proveedor antes de exponer m
   const result = await withWorkeraSyncEnabled(undefined, () =>
     syncWorkeraAttendance(
       {
-        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        companyId: ARCOTEX_WORKFORCE_COMPANY_ID.toUpperCase(),
         startDate: "2026-08-18",
         endDate: "2026-08-18",
         dryRun: true,

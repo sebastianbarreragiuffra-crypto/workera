@@ -19,6 +19,7 @@ import {
   ARCOTEX_AUTHORIZED_ROSTER_SIZE,
   ARCOTEX_WORKFORCE_COMPANY_ID,
 } from "../shared/workforce-constants";
+import { requireCanonicalPostgresUuid } from "../shared/postgres-uuid";
 
 /**
  * Ingesta controlada Workera -> Supabase (Fase 6A). Orquesta:
@@ -198,12 +199,14 @@ export async function syncWorkeraAttendance(
   deps: SyncWorkeraAttendanceDeps = {}
 ): Promise<SyncWorkeraAttendanceResult> {
   const dryRun = params.dryRun ?? false;
-  const companyId = params.companyId.trim();
-  if (!companyId) {
+  let companyId: string;
+  try {
+    companyId = requireCanonicalPostgresUuid(params.companyId);
+  } catch {
     return {
       syncRunId: null,
       status: "FAILED",
-      errorMessage: "companyId es obligatorio para sincronizar Workera.",
+      errorMessage: "companyId debe ser un UUID válido para sincronizar Workera.",
       errorCategory: "CONFIGURATION",
       ...emptyCounts(),
     };

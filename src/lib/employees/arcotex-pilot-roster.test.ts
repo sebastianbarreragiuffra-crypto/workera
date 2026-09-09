@@ -46,3 +46,22 @@ test("padrón autorizado Arcotex: solo se exige al UUID fijo de ARCOTEX", () => 
     45,
   );
 });
+
+test("padrón autorizado Arcotex: UUID uppercase equivalente conserva el mismo guardrail", () => {
+  assert.equal(
+    authorizedRosterForCompany(`  ${ARCOTEX_WORKFORCE_COMPANY_ID.toUpperCase()}  `, ids.join(","))
+      ?.employeeCount,
+    ARCOTEX_AUTHORIZED_ROSTER_SIZE,
+  );
+  assert.throws(
+    () => authorizedRosterForCompany(ARCOTEX_WORKFORCE_COMPANY_ID.toUpperCase(), undefined),
+    /permanecen bloqueadas/,
+  );
+});
+
+test("padrón autorizado Arcotex: companyId inválido falla cerrado para todos los callers", () => {
+  assert.throws(
+    () => authorizedRosterForCompany("arcotex-no-es-uuid", undefined),
+    /UUID no es válido/,
+  );
+});
