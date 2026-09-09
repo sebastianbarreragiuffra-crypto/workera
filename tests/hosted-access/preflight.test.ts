@@ -24,6 +24,7 @@ function valid(overrides: Record<string, string | undefined> = {}): Record<strin
     HOSTED_BASE_URL: "https://arcotex-workera-staging.vercel.app",
     HOSTED_CANDIDATE_SHA: sha,
     HOSTED_DEPLOYED_SHA: sha.toUpperCase(),
+    HOSTED_GATE_SHA: sha,
     HOSTED_AUTHORIZATION_DIGEST: digest,
     HOSTED_DEPLOYMENT_EVIDENCE_DIGEST: digest.toUpperCase(),
     HOSTED_RRHH_EMAIL: "rrhh@example.invalid",
@@ -51,6 +52,7 @@ test("acepta sólo un origen HTTPS, SHA idénticos, AAL2 y una ventana vigente",
     baseUrl: "https://arcotex-workera-staging.vercel.app",
     candidateSha: sha,
     deployedSha: sha,
+    gateSha: sha,
     authorizationDigest: digest,
     deploymentEvidenceDigest: digest,
     windowStartUtc: "2026-09-09T14:00:00Z",
@@ -75,11 +77,15 @@ test("falla cerrado fuera de la ventana autorizada o ante un intervalo inválido
   );
 });
 
-test("falla cerrado ante SHA abreviado o despliegue distinto", () => {
+test("falla cerrado ante SHA abreviado o desigualdad entre candidato, despliegue y gate", () => {
   assert.throws(() => validateHostedPreflight(valid({ HOSTED_CANDIDATE_SHA: "0123456" }), now), /SHA Git completo/);
   assert.throws(
     () => validateHostedPreflight(valid({ HOSTED_DEPLOYED_SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), now),
-    /no coincide/,
+    /mismo SHA/,
+  );
+  assert.throws(
+    () => validateHostedPreflight(valid({ HOSTED_GATE_SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), now),
+    /mismo SHA/,
   );
 });
 

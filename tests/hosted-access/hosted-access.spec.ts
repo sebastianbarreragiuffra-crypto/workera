@@ -91,6 +91,7 @@ test.beforeAll(async () => {
     type: "run",
     candidateSha: hostedPreflight.candidateSha,
     deployedSha: hostedPreflight.deployedSha,
+    gateSha: hostedPreflight.gateSha,
     authorizationDigest: hostedPreflight.authorizationDigest,
     deploymentEvidenceDigest: hostedPreflight.deploymentEvidenceDigest,
     windowStartUtc: hostedPreflight.windowStartUtc,

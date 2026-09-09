@@ -12,6 +12,8 @@ con UUID sintéticos.
 1. Obtener el SHA completo del candidato con `git rev-parse HEAD`. Obtener el
    SHA desplegado desde los metadatos del proveedor (no desde la aplicación
    bajo prueba), registrarlo en `HOSTED_DEPLOYED_SHA` y comprobar que coincide.
+   `HOSTED_GATE_SHA` debe identificar el mismo commit que contiene este arnés;
+   los tres SHA completos deben ser idénticos.
 2. Crear las cuatro cuentas y fixtures sintéticos mediante el procedimiento
    aprobado del entorno. No usar nombres, RUT, correos ni documentos reales.
 3. Copiar `.env.hosted.example` a un archivo fuera del repositorio, completar
@@ -53,7 +55,7 @@ controlada, no activar artefactos invasivos sobre el ambiente compartido.
 
 ## Criterio de aprobación
 
-Todos los casos deben pasar: RR. HH. navega por las tres áreas y por rutas
+Los diez casos deben pasar, sin omitidos: RR. HH. navega por las tres áreas y por rutas
 privilegiadas; cada supervisor sólo entra a su área y no a rutas privilegiadas;
 el usuario sin acceso nunca obtiene el shell; los UUID de otra área, empresa o
 fuera del padrón producen una respuesta segura; ningún canario prohibido aparece.

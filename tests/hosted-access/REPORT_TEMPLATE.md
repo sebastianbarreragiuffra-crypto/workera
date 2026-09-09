@@ -5,6 +5,7 @@
 - Origen HTTPS probado:
 - SHA candidato:
 - SHA desplegado verificado:
+- SHA del gate ejecutado:
 - Fuente independiente del SHA (referencia sanitizada del proveedor):
 - Huella SHA-256 de la autorización sanitizada:
 - Huella SHA-256 de la evidencia sanitizada del proveedor:

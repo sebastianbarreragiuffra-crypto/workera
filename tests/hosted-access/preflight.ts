@@ -39,6 +39,7 @@ export type HostedPreflight = {
   baseUrl: string;
   candidateSha: string;
   deployedSha: string;
+  gateSha: string;
   authorizationDigest: string;
   deploymentEvidenceDigest: string;
   windowStartUtc: string;
@@ -87,10 +88,12 @@ export function validateHostedPreflight(env: Environment, now = new Date()): Hos
 
   const candidateSha = required(env, "HOSTED_CANDIDATE_SHA");
   const deployedSha = required(env, "HOSTED_DEPLOYED_SHA");
+  const gateSha = required(env, "HOSTED_GATE_SHA");
   if (!fullSha.test(candidateSha)) throw new Error("HOSTED_CANDIDATE_SHA debe ser un SHA Git completo.");
   if (!fullSha.test(deployedSha)) throw new Error("HOSTED_DEPLOYED_SHA debe ser un SHA Git completo.");
-  if (candidateSha.toLowerCase() !== deployedSha.toLowerCase()) {
-    throw new Error("Ejecución bloqueada: el SHA desplegado no coincide con el candidato.");
+  if (!fullSha.test(gateSha)) throw new Error("HOSTED_GATE_SHA debe ser un SHA Git completo.");
+  if (new Set([candidateSha.toLowerCase(), deployedSha.toLowerCase(), gateSha.toLowerCase()]).size !== 1) {
+    throw new Error("Ejecución bloqueada: candidato, despliegue y gate deben usar el mismo SHA.");
   }
   const authorizationDigest = required(env, "HOSTED_AUTHORIZATION_DIGEST");
   const deploymentEvidenceDigest = required(env, "HOSTED_DEPLOYMENT_EVIDENCE_DIGEST");
@@ -125,6 +128,7 @@ export function validateHostedPreflight(env: Environment, now = new Date()): Hos
     baseUrl: parsed.origin,
     candidateSha: candidateSha.toLowerCase(),
     deployedSha: deployedSha.toLowerCase(),
+    gateSha: gateSha.toLowerCase(),
     authorizationDigest: authorizationDigest.toLowerCase(),
     deploymentEvidenceDigest: deploymentEvidenceDigest.toLowerCase(),
     windowStartUtc: windowStart.value,

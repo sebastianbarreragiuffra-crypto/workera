@@ -3,7 +3,7 @@ import test from "node:test";
 import type { FullResult, TestCase, TestResult } from "@playwright/test/reporter";
 import SanitizedHostedReporter from "./sanitized-reporter";
 
-test("el reporter nunca imprime errores, URLs, cuerpos ni adjuntos", () => {
+test("el reporter nunca imprime errores, URLs, cuerpos ni adjuntos", async () => {
   const reporter = new SanitizedHostedReporter();
   const writes: string[] = [];
   const originalWrite = process.stdout.write;
@@ -21,13 +21,14 @@ test("el reporter nunca imprime errores, URLs, cuerpos ni adjuntos", () => {
         attachments: [{ name: "trace", contentType: "text/plain", body: Buffer.from("PII") }],
       } as TestResult,
     );
-    reporter.onEnd({ status: "failed" } as FullResult);
+    const override = await reporter.onEnd({ status: "failed" } as FullResult);
+    assert.deepEqual(override, { status: "failed" });
   } finally {
     process.stdout.write = originalWrite;
   }
 
   const output = writes.join("");
   assert.match(output, /failed: RRHH \/ caso estático/);
-  assert.match(output, /resultado global: failed/);
+  assert.match(output, /resultado global: failed; 0\/1/);
   assert.doesNotMatch(output, /SECRETO|https:|uuid|PII|trace/);
 });
