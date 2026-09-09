@@ -52,3 +52,19 @@ test("el padrón ARCOTEX se resuelve antes de contar y excluye marcaciones exter
   assert.match(missingPunchScope, /\.in\("employee_id", authorizedEmployeeIds\)/);
   assert.doesNotMatch(missingPunchScope, /\.(?:insert|update|upsert|delete)\(/);
 });
+
+test("la cola del preflight conserva exactamente sus nueve conteos tenant-aware en el orden esperado", () => {
+  const queueStart = source.indexOf("const [\n      lateTotal");
+  const queueEnd = source.indexOf("const reviewQueue", queueStart);
+  const queueQueries = source.slice(queueStart, queueEnd);
+
+  assert.ok(queueStart >= 0 && queueEnd > queueStart);
+  assert.equal((queueQueries.match(/requireCount\(/g) ?? []).length, 9);
+  assert.equal((queueQueries.match(/employees!inner\(company_id\)/g) ?? []).length, 9);
+  assert.equal((queueQueries.match(/\.eq\("employees\.company_id", companyId\)/g) ?? []).length, 9);
+  assert.equal((queueQueries.match(/\.from\("late_arrival_records"\)/g) ?? []).length, 2);
+  assert.equal((queueQueries.match(/\.from\("early_departure_records"\)/g) ?? []).length, 2);
+  assert.equal((queueQueries.match(/\.from\("overtime_records"\)/g) ?? []).length, 2);
+  assert.equal((queueQueries.match(/\.from\("absence_records"\)/g) ?? []).length, 2);
+  assert.equal((queueQueries.match(/\.from\("attendance_missing_punch_flags"\)/g) ?? []).length, 1);
+});

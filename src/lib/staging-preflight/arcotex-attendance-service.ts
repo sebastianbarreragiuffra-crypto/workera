@@ -192,9 +192,6 @@ export async function collectArcotexAttendancePilot(
       absenceDecided,
       missingPunchesPending,
     ] = await Promise.all([
-      requireCount(client.from("late_arrival_records").select("id", { count: "exact", head: true })
-        .eq("is_current", true).gte("work_date", start).lte("work_date", end)
-        .in("employee_id", authorizedEmployeeIds)),
       requireCount(client.from("late_arrival_records")
         .select("id, employees!inner(company_id)", { count: "exact", head: true })
         .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
@@ -204,9 +201,6 @@ export async function collectArcotexAttendancePilot(
         .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
         .eq("is_current", true).gte("work_date", start).lte("work_date", end)
         .eq("late_arrival_decisions.is_current", true)),
-      requireCount(client.from("early_departure_records").select("id", { count: "exact", head: true })
-        .eq("is_current", true).gte("work_date", start).lte("work_date", end)
-        .in("employee_id", authorizedEmployeeIds)),
       requireCount(client.from("early_departure_records")
         .select("id, employees!inner(company_id)", { count: "exact", head: true })
         .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
@@ -216,9 +210,6 @@ export async function collectArcotexAttendancePilot(
         .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
         .eq("is_current", true).gte("work_date", start).lte("work_date", end)
         .eq("early_departure_decisions.is_current", true)),
-      requireCount(client.from("overtime_records").select("id", { count: "exact", head: true })
-        .eq("is_current", true).gte("work_date", start).lte("work_date", end)
-        .in("employee_id", authorizedEmployeeIds)),
       requireCount(client.from("overtime_records")
         .select("id, employees!inner(company_id)", { count: "exact", head: true })
         .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
@@ -228,9 +219,6 @@ export async function collectArcotexAttendancePilot(
         .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
         .eq("is_current", true).gte("work_date", start).lte("work_date", end)
         .eq("overtime_decisions.is_current", true)),
-      requireCount(client.from("absence_records").select("id", { count: "exact", head: true })
-        .eq("is_current", true).lte("start_date", end).gte("end_date", start)
-        .in("employee_id", authorizedEmployeeIds)),
       requireCount(client.from("absence_records")
         .select("id, employees!inner(company_id)", { count: "exact", head: true })
         .eq("employees.company_id", companyId).in("employee_id", authorizedEmployeeIds)
