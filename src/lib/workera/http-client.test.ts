@@ -149,6 +149,89 @@ test("query params: start/end/page se envían; branchOffice/department/employees
   assert.equal(url.searchParams.has("attTypes"), false);
 });
 
+test("consulta scoped: exige fichas y usa únicamente GET /attendanceData con el filtro provider-side", async () => {
+  let capturedUrl: string | undefined;
+  let capturedMethod: string | undefined;
+  await withMockFetch(
+    async (input, init) => {
+      capturedUrl = input.toString();
+      capturedMethod = init?.method;
+      return jsonResponse(200, VALID_PAYLOAD);
+    },
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await client.getAllAttendanceEvents(
+        {
+          start: "2026-08-18",
+          end: "2026-08-18",
+          employees: ["FICHA-002", "FICHA-001"],
+        },
+        { requireEmployeeScope: true }
+      );
+    }
+  );
+
+  const url = new URL(capturedUrl!);
+  assert.equal(capturedMethod, "GET");
+  assert.equal(url.pathname.endsWith("/attendanceData"), true);
+  assert.equal(url.searchParams.get("employees"), "FICHA-001,FICHA-002");
+});
+
+test("consulta scoped: conserva el conjunto employees exacto en cada página", async () => {
+  const requestedFilters: Array<{ page: string | null; employees: string | null }> = [];
+  await withMockFetch(
+    async (input) => {
+      const url = new URL(input.toString());
+      const page = Number(url.searchParams.get("page"));
+      requestedFilters.push({
+        page: url.searchParams.get("page"),
+        employees: url.searchParams.get("employees"),
+      });
+      return pageResponse(page, 2, `EMP-${page}`);
+    },
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      await client.getAllAttendanceEvents(
+        {
+          start: "2026-08-18",
+          end: "2026-08-18",
+          employees: ["FICHA-002", "FICHA-001"],
+        },
+        { requireEmployeeScope: true }
+      );
+    }
+  );
+
+  assert.deepEqual(requestedFilters, [
+    { page: "1", employees: "FICHA-001,FICHA-002" },
+    { page: "2", employees: "FICHA-001,FICHA-002" },
+  ]);
+});
+
+test("consulta scoped: filtro ausente, vacío, repetido o ambiguo falla antes del fetch", async () => {
+  let fetchCalls = 0;
+  await withMockFetch(
+    async () => {
+      fetchCalls += 1;
+      return jsonResponse(200, VALID_PAYLOAD);
+    },
+    async () => {
+      const client = new HttpWorkeraClient(TEST_CONFIG);
+      for (const employees of [undefined, [], ["FICHA-001", "FICHA-001"], [" FICHA-001"], ["FICHA,001"]]) {
+        await assert.rejects(
+          () => client.getAllAttendanceEvents(
+            { start: "2026-08-18", end: "2026-08-18", ...(employees ? { employees } : {}) },
+            { requireEmployeeScope: true }
+          ),
+          WorkeraValidationError
+        );
+      }
+    }
+  );
+
+  assert.equal(fetchCalls, 0);
+});
+
 test("401 -> WorkeraAuthenticationError", async () => {
   await withMockFetch(
     async () => jsonResponse(401, { result: "ERROR", messages: ["Credenciales inválidas"] }),
@@ -374,6 +457,14 @@ test("PII redaction: el log estructurado nunca contiene API_USER/API_KEY/datos d
       async () => {
         const client = new HttpWorkeraClient(TEST_CONFIG);
         await client.getAttendanceEvents({ start: "2026-08-18", end: "2026-08-18" });
+        await client.getAllAttendanceEvents(
+          {
+            start: "2026-08-18",
+            end: "2026-08-18",
+            employees: ["FICHA-PII-NO-LOGUEAR"],
+          },
+          { requireEmployeeScope: true }
+        );
       }
     );
   } finally {
@@ -384,6 +475,7 @@ test("PII redaction: el log estructurado nunca contiene API_USER/API_KEY/datos d
   assert.ok(!allLogs.includes(TEST_CONFIG.apiKey), "el log no debe contener el API key");
   assert.ok(!allLogs.includes(TEST_CONFIG.apiUser), "el log no debe contener el API user");
   assert.ok(!allLogs.includes("90000017"), "el log no debe contener códigos de empleado");
+  assert.ok(!allLogs.includes("FICHA-PII-NO-LOGUEAR"), "el log no debe contener el filtro de fichas");
 });
 
 test("getEmployees/getAttendance/getAbsences no implementados todavía (fuera de alcance Fase 5C) -> WorkeraConfigurationError", async () => {

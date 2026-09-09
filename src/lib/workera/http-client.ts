@@ -50,6 +50,21 @@ export interface GetAttendanceEventsParams {
   attTypes?: string[];
 }
 
+function requireScopedEmployeeCodes(values: readonly string[]): string[] {
+  const normalized = values.map((value) => value.trim());
+  if (
+    normalized.length === 0 ||
+    normalized.some((value, index) => value.length === 0 || value !== values[index] || value.includes(",")) ||
+    new Set(normalized).size !== normalized.length
+  ) {
+    throw new WorkeraValidationError(
+      "La consulta acotada de asistencia requiere un conjunto no vacío de fichas únicas y válidas.",
+      []
+    );
+  }
+  return normalized.sort();
+}
+
 /**
  * Implementación real de `WorkeraClient` contra la API pública documentada
  * en help.workera.com (Fase 5C). `import "server-only"` arriba hace que
@@ -335,9 +350,12 @@ export class HttpWorkeraClient implements WorkeraClient {
    */
   async getAllAttendanceEvents(
     params: Omit<GetAttendanceEventsParams, "page">,
-    options?: { maxPages?: number }
+    options?: { maxPages?: number; requireEmployeeScope?: boolean }
   ): Promise<{ events: NormalizedWorkeraAttendancePage["events"]; pagesFetched: number; totalResult: number }> {
     const maxPages = options?.maxPages ?? 50;
+    const requestParams = options?.requireEmployeeScope
+      ? { ...params, employees: requireScopedEmployeeCodes(params.employees ?? []) }
+      : params;
     const allEvents: NormalizedWorkeraAttendancePage["events"] = [];
     let currentPage = 1;
     let totalPages = 1;
@@ -354,7 +372,7 @@ export class HttpWorkeraClient implements WorkeraClient {
         );
       }
 
-      const result = await this.getAttendanceEvents({ ...params, page: currentPage });
+      const result = await this.getAttendanceEvents({ ...requestParams, page: currentPage });
       if (result.page !== currentPage) {
         // El servidor no devolvió la página que pedimos — protección contra
         // loop infinito si `page` no avanza de forma confiable.
