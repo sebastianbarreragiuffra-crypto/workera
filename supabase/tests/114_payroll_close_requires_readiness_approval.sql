@@ -270,6 +270,7 @@ select is(
   'el digest exactamente aprobado permite crear la reserva'
 );
 
+reset role;
 select is(
   (select readiness_sha256
    from private.payroll_period_close_operations
@@ -278,6 +279,7 @@ select is(
   'la operación persiste el digest aprobado'
 );
 
+set local role authenticated;
 select is(
   public.prepare_payroll_period_close(
     '11300000-0000-4000-8000-000000000030',
@@ -293,6 +295,7 @@ select is(
   'la repetición exacta continúa siendo idempotente'
 );
 
+reset role;
 select is(
   (select count(*) from private.payroll_period_close_operations
    where id = '11300000-0000-4000-8000-000000000030'),
@@ -300,7 +303,6 @@ select is(
   'la repetición idempotente no duplica la reserva'
 );
 
-reset role;
 update public.reporting_period_approvals
 set invalidated_at = clock_timestamp(),
     invalidation_reason = 'Fixture invalida digest A'
@@ -367,6 +369,7 @@ select is(
   'una nueva reserva sí puede ligarse a la reaprobación B'
 );
 
+reset role;
 select is(
   (select readiness_sha256
    from private.payroll_period_close_operations
@@ -375,7 +378,6 @@ select is(
   'la nueva reserva queda ligada al digest B'
 );
 
-reset role;
 update public.reporting_period_approvals
 set invalidated_at = clock_timestamp(),
     invalidation_reason = 'Fixture invalida digest B'

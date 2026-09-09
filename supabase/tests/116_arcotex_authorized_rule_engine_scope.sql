@@ -45,18 +45,18 @@ select ok(
 );
 
 select ok(
-  pg_get_functiondef(
+  lower(pg_get_functiondef(
     'public.begin_attendance_rule_engine_run(uuid,date,text,uuid,uuid[])'::regprocedure
-  ) like '%wae.employee_id = ANY (p_employee_ids)%'
-  and pg_get_functiondef(
+  )) like '%wae.employee_id = any(p_employee_ids)%'
+  and lower(pg_get_functiondef(
     'public.begin_attendance_rule_engine_run(uuid,date,text,uuid,uuid[])'::regprocedure
-  ) like '%e.company_id = p_company_id%'
-  and pg_get_functiondef(
+  )) like '%e.company_id = p_company_id%'
+  and lower(pg_get_functiondef(
     'public.begin_attendance_rule_engine_run(uuid,date,text,uuid,uuid[])'::regprocedure
-  ) like '%employee_scope_sha256%'
-  and pg_get_functiondef(
+  )) like '%employee_scope_sha256%'
+  and lower(pg_get_functiondef(
     'public.begin_attendance_rule_engine_run(uuid,date,text,uuid,uuid[])'::regprocedure
-  ) like '%payroll-source-mutation-v1%',
+  )) like '%payroll-source-mutation-v1%',
   'la apertura valida tenant, acota la fuente y persiste la atestación dentro del lock'
 );
 
