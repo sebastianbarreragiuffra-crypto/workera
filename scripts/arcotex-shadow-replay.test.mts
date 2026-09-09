@@ -410,3 +410,21 @@ test("el reporte es determinista y no incorpora reloj, ruta ni orden de entrada"
   changedWeek.week.end = "2024-01-08";
   assert.notEqual(replayArtifactSha256(first), replayArtifactSha256(changedWeek));
 });
+
+test("desempata días duplicados por contenido canónico y conserva el bloqueo", () => {
+  const first = mutableConsistentArtifact();
+  first.days[1].date = first.days[0].date;
+  const second = structuredClone(first);
+  [second.days[0], second.days[1]] = [second.days[1], second.days[0]];
+
+  assert.notEqual(first.days[0].rawEvents, first.days[1].rawEvents);
+  assert.equal(canonicalReplayArtifactJson(first), canonicalReplayArtifactJson(second));
+  assert.equal(replayArtifactSha256(first), replayArtifactSha256(second));
+
+  const firstReport = buildReplayReport(first);
+  const secondReport = buildReplayReport(second);
+  assert.equal(firstReport.outcome, "BLOCKED");
+  assert.equal(secondReport.outcome, "BLOCKED");
+  assert.ok(firstReport.blockers.includes("WEEK_NOT_7_OF_7"));
+  assert.ok(secondReport.blockers.includes("WEEK_NOT_7_OF_7"));
+});

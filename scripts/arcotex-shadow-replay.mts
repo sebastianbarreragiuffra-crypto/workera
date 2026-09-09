@@ -416,20 +416,27 @@ function totalsForDays(days: readonly SanitizedReplayDay[]): Record<Reconciliati
   ) as Record<ReconciliationMetric, number>;
 }
 
+function compareCanonicalText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function canonicalJson(value: unknown): string {
   if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (!isRecord(value)) throw new TypeError("Unsupported canonical JSON value");
-  const entries = Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+  const entries = Object.entries(value).sort(([left], [right]) => compareCanonicalText(left, right));
   return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(",")}}`;
 }
 
 export function canonicalReplayArtifactJson(artifact: SanitizedReplayArtifact): string {
   return canonicalJson({
     ...artifact,
-    days: [...artifact.days].sort((left, right) => left.date < right.date ? -1 : left.date > right.date ? 1 : 0),
+    days: [...artifact.days].sort((left, right) => (
+      compareCanonicalText(left.date, right.date)
+      || compareCanonicalText(canonicalJson(left), canonicalJson(right))
+    )),
   });
 }
 
