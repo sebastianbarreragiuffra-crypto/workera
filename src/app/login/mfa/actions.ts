@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { recordMfaEvent } from "@/lib/admin/mfa-audit";
-import { getMfaAccountState } from "@/lib/auth/mfa-account";
+import { getMfaAccountState, getVerifiedMfaSessionState } from "@/lib/auth/mfa-account";
+import { selectPrimaryTotpFactor } from "@/lib/auth/mfa-primary-factor";
 import { createClient } from "@/lib/supabase/server";
 import { AUTH_FLOW_PATHS, safeInternalDestination } from "@/lib/auth/public-origin";
 
@@ -43,9 +44,19 @@ export async function verifyMfaChallengeAction(
     return { status: "error", message: "El código son 6 dígitos, sin espacios." };
   }
 
-  // `factorId` llega del navegador y se valida solo en su forma. La
-  // pertenencia real la comprueba Supabase Auth, que únicamente resuelve
-  // factores de la sesión que hace la llamada: un id ajeno falla ahí.
+  const mfaSession = await getVerifiedMfaSessionState(supabase);
+  const primaryFactor = mfaSession
+    ? selectPrimaryTotpFactor(mfaSession.factors.totp ?? [])
+    : null;
+
+  // El identificador viene del navegador. Además de validar su forma y dejar
+  // que Supabase compruebe la pertenencia, se exige que sea el factor principal
+  // resuelto en el servidor. Los factores históricos de respaldo no se pueden
+  // seleccionar manipulando el formulario.
+  if (!primaryFactor || parsed.data.factorId !== primaryFactor.id) {
+    return { status: "error", message: "No pudimos comprobar tu autenticador. Vuelve a iniciar sesión." };
+  }
+
   const { error } = await supabase.auth.mfa.challengeAndVerify({
     factorId: parsed.data.factorId,
     code: parsed.data.code,

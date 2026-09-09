@@ -6,12 +6,12 @@ import {
   verifyMfaChallengeAction,
   type MfaChallengeState,
 } from "@/app/login/mfa/actions";
+import { MFA_AUTHENTICATOR_LABEL } from "@/lib/auth/mfa-primary-factor";
 
 const MFA_CHALLENGE_INITIAL_STATE: MfaChallengeState = { status: "idle", message: "" };
 
 export interface MfaChallengeFactor {
   id: string;
-  friendlyName: string;
 }
 
 const INPUT_CLASS =
@@ -31,33 +31,19 @@ function SubmitButton() {
 }
 
 /**
- * Pide el código de 6 dígitos. Cuando la cuenta tiene más de un factor
- * verificado -- el caso del OWNER, que inscribe uno en el teléfono y otro
- * guardado fuera de él -- deja elegir cuál usar, porque justamente el segundo
- * existe para cuando el primero no está a mano.
+ * Pide el código de 6 dígitos del único autenticador habilitado. El factor se
+ * envía oculto: la persona no puede escoger un factor alternativo.
  */
-export function MfaChallenge({ factors, next = "/" }: { factors: MfaChallengeFactor[]; next?: string }) {
+export function MfaChallenge({ factor, next = "/" }: { factor: MfaChallengeFactor; next?: string }) {
   const [state, formAction] = useActionState(verifyMfaChallengeAction, MFA_CHALLENGE_INITIAL_STATE);
 
   return (
     <form action={formAction}>
       <input type="hidden" name="next" value={next} />
-      {factors.length > 1 ? (
-        <div className="mb-4">
-          <label htmlFor="factorId" className="text-xs font-medium text-slate-700">
-            Autenticador
-          </label>
-          <select id="factorId" name="factorId" className={INPUT_CLASS} defaultValue={factors[0].id}>
-            {factors.map((factor) => (
-              <option key={factor.id} value={factor.id}>
-                {factor.friendlyName}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : (
-        <input type="hidden" name="factorId" value={factors[0].id} />
-      )}
+      <p className="mb-4 text-xs font-semibold tracking-wide text-slate-700">
+        {MFA_AUTHENTICATOR_LABEL}
+      </p>
+      <input type="hidden" name="factorId" value={factor.id} />
 
       <label htmlFor="code" className="text-xs font-medium text-slate-700">
         Código de 6 dígitos

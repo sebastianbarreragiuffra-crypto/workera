@@ -5,6 +5,7 @@ import { MfaChallenge } from "@/components/auth/MfaChallenge";
 import { MfaLoadError } from "@/components/auth/MfaLoadError";
 import { MfaSignOut } from "@/components/auth/MfaSignOut";
 import { getMfaAccountState, getVerifiedMfaSessionState } from "@/lib/auth/mfa-account";
+import { selectPrimaryTotpFactor } from "@/lib/auth/mfa-primary-factor";
 import { createClient } from "@/lib/supabase/server";
 import { AUTH_FLOW_PATHS, safeInternalDestination } from "@/lib/auth/public-origin";
 import { MfaEnrollment, type MfaFactorView } from "./MfaEnrollment";
@@ -97,6 +98,10 @@ export default async function MfaPage({ searchParams }: { searchParams: Promise<
 
   const verifiedFactors = (factors?.totp ?? []).map(toView);
   const unverifiedFactors = (factors?.all ?? []).filter((factor) => factor.status === "unverified").map(toView);
+  const primaryTotpFactor = selectPrimaryTotpFactor(factors?.totp ?? []);
+  const primaryVerifiedFactors = primaryTotpFactor
+    ? verifiedFactors.filter((factor) => factor.id === primaryTotpFactor.id)
+    : [];
 
   // Sección 5 del diseño: el middleware no distingue inscribir de desafiar,
   // manda todo acá y esta pantalla decide. Con un factor ya verificado y la
@@ -116,17 +121,16 @@ export default async function MfaPage({ searchParams }: { searchParams: Promise<
             </p>
             <div className="mt-4 max-w-sm">
               <MfaChallenge
-                factors={verifiedFactors.map((factor) => ({ id: factor.id, friendlyName: factor.friendlyName }))}
+                factor={{ id: primaryTotpFactor!.id }}
                 next={requestedNext}
               />
             </div>
           </section>
         ) : (
           <MfaEnrollment
-            verifiedFactors={verifiedFactors}
+            verifiedFactors={primaryVerifiedFactors}
             unverifiedFactors={unverifiedFactors}
             requiresMfa={account.requiresMfa}
-            isPlatformOwner={account.isPlatformOwner}
           />
         )}
     </MfaPageFrame>

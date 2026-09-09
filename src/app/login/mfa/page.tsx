@@ -4,6 +4,7 @@ import { MfaChallenge, type MfaChallengeFactor } from "@/components/auth/MfaChal
 import { MfaLoadError } from "@/components/auth/MfaLoadError";
 import { MfaSignOut } from "@/components/auth/MfaSignOut";
 import { getMfaAccountState, getVerifiedMfaSessionState } from "@/lib/auth/mfa-account";
+import { selectPrimaryTotpFactor } from "@/lib/auth/mfa-primary-factor";
 import { createClient } from "@/lib/supabase/server";
 import { AUTH_FLOW_PATHS, safeInternalDestination } from "@/lib/auth/public-origin";
 
@@ -54,14 +55,13 @@ export default async function LoginMfaPage({ searchParams }: { searchParams: Pro
   }
   if (mfaSession.currentLevel === "aal2") redirect(requestedNext);
 
-  const verifiedFactors: MfaChallengeFactor[] = (mfaSession.factors.totp ?? []).map((factor) => ({
-    id: factor.id,
-    friendlyName: factor.friendly_name?.trim() || "Autenticador sin nombre",
-  }));
+  const primaryTotpFactor = selectPrimaryTotpFactor(mfaSession.factors.totp ?? []);
 
   // Sin ningún factor verificado no hay nada que desafiar: lo que corresponde
   // es inscribir uno.
-  if (verifiedFactors.length === 0) redirect(`/seguridad/mfa?next=${encodeURIComponent(requestedNext)}`);
+  if (!primaryTotpFactor) redirect(`/seguridad/mfa?next=${encodeURIComponent(requestedNext)}`);
+
+  const challengeFactor: MfaChallengeFactor = { id: primaryTotpFactor.id };
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-login-background px-6 py-12">
@@ -77,7 +77,7 @@ export default async function LoginMfaPage({ searchParams }: { searchParams: Pro
           </p>
 
           <div className="mt-6">
-            <MfaChallenge factors={verifiedFactors} next={requestedNext} />
+            <MfaChallenge factor={challengeFactor} next={requestedNext} />
           </div>
 
           <div className="mt-6 flex justify-center border-t border-login-border-soft pt-4">
