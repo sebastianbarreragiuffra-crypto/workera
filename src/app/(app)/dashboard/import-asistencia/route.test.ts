@@ -69,6 +69,17 @@ test("confirmación XLSX: la sesión exige MFA y nunca ejecuta directamente el c
   assert.doesNotMatch(source, /\.rpc\(["']register_accepted_payroll_workbook["']/);
 });
 
+test("subida XLSX: consume cuota antes de leer el cuerpo y conserva respuesta fail-closed", () => {
+  const source = readFileSync(new URL("./route.ts", import.meta.url), "utf8");
+  const postHandler = source.slice(source.indexOf("export async function POST"), source.indexOf("export async function GET"));
+  const quota = postHandler.indexOf('enforceWorkforceActionRateLimit(supabase, "workforce.payroll.manage")');
+  const bodyRead = postHandler.indexOf("requestWithLimitedBody(request");
+
+  assert.ok(quota >= 0 && bodyRead > quota, "la cuota debe consumirse antes de leer el multipart costoso");
+  assert.match(postHandler, /status:\s*429[\s\S]*?Retry-After/);
+  assert.match(postHandler, /status:\s*error\.decision\.status === "DENIED" \? 403 : 503/);
+});
+
 test("versiones ARCOTEX: subida y descarga histórica exigen la misma atestación del padrón de 45", () => {
   const source = readFileSync(new URL("./route.ts", import.meta.url), "utf8");
   const getHandler = source.slice(source.indexOf("export async function GET"));

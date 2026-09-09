@@ -206,9 +206,9 @@ export const REQUEST_SURFACES = [
     source: "src/app/(app)/dashboard/import-asistencia/route.ts", route: "/dashboard/import-asistencia", method: "POST", kind: "USER_API",
     domain: "workforce", authentication: "SESSION_PRIVILEGED_ROLE", tenantScope: "EXPLICIT_COMPANY",
     authorization: "Solo ADMIN_RRHH; RPC revalida rol, MFA, empresa, período y versión base.",
-    mutates: true, maxBodyBytes: 15 * MIB, idempotency: "DATABASE_CONSTRAINT", abuseControl: "MISSING",
+    mutates: true, maxBodyBytes: 15 * MIB, idempotency: "DATABASE_CONSTRAINT", abuseControl: "DATABASE_RATE_LIMIT",
     auditControl: "BUSINESS_LEDGER", featureFlag: null, dataClass: "FINANCIAL",
-    blockers: ["APPLICATION_RATE_LIMIT", "EDGE_RATE_LIMIT", "ANTIMALWARE_PROVIDER"],
+    blockers: ["EDGE_RATE_LIMIT", "ANTIMALWARE_PROVIDER"],
   },
   {
     source: "src/app/(app)/dashboard/import-asistencia/route.ts", route: "/dashboard/import-asistencia", method: "GET", kind: "DOWNLOAD",
