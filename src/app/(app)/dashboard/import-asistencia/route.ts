@@ -38,6 +38,8 @@ import {
 } from "../../../../lib/payroll-workbook/service";
 import { resolvePayrollCompanyRole } from "../../../../lib/payroll/payroll-company-role";
 import { authorizedRosterForCompany } from "../../../../lib/employees/arcotex-pilot-roster";
+import { enforceWorkforceActionRateLimit } from "../../../../lib/decisions/workforce-action-rate-limit";
+import { ApplicationActionLimitError } from "../../../../lib/shared/action-rate-limit";
 import {
   parsePayrollMultipart,
   payrollWorkbookPreviewToken,
@@ -104,6 +106,23 @@ export async function POST(request: Request) {
     ["ADMIN_RRHH"],
   );
   if (payrollRole !== "ADMIN_RRHH") return NextResponse.json({ error: "Solo RR. HH. puede confirmar una subida." }, { status: 403 });
+  try {
+    await enforceWorkforceActionRateLimit(supabase, "workforce.payroll.manage");
+  } catch (error) {
+    if (error instanceof ApplicationActionLimitError) {
+      if (error.decision.status === "RATE_LIMITED") {
+        return NextResponse.json(
+          { error: "Demasiadas solicitudes. Intenta nuevamente más tarde." },
+          { status: 429, headers: { "Retry-After": String(error.decision.retryAfterSeconds) } },
+        );
+      }
+      return NextResponse.json(
+        { error: error.decision.status === "DENIED" ? "No autorizado." : "Control de seguridad no disponible." },
+        { status: error.decision.status === "DENIED" ? 403 : 503 },
+      );
+    }
+    return NextResponse.json({ error: "Control de seguridad no disponible." }, { status: 503 });
+  }
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(contentLength) && contentLength > PAYROLL_WORKBOOK_LIMITS.maxBytes + 1_048_576) {
     return NextResponse.json({ error: "El archivo supera el máximo permitido." }, { status: 413 });

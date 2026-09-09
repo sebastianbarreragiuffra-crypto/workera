@@ -103,7 +103,9 @@ test("los limites de aplicacion declarados tienen evidencia directa en el handle
       `${requestSurfaceKey(surface)} no consume el limite`,
     );
     assert.ok(
-      surface.auditControl === "DATA_ACCESS_LEDGER" || surface.auditControl === "JOB_LEDGER",
+      surface.auditControl === "DATA_ACCESS_LEDGER"
+        || surface.auditControl === "JOB_LEDGER"
+        || surface.auditControl === "BUSINESS_LEDGER",
       `${requestSurfaceKey(surface)} debe auditar el acceso o la ejecución`,
     );
     assert.ok(

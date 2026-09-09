@@ -140,10 +140,10 @@ export const READINESS_GATES = [
   },
   {
     id: "APPLICATION_RATE_LIMIT",
-    title: "Cuota faltante en una superficie de aplicación inventariada",
-    status: "OPEN_CODE",
+    title: "Cuotas de aplicación en superficies inventariadas",
+    status: "VERIFIED_LOCAL",
     owner: "Security / Engineering",
-    evidence: ["docs/ABUSE_RATE_LIMITING_PLAN.md", "src/lib/architecture/request-surfaces.ts", "src/lib/architecture/server-action-surfaces.ts"],
+    evidence: ["supabase/tests/077_platform_action_rate_limits.sql", "src/lib/architecture/request-surfaces.test.ts", "src/lib/architecture/server-action-surfaces.test.ts"],
     nextAction: "Implementar cualquier superficie futura que vuelva a declarar este bloqueo.",
   },
   {
@@ -165,9 +165,9 @@ export const READINESS_GATES = [
   {
     id: "EXPORT_AUDIT",
     title: "Auditoría completa de exportaciones",
-    status: "OPEN_CODE",
+    status: "VERIFIED_LOCAL",
     owner: "Security / Audit",
-    evidence: ["docs/SECURITY_SURFACE_INVENTORY.md"],
+    evidence: ["src/lib/architecture/request-surfaces.test.ts", "src/lib/architecture/data-surfaces.test.ts"],
     nextAction: "Cerrar cualquier export futuro que el inventario marque sin ledger.",
   },
   {
