@@ -79,6 +79,18 @@ test("cada piloto incorpora automáticamente los blockers de sus dominios", () =
   }
 });
 
+test("ARCOTEX no hereda gates cerrados sin ocurrencias y conserva el edge pendiente", () => {
+  const arcotex = evaluateReadiness("ARCOTEX_LABOR_PILOT");
+  const required = new Set(arcotex.requiredGates.map((gate) => gate.id));
+  const occurrences = collectSurfaceBlockers().filter((item) => ["identity", "workforce"].includes(item.domain));
+
+  assert.ok(!occurrences.some((item) => item.blocker === "APPLICATION_RATE_LIMIT"));
+  assert.ok(!occurrences.some((item) => item.blocker === "EXPORT_AUDIT"));
+  assert.ok(!required.has("APPLICATION_RATE_LIMIT"));
+  assert.ok(!required.has("EXPORT_AUDIT"));
+  assert.ok(required.has("EDGE_RATE_LIMIT"));
+});
+
 test("el reporte humano no disimula NO-GO ni confunde evidencia local con hosted", () => {
   const rendered = renderReadinessReport();
   assert.match(rendered, /LOCAL_SYNTHETIC: GO/);
