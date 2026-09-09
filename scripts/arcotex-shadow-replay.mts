@@ -1,14 +1,20 @@
-import { lstat, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { constants as fileConstants, type Stats } from "node:fs";
+import { lstat, open, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  ARCOTEX_AUTHORIZED_ROSTER_SIZE,
+  ARCOTEX_AUTHORIZED_WORKERA_CODES_SHA256,
+} from "../src/lib/shared/arcotex-authorized-roster";
 
-const INPUT_SCHEMA_VERSION = "ARCOTEX_SHADOW_REPLAY_V1";
-const OUTPUT_SCHEMA_VERSION = 1;
-const ARCOTEX_AUTHORIZED_ROSTER_SIZE = 45;
+const INPUT_SCHEMA_VERSION = "ARCOTEX_SHADOW_REPLAY_V2";
+const OUTPUT_SCHEMA_VERSION = 2;
 const EXPECTED_DAYS = 7;
 const MAX_INPUT_BYTES = 128 * 1024;
 const MAX_AGGREGATE_COUNT = 1_000_000_000;
 const SHA256 = /^[a-f0-9]{64}$/;
+const GIT_SHA1 = /^[a-f0-9]{40}$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const RUN_STATUSES = new Set([
@@ -27,6 +33,7 @@ const INPUT_ERROR_CODES = [
   "INPUT_NOT_JSON",
   "INPUT_NOT_REGULAR_FILE",
   "INPUT_TOO_LARGE",
+  "INPUT_CHANGED_DURING_READ",
   "INPUT_UNREADABLE",
   "INVALID_JSON",
   "INVALID_SCHEMA",
@@ -36,9 +43,9 @@ const INPUT_ERROR_CODES = [
 ] as const;
 
 const BUSINESS_BLOCKER_CODES = [
-  "SYNC_NOT_DISABLED",
+  "SYNC_DISABLED_NOT_DECLARED",
   "ROSTER_NOT_45_OF_45",
-  "ROSTER_ATTESTATION_MISMATCH",
+  "AUTHORIZED_ROSTER_DIGEST_MISMATCH",
   "WEEK_NOT_7_OF_7",
   "SYNC_STATUS_NOT_SUCCEEDED",
   "RULE_ENGINE_STATUS_NOT_SUCCEEDED",
@@ -98,9 +105,10 @@ const FORBIDDEN_INPUT_KEYS = new Set([
 
 const TOP_LEVEL_KEYS = [
   "schemaVersion",
+  "candidateSha",
   "scope",
   "mode",
-  "workeraSyncEnabled",
+  "workeraSyncEnabledDeclared",
   "week",
   "roster",
   "days",
@@ -111,7 +119,6 @@ const WEEK_KEYS = ["start", "end"] as const;
 const ROSTER_KEYS = [
   "expectedEmployees",
   "observedEmployees",
-  "expectedScopeSha256",
   "observedScopeSha256",
 ] as const;
 const DAY_KEYS = [
@@ -162,14 +169,14 @@ export interface SanitizedReplayDay {
 
 export interface SanitizedReplayArtifact {
   readonly schemaVersion: typeof INPUT_SCHEMA_VERSION;
+  readonly candidateSha: string;
   readonly scope: "ARCOTEX";
   readonly mode: "OFFLINE_SANITIZED_AGGREGATES";
-  readonly workeraSyncEnabled: boolean;
+  readonly workeraSyncEnabledDeclared: boolean;
   readonly week: { readonly start: string; readonly end: string };
   readonly roster: {
     readonly expectedEmployees: number;
     readonly observedEmployees: number;
-    readonly expectedScopeSha256: string;
     readonly observedScopeSha256: string;
   };
   readonly days: readonly SanitizedReplayDay[];
@@ -197,9 +204,9 @@ export interface ReplayMetrics {
 }
 
 export interface ReplayChecks {
-  readonly syncDisabled: boolean;
+  readonly syncDisabledDeclared: boolean;
   readonly roster45Of45: boolean;
-  readonly rosterAttestationMatches: boolean;
+  readonly authorizedRosterDigestMatches: boolean;
   readonly week7Of7: boolean;
   readonly syncStatesSucceeded: boolean;
   readonly ruleEngineStatesSucceeded: boolean;
@@ -220,7 +227,12 @@ export interface ReplayReport {
   readonly schemaVersion: typeof OUTPUT_SCHEMA_VERSION;
   readonly readOnly: true;
   readonly source: "SANITIZED_AGGREGATES";
-  readonly outcome: "READY_FOR_SHADOW_REVIEW" | "BLOCKED";
+  readonly outcome: "CONSISTENT_OFFLINE_EVIDENCE" | "BLOCKED";
+  readonly evidence: {
+    readonly candidateSha: string;
+    readonly week: { readonly start: string; readonly end: string };
+    readonly artifactSha256: string;
+  } | null;
   readonly metrics: ReplayMetrics | null;
   readonly checks: ReplayChecks | null;
   readonly blockers: readonly ReplayBlockerCode[];
@@ -230,6 +242,13 @@ class ReplayValidationError extends Error {
   constructor(readonly code: (typeof INPUT_ERROR_CODES)[number]) {
     super(code);
     this.name = "ReplayValidationError";
+  }
+}
+
+class ReplayFileError extends Error {
+  constructor(readonly code: "INPUT_NOT_REGULAR_FILE" | "INPUT_TOO_LARGE" | "INPUT_CHANGED_DURING_READ") {
+    super(code);
+    this.name = "ReplayFileError";
   }
 }
 
@@ -299,6 +318,11 @@ function digestValue(value: unknown): string {
   return value;
 }
 
+function candidateShaValue(value: unknown): string {
+  if (typeof value !== "string" || !GIT_SHA1.test(value)) validationFailure("INVALID_VALUE");
+  return value;
+}
+
 function isoDateValue(value: unknown): string {
   if (typeof value !== "string" || !ISO_DATE.test(value)) validationFailure("INVALID_VALUE");
   const parsed = new Date(`${value}T00:00:00Z`);
@@ -350,9 +374,10 @@ export function parseSanitizedReplayArtifact(value: unknown): SanitizedReplayArt
 
   return {
     schemaVersion: fixedString(artifact.schemaVersion, INPUT_SCHEMA_VERSION) as typeof INPUT_SCHEMA_VERSION,
+    candidateSha: candidateShaValue(artifact.candidateSha),
     scope: fixedString(artifact.scope, "ARCOTEX") as "ARCOTEX",
     mode: fixedString(artifact.mode, "OFFLINE_SANITIZED_AGGREGATES") as "OFFLINE_SANITIZED_AGGREGATES",
-    workeraSyncEnabled: booleanValue(artifact.workeraSyncEnabled),
+    workeraSyncEnabledDeclared: booleanValue(artifact.workeraSyncEnabledDeclared),
     week: {
       start: isoDateValue(week.start),
       end: isoDateValue(week.end),
@@ -360,7 +385,6 @@ export function parseSanitizedReplayArtifact(value: unknown): SanitizedReplayArt
     roster: {
       expectedEmployees: countValue(roster.expectedEmployees),
       observedEmployees: countValue(roster.observedEmployees),
-      expectedScopeSha256: digestValue(roster.expectedScopeSha256),
       observedScopeSha256: digestValue(roster.observedScopeSha256),
     },
     days: artifact.days.map(parseDay),
@@ -392,12 +416,34 @@ function totalsForDays(days: readonly SanitizedReplayDay[]): Record<Reconciliati
   ) as Record<ReconciliationMetric, number>;
 }
 
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (!isRecord(value)) throw new TypeError("Unsupported canonical JSON value");
+  const entries = Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(",")}}`;
+}
+
+export function canonicalReplayArtifactJson(artifact: SanitizedReplayArtifact): string {
+  return canonicalJson({
+    ...artifact,
+    days: [...artifact.days].sort((left, right) => left.date < right.date ? -1 : left.date > right.date ? 1 : 0),
+  });
+}
+
+export function replayArtifactSha256(artifact: SanitizedReplayArtifact): string {
+  return createHash("sha256").update(canonicalReplayArtifactJson(artifact)).digest("hex");
+}
+
 function blockedReport(code: ReplayBlockerCode): ReplayReport {
   return {
     schemaVersion: OUTPUT_SCHEMA_VERSION,
     readOnly: true,
     source: "SANITIZED_AGGREGATES",
     outcome: "BLOCKED",
+    evidence: null,
     metrics: null,
     checks: null,
     blockers: [code],
@@ -429,10 +475,11 @@ export function buildReplayReport(artifact: SanitizedReplayArtifact): ReplayRepo
     reconciliationMismatches,
   };
   const checks: ReplayChecks = {
-    syncDisabled: artifact.workeraSyncEnabled === false,
+    syncDisabledDeclared: artifact.workeraSyncEnabledDeclared === false,
     roster45Of45: artifact.roster.expectedEmployees === ARCOTEX_AUTHORIZED_ROSTER_SIZE
       && artifact.roster.observedEmployees === ARCOTEX_AUTHORIZED_ROSTER_SIZE,
-    rosterAttestationMatches: artifact.roster.expectedScopeSha256 === artifact.roster.observedScopeSha256,
+    authorizedRosterDigestMatches: artifact.roster.observedScopeSha256
+      === ARCOTEX_AUTHORIZED_WORKERA_CODES_SHA256,
     week7Of7: completeMondayToSundayWeek(artifact),
     syncStatesSucceeded: metrics.syncSucceededDays === EXPECTED_DAYS,
     ruleEngineStatesSucceeded: metrics.ruleEngineSucceededDays === EXPECTED_DAYS,
@@ -451,9 +498,9 @@ export function buildReplayReport(artifact: SanitizedReplayArtifact): ReplayRepo
   };
 
   const blockers: ReplayBlockerCode[] = [];
-  if (!checks.syncDisabled) blockers.push("SYNC_NOT_DISABLED");
+  if (!checks.syncDisabledDeclared) blockers.push("SYNC_DISABLED_NOT_DECLARED");
   if (!checks.roster45Of45) blockers.push("ROSTER_NOT_45_OF_45");
-  if (!checks.rosterAttestationMatches) blockers.push("ROSTER_ATTESTATION_MISMATCH");
+  if (!checks.authorizedRosterDigestMatches) blockers.push("AUTHORIZED_ROSTER_DIGEST_MISMATCH");
   if (!checks.week7Of7) blockers.push("WEEK_NOT_7_OF_7");
   if (!checks.syncStatesSucceeded) blockers.push("SYNC_STATUS_NOT_SUCCEEDED");
   if (!checks.ruleEngineStatesSucceeded) blockers.push("RULE_ENGINE_STATUS_NOT_SUCCEEDED");
@@ -473,7 +520,12 @@ export function buildReplayReport(artifact: SanitizedReplayArtifact): ReplayRepo
     schemaVersion: OUTPUT_SCHEMA_VERSION,
     readOnly: true,
     source: "SANITIZED_AGGREGATES",
-    outcome: blockers.length === 0 ? "READY_FOR_SHADOW_REVIEW" : "BLOCKED",
+    outcome: blockers.length === 0 ? "CONSISTENT_OFFLINE_EVIDENCE" : "BLOCKED",
+    evidence: {
+      candidateSha: artifact.candidateSha,
+      week: artifact.week,
+      artifactSha256: replayArtifactSha256(artifact),
+    },
     metrics,
     checks,
     blockers,
@@ -490,7 +542,17 @@ export function evaluateReplayText(text: string): ReplayReport {
   }
 }
 
-const OUTPUT_TOP_LEVEL_KEYS = ["schemaVersion", "readOnly", "source", "outcome", "metrics", "checks", "blockers"];
+const OUTPUT_TOP_LEVEL_KEYS = [
+  "schemaVersion",
+  "readOnly",
+  "source",
+  "outcome",
+  "evidence",
+  "metrics",
+  "checks",
+  "blockers",
+];
+const OUTPUT_EVIDENCE_KEYS = ["candidateSha", "week", "artifactSha256"] as const;
 const OUTPUT_METRIC_KEYS = [
   "authorizedRosterExpected",
   "authorizedRosterObserved",
@@ -511,9 +573,9 @@ const OUTPUT_METRIC_KEYS = [
   "reconciliationMismatches",
 ] as const;
 const OUTPUT_CHECK_KEYS = [
-  "syncDisabled",
+  "syncDisabledDeclared",
   "roster45Of45",
-  "rosterAttestationMatches",
+  "authorizedRosterDigestMatches",
   "week7Of7",
   "syncStatesSucceeded",
   "ruleEngineStatesSucceeded",
@@ -540,13 +602,24 @@ function hasSafeOutputShape(value: unknown): value is ReplayReport {
   if (value.schemaVersion !== OUTPUT_SCHEMA_VERSION || value.readOnly !== true || value.source !== "SANITIZED_AGGREGATES") {
     return false;
   }
-  if (value.outcome !== "READY_FOR_SHADOW_REVIEW" && value.outcome !== "BLOCKED") return false;
+  if (value.outcome !== "CONSISTENT_OFFLINE_EVIDENCE" && value.outcome !== "BLOCKED") return false;
   if (!Array.isArray(value.blockers) || value.blockers.some((code) => !REPLAY_BLOCKER_CODES.has(code as ReplayBlockerCode))) {
     return false;
   }
-  if (value.metrics === null || value.checks === null) {
-    return value.outcome === "BLOCKED" && value.metrics === null && value.checks === null && value.blockers.length === 1;
+  if (value.evidence === null || value.metrics === null || value.checks === null) {
+    return value.outcome === "BLOCKED"
+      && value.evidence === null
+      && value.metrics === null
+      && value.checks === null
+      && value.blockers.length === 1;
   }
+  const evidence = value.evidence;
+  if (!isRecord(evidence) || !hasExactOutputKeys(evidence, OUTPUT_EVIDENCE_KEYS)) return false;
+  if (!GIT_SHA1.test(String(evidence.candidateSha)) || !SHA256.test(String(evidence.artifactSha256))) return false;
+  const evidenceWeek = evidence.week;
+  if (!isRecord(evidenceWeek) || !hasExactOutputKeys(evidenceWeek, WEEK_KEYS)) return false;
+  if (typeof evidenceWeek.start !== "string" || typeof evidenceWeek.end !== "string") return false;
+  if (!ISO_DATE.test(evidenceWeek.start) || !ISO_DATE.test(evidenceWeek.end)) return false;
   const metrics = value.metrics;
   if (!isRecord(metrics) || !hasExactOutputKeys(metrics, OUTPUT_METRIC_KEYS)) return false;
   if (OUTPUT_METRIC_KEYS.some((key) => !Number.isSafeInteger(metrics[key]) || (metrics[key] as number) < 0)) {
@@ -555,7 +628,10 @@ function hasSafeOutputShape(value: unknown): value is ReplayReport {
   const checks = value.checks;
   if (!isRecord(checks) || !hasExactOutputKeys(checks, OUTPUT_CHECK_KEYS)) return false;
   if (OUTPUT_CHECK_KEYS.some((key) => typeof checks[key] !== "boolean")) return false;
-  return value.outcome === (value.blockers.length === 0 ? "READY_FOR_SHADOW_REVIEW" : "BLOCKED");
+  const allChecksPass = OUTPUT_CHECK_KEYS.every((key) => checks[key] === true);
+  return value.outcome === (
+    value.blockers.length === 0 && allChecksPass ? "CONSISTENT_OFFLINE_EVIDENCE" : "BLOCKED"
+  );
 }
 
 function serializedOutputContainsPii(serialized: string): boolean {
@@ -569,24 +645,71 @@ function serializedOutputContainsPii(serialized: string): boolean {
   return patterns.some((pattern) => pattern.test(serialized));
 }
 
-export function serializeReplayReport(report: ReplayReport): string {
-  if (!hasSafeOutputShape(report)) return JSON.stringify(blockedReport("OUTPUT_SANITIZATION_FAILED"), null, 2);
+function safeReplayReport(report: ReplayReport): ReplayReport {
+  if (!hasSafeOutputShape(report)) return blockedReport("OUTPUT_SANITIZATION_FAILED");
   const serialized = JSON.stringify(report, null, 2);
-  if (serializedOutputContainsPii(serialized)) {
-    return JSON.stringify(blockedReport("OUTPUT_SANITIZATION_FAILED"), null, 2);
+  return serializedOutputContainsPii(serialized) ? blockedReport("OUTPUT_SANITIZATION_FAILED") : report;
+}
+
+export function serializeReplayReport(report: ReplayReport): string {
+  return JSON.stringify(safeReplayReport(report), null, 2);
+}
+
+function sameFileIdentity(left: Stats, right: Stats): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function sameFileSnapshot(left: Stats, right: Stats): boolean {
+  return sameFileIdentity(left, right)
+    && left.size === right.size
+    && left.mtimeMs === right.mtimeMs
+    && left.ctimeMs === right.ctimeMs;
+}
+
+async function readBounded(handle: FileHandle): Promise<Buffer> {
+  const bytes = Buffer.allocUnsafe(MAX_INPUT_BYTES + 1);
+  let offset = 0;
+  while (offset < bytes.length) {
+    const result = await handle.read(bytes, offset, bytes.length - offset, null);
+    if (result.bytesRead === 0) break;
+    offset += result.bytesRead;
   }
-  return serialized;
+  if (offset > MAX_INPUT_BYTES) throw new ReplayFileError("INPUT_TOO_LARGE");
+  return bytes.subarray(0, offset);
 }
 
 export async function evaluateReplayFile(inputPath: string): Promise<ReplayReport> {
   if (path.extname(inputPath).toLowerCase() !== ".json") return blockedReport("INPUT_NOT_JSON");
+  let handle: FileHandle | undefined;
   try {
-    const metadata = await lstat(inputPath);
-    if (!metadata.isFile() || metadata.isSymbolicLink()) return blockedReport("INPUT_NOT_REGULAR_FILE");
-    if (metadata.size > MAX_INPUT_BYTES) return blockedReport("INPUT_TOO_LARGE");
-    return evaluateReplayText(await readFile(inputPath, "utf8"));
-  } catch {
+    const beforeOpen = await lstat(inputPath);
+    if (!beforeOpen.isFile() || beforeOpen.isSymbolicLink()) {
+      throw new ReplayFileError("INPUT_NOT_REGULAR_FILE");
+    }
+    if (beforeOpen.size > MAX_INPUT_BYTES) throw new ReplayFileError("INPUT_TOO_LARGE");
+
+    handle = await open(inputPath, fileConstants.O_RDONLY | (fileConstants.O_NOFOLLOW ?? 0));
+    const opened = await handle.stat();
+    const afterOpen = await lstat(inputPath);
+    if (!opened.isFile() || afterOpen.isSymbolicLink() || !sameFileSnapshot(beforeOpen, opened)
+      || !sameFileSnapshot(opened, afterOpen)) {
+      throw new ReplayFileError("INPUT_CHANGED_DURING_READ");
+    }
+    if (opened.size > MAX_INPUT_BYTES) throw new ReplayFileError("INPUT_TOO_LARGE");
+
+    const bytes = await readBounded(handle);
+    const afterRead = await handle.stat();
+    const afterReadPath = await lstat(inputPath);
+    if (afterReadPath.isSymbolicLink() || bytes.byteLength !== opened.size
+      || !sameFileSnapshot(opened, afterRead) || !sameFileSnapshot(afterRead, afterReadPath)) {
+      throw new ReplayFileError("INPUT_CHANGED_DURING_READ");
+    }
+    return evaluateReplayText(bytes.toString("utf8"));
+  } catch (error) {
+    if (error instanceof ReplayFileError) return blockedReport(error.code);
     return blockedReport("INPUT_UNREADABLE");
+  } finally {
+    await handle?.close().catch(() => undefined);
   }
 }
 
@@ -601,8 +724,9 @@ function inputArgument(arguments_: readonly string[]): string | null {
 async function runCli(): Promise<void> {
   const inputPath = inputArgument(process.argv.slice(2));
   const report = inputPath ? await evaluateReplayFile(inputPath) : blockedReport("INVALID_ARGUMENTS");
-  process.stdout.write(`${serializeReplayReport(report)}\n`);
-  if (report.outcome !== "READY_FOR_SHADOW_REVIEW") process.exitCode = 1;
+  const outputReport = safeReplayReport(report);
+  process.stdout.write(`${JSON.stringify(outputReport, null, 2)}\n`);
+  if (outputReport.outcome !== "CONSISTENT_OFFLINE_EVIDENCE") process.exitCode = 1;
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;
