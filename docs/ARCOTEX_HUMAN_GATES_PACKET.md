@@ -47,15 +47,30 @@ paquete no esté aceptado o mientras falte un prerequisito de
 |---|---|---|---|
 | Decisión de apertura/cierre | Dueño de decisión de Negocio ARCOTEX | firma y fecha | `PENDIENTE` |
 | Respuesta a incidentes | Security/Incident Commander | plan, RACI, tabletop y paging | `BLOQUEADO` |
-| Privacidad y finalidad | Privacy/Legal | base/finalidad, minimización, retención y derechos | `BLOQUEADO` |
+| Privacidad y finalidad | Privacy/Legal/Product | RoPA/DPIA, finalidad, contratos, avisos, retención y derechos | `BLOQUEADO` |
 | Riesgo residual técnico | Security | registro y recomendación firmada | `PENDIENTE` |
-| Aceptación de riesgo de negocio | Dueño de decisión de Negocio ARCOTEX | aceptación o rechazo con expiración | `PENDIENTE` |
+| Aceptación de riesgo de negocio/datos | Dueño de decisión de Negocio ARCOTEX y Data Owner | aceptación o rechazo con expiración | `PENDIENTE` |
 | Operación y pausa | Plataforma de guardia | cobertura de ventana y capacidad de detener | `PENDIENTE` |
 | Custodia de evidencia | Secretario de acta | referencias protegidas y acceso mínimo | `PENDIENTE` |
 
 La misma persona no puede emitir por sí sola la recomendación de Security y la
-aceptación de Negocio. Privacy/Legal conserva autoridad propia sobre sus
-obligaciones; Negocio no puede exceptuarlas mediante aceptación de riesgo.
+aceptación de Negocio/Data Owner. Privacy/Legal conserva autoridad propia sobre
+sus obligaciones; Negocio no puede exceptuarlas mediante aceptación de riesgo.
+
+## Trazabilidad con el reporte ejecutable
+
+Este paquete conserva, sin reinterpretarlos, los owners y próximas acciones de
+`src/lib/architecture/pilot-readiness.ts`:
+
+| Gate | Estado de readiness que debe conservar | Owners mínimos | Salida humana requerida |
+|---|---|---|---|
+| `INCIDENT_RESPONSE` | `REQUIRES_OWNER_DECISION` | Security / Legal / Leadership | on-call, severidades, contactos, preservación de evidencia y tabletop |
+| `PRIVACY_AND_LEGAL` | `REQUIRES_OWNER_DECISION` | Privacy / Legal / Product | RoPA/DPIA, derechos, transferencias, retención, contratos y avisos |
+| `RESIDUAL_RISK_ACCEPTANCE` | `REQUIRES_OWNER_DECISION` | Business / Security / Data Owners | owner, compensación, vencimiento y autoridad GO/NO-GO por riesgo |
+
+Completar este documento no cambia por sí solo el reporte ejecutable. El gate
+solo puede actualizarse mediante una revisión separada que compruebe las
+decisiones originales en sus repositorios protegidos.
 
 ## Gate `INCIDENT_RESPONSE`
 
@@ -95,6 +110,7 @@ Para cambiarlo a `ACEPTADO`, Privacy/Legal debe confirmar por escrito:
 
 - [ ] Finalidad y alcance de la revisión en sombra, sin efectos de nómina,
       disciplina ni decisión laboral automatizada.
+- [ ] RoPA actualizado y avisos de privacidad aplicables revisados.
 - [ ] Categorías mínimas de datos permitidas y prohibición de reutilización.
 - [ ] Base jurídica/contractual aplicable y roles de las partes documentados en
       el repositorio privado correspondiente.
@@ -113,6 +129,7 @@ Registro de decisión sanitizado:
 - Fecha/hora y zona: `PENDIENTE`.
 - Resultado: `BLOQUEADO | ACEPTADO`.
 - Referencia protegida al dictamen: `PENDIENTE`.
+- Referencia protegida al RoPA/DPIA y avisos aplicables: `PENDIENTE`.
 - Restricciones obligatorias de la ventana: `PENDIENTE`.
 - Fecha de revisión/expiración: `PENDIENTE`.
 
@@ -131,7 +148,7 @@ Campos mínimos por riesgo:
 - Owner del tratamiento y owner de monitoreo, por rol.
 - Referencia protegida a la evidencia de eficacia.
 - Decisión `RECHAZADO | ACEPTADO_TEMPORALMENTE`.
-- Firmas separadas de Security y Dueño de decisión de Negocio.
+- Firmas separadas de Security, Dueño de decisión de Negocio y Data Owner.
 - Fecha de decisión, expiración no posterior al fin de la ventana y condición de
   revocación.
 
@@ -181,9 +198,9 @@ Completar solo después de aceptar individualmente los tres gates:
 - Decisión final: **`NO_INICIADA / BLOQUEADO`**.
 
 Firmas requeridas por rol y fecha: Security/Incident Commander, Privacy/Legal,
-Dueño de decisión de Negocio ARCOTEX y Plataforma de guardia. Hasta disponer de
-las cuatro y de sus referencias protegidas, la única acción autorizada es
-completar evidencia fuera de este repositorio.
+Product, Dueño de decisión de Negocio ARCOTEX, Data Owner y Plataforma de
+guardia. Hasta disponer de todas y de sus referencias protegidas, la única
+acción autorizada es completar evidencia fuera de este repositorio.
 
 ## Referencias operativas
 
