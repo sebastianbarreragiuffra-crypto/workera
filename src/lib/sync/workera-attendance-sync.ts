@@ -11,6 +11,14 @@ import {
   resolveArcotexAuthorizedEmployeeScope,
   type ArcotexAuthorizedEmployeeScope,
 } from "../employees/arcotex-authorized-employee-scope";
+import {
+  ARCOTEX_AUTHORIZED_WORKERA_CODES_SHA256,
+  canonicalRosterSha256,
+} from "../shared/arcotex-authorized-roster";
+import {
+  ARCOTEX_AUTHORIZED_ROSTER_SIZE,
+  ARCOTEX_WORKFORCE_COMPANY_ID,
+} from "../shared/workforce-constants";
 
 /**
  * Ingesta controlada Workera -> Supabase (Fase 6A). Orquesta:
@@ -88,6 +96,53 @@ export interface SyncWorkeraAttendanceDeps {
   supabaseAdmin?: SupabaseClient<Database>;
   /** Punto de inyección para pruebas; producción usa el contrato cerrado compartido. */
   resolveAuthorizedEmployeeScope?: typeof resolveArcotexAuthorizedEmployeeScope;
+  /** Expectativa inyectable para pruebas sintéticas; producción usa 45 + huella aprobada. */
+  canaryRosterExpectation?: {
+    readonly employeeCount: number;
+    readonly employeeCodeSha256: string;
+  };
+}
+
+const DEFAULT_ARCOTEX_CANARY_ROSTER_EXPECTATION = {
+  employeeCount: ARCOTEX_AUTHORIZED_ROSTER_SIZE,
+  employeeCodeSha256: ARCOTEX_AUTHORIZED_WORKERA_CODES_SHA256,
+} as const;
+
+function requireArcotexCanaryEmployeeCodes(
+  scope: ArcotexAuthorizedEmployeeScope | undefined,
+  expectation: NonNullable<SyncWorkeraAttendanceDeps["canaryRosterExpectation"]>
+): string[] {
+  if (!scope) throw new Error("El padrón cerrado no está disponible.");
+
+  const rawEmployeeIds = [...scope.employeeIds];
+  const rawReferencedIds = scope.employees.map((employee) => employee.id);
+  const rawEmployeeCodes = scope.employees.map((employee) => employee.externalWorkeraId);
+  const employeeIds = rawEmployeeIds.map((id) => id.trim());
+  const referencedIds = rawReferencedIds.map((id) => id.trim());
+  const employeeCodes = rawEmployeeCodes.map((code) => code.trim());
+  const expectedCount = expectation.employeeCount;
+  const employeeIdSet = new Set(employeeIds);
+  const referencedIdSet = new Set(referencedIds);
+
+  if (
+    expectedCount !== ARCOTEX_AUTHORIZED_ROSTER_SIZE ||
+    employeeIds.length !== expectedCount ||
+    employeeIdSet.size !== expectedCount ||
+    employeeIds.some((id, index) => id.length === 0 || id !== rawEmployeeIds[index]) ||
+    referencedIds.length !== expectedCount ||
+    referencedIdSet.size !== expectedCount ||
+    referencedIds.some(
+      (id, index) => id.length === 0 || id !== rawReferencedIds[index] || !employeeIdSet.has(id)
+    ) ||
+    employeeCodes.length !== expectedCount ||
+    employeeCodes.some((code, index) => code.length === 0 || code !== rawEmployeeCodes[index]) ||
+    new Set(employeeCodes).size !== expectedCount ||
+    canonicalRosterSha256(employeeCodes) !== expectation.employeeCodeSha256
+  ) {
+    throw new Error("El padrón cerrado no coincide con la expectativa aprobada.");
+  }
+
+  return employeeCodes.sort();
 }
 
 function buildFingerprint(
@@ -160,6 +215,20 @@ export async function syncWorkeraAttendance(
       syncRunId: null,
       status: "BLOCKED_RANGE_TOO_LARGE",
       errorMessage: `Rango solicitado (${spanDays} días) excede el máximo permitido en Fase 6A (${MAX_DAYS_PER_SYNC} día). Backfill masivo histórico queda fuera de alcance de esta fase.`,
+      errorCategory: "CONFIGURATION",
+      ...emptyCounts(),
+    };
+  }
+
+  const isArcotexDryRunCanary = dryRun && companyId === ARCOTEX_WORKFORCE_COMPANY_ID;
+  if (
+    isArcotexDryRunCanary &&
+    (process.env.WORKERA_SYNC_ENABLED === "true" || params.triggeredBy === "CRON")
+  ) {
+    return {
+      syncRunId: null,
+      status: "FAILED",
+      errorMessage: "El canario dry-run exige sincronización persistente desactivada y ejecución manual.",
       errorCategory: "CONFIGURATION",
       ...emptyCounts(),
     };
@@ -244,6 +313,26 @@ export async function syncWorkeraAttendance(
     };
   }
 
+  let canaryEmployeeCodes: string[] | null = null;
+  let canaryEmployeeCodeSet: ReadonlySet<string> | null = null;
+  if (isArcotexDryRunCanary) {
+    try {
+      canaryEmployeeCodes = requireArcotexCanaryEmployeeCodes(
+        authorizedEmployeeScope,
+        deps.canaryRosterExpectation ?? DEFAULT_ARCOTEX_CANARY_ROSTER_EXPECTATION
+      );
+      canaryEmployeeCodeSet = new Set(canaryEmployeeCodes);
+    } catch {
+      return {
+        syncRunId: null,
+        status: "FAILED",
+        errorMessage: "El canario dry-run quedó bloqueado porque el padrón autorizado no coincide con el conjunto esperado.",
+        errorCategory: "CONFIGURATION",
+        ...emptyCounts(),
+      };
+    }
+  }
+
   // 1) Fetch completo (todas las páginas).
   let events: NormalizedWorkeraAttendanceEvent[];
   let pagesFetched: number;
@@ -264,11 +353,22 @@ export async function syncWorkeraAttendance(
           requestTimeoutMs: config.requestTimeoutMs,
         });
       })();
-    const fetched = await workeraClient.getAllAttendanceEvents({ start: params.startDate, end: params.endDate });
+    const fetched = await workeraClient.getAllAttendanceEvents(
+      {
+        start: params.startDate,
+        end: params.endDate,
+        ...(canaryEmployeeCodes ? { employees: canaryEmployeeCodes } : {}),
+      },
+      canaryEmployeeCodes ? { requireEmployeeScope: true } : undefined
+    );
     events = fetched.events;
     pagesFetched = fetched.pagesFetched;
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Fallo desconocido consultando Workera.";
+    const message = isArcotexDryRunCanary
+      ? "El canario dry-run no pudo completar la lectura segura de Workera."
+      : err instanceof Error
+        ? err.message
+        : "Fallo desconocido consultando Workera.";
     const category = classifySyncError(err);
     const finished = await finishRun("FAILED", {
       records_read: 0,
@@ -281,6 +381,21 @@ export async function syncWorkeraAttendance(
       errorMessage: finished.ok ? message : `${message}; además no se pudo cerrar la corrida: ${finished.error}`,
       errorCategory: category,
       ...emptyCounts(),
+    };
+  }
+
+  if (
+    canaryEmployeeCodeSet &&
+    events.some((event) => !canaryEmployeeCodeSet.has(event.employeeExternalId))
+  ) {
+    return {
+      syncRunId: null,
+      status: "FAILED",
+      errorMessage: "Workera devolvió una ficha fuera del padrón solicitado; el canario no procesó ni persistió datos.",
+      errorCategory: "WORKERA_PAYLOAD",
+      ...emptyCounts(),
+      pagesFetched,
+      eventsFetched: events.length,
     };
   }
 
@@ -491,7 +606,9 @@ export async function syncWorkeraAttendance(
     .eq("is_current", true);
 
   if (existingLookupError) {
-    const message = `Fallo consultando eventos vigentes existentes: ${existingLookupError.message}`;
+    const message = isArcotexDryRunCanary
+      ? "El canario dry-run no pudo consultar el estado vigente de asistencia."
+      : `Fallo consultando eventos vigentes existentes: ${existingLookupError.message}`;
     const finished = await finishRun("FAILED", {
       records_read: events.length,
       error_summary: { message },

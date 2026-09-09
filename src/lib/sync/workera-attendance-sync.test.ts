@@ -8,6 +8,7 @@ import {
   ARCOTEX_AUTHORIZED_ROSTER_SIZE,
   ARCOTEX_WORKFORCE_COMPANY_ID,
 } from "../shared/workforce-constants";
+import { canonicalRosterSha256 } from "../shared/arcotex-authorized-roster";
 
 const COMPANY_ID = "b7000000-0000-4000-8000-000000000001";
 
@@ -172,6 +173,30 @@ function fakeArcotexAuthorizedScope(): ArcotexAuthorizedEmployeeScope {
   };
 }
 
+function canaryExpectation(scope: ArcotexAuthorizedEmployeeScope) {
+  return {
+    employeeCount: ARCOTEX_AUTHORIZED_ROSTER_SIZE,
+    employeeCodeSha256: canonicalRosterSha256(
+      scope.employees.map((employee) => employee.externalWorkeraId)
+    ),
+  };
+}
+
+async function withWorkeraSyncEnabled<T>(
+  value: string | undefined,
+  run: () => Promise<T>
+): Promise<T> {
+  const original = process.env.WORKERA_SYNC_ENABLED;
+  if (value === undefined) delete process.env.WORKERA_SYNC_ENABLED;
+  else process.env.WORKERA_SYNC_ENABLED = value;
+  try {
+    return await run();
+  } finally {
+    if (original === undefined) delete process.env.WORKERA_SYNC_ENABLED;
+    else process.env.WORKERA_SYNC_ENABLED = original;
+  }
+}
+
 test("rango > 1 día: BLOCKED_RANGE_TOO_LARGE, cero llamadas a Workera", async () => {
   let workeraCalled = false;
   const workeraClient = {
@@ -228,6 +253,238 @@ test("dry run: calcula wouldInsert/wouldVersion/wouldUnchanged, CERO escrituras 
     0,
     "dry run no debe ejecutar ningún insert/update"
   );
+});
+
+test("canario ARCOTEX dry-run: envía exactamente las 45 fichas al filtro provider-side y no persiste", async () => {
+  const authorizedScope = fakeArcotexAuthorizedScope();
+  const selectedEmployee = authorizedScope.employees[0];
+  const event = fakeEvent({
+    employeeExternalId: selectedEmployee.externalWorkeraId,
+    employee: {
+      ...fakeEvent().employee,
+      code: selectedEmployee.externalWorkeraId,
+      identification: "19.999.999-9",
+      name: "PII-NOMBRE-CANARIO",
+      lastName: "PII-APELLIDO-CANARIO",
+    },
+  });
+  const mock = createMockSupabase({ eventsSelect: () => ({ data: [], error: null }) });
+  let capturedParams: { employees?: string[] } | undefined;
+  let capturedOptions: { requireEmployeeScope?: boolean } | undefined;
+  let unscopedCalls = 0;
+  const workeraClient = {
+    getAllAttendanceEvents: async (
+      params: { employees?: string[] },
+      options?: { requireEmployeeScope?: boolean }
+    ) => {
+      capturedParams = params;
+      capturedOptions = options;
+      if (!options?.requireEmployeeScope) unscopedCalls += 1;
+      return { events: [event], pagesFetched: 1, totalResult: 1 };
+    },
+  } as unknown as HttpWorkeraClient;
+
+  const result = await withWorkeraSyncEnabled(undefined, () =>
+    syncWorkeraAttendance(
+      {
+        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        startDate: "2026-08-18",
+        endDate: "2026-08-18",
+        dryRun: true,
+      },
+      {
+        workeraClient,
+        supabaseAdmin: mock as never,
+        resolveAuthorizedEmployeeScope: async () => authorizedScope,
+        canaryRosterExpectation: canaryExpectation(authorizedScope),
+      }
+    )
+  );
+
+  const expectedCodes = authorizedScope.employees
+    .map((employee) => employee.externalWorkeraId)
+    .sort();
+  assert.equal(result.status, "DRY_RUN");
+  assert.equal(result.eventsFetched, 1);
+  assert.equal(result.wouldInsert, 1);
+  assert.deepEqual(capturedParams?.employees, expectedCodes);
+  assert.equal(capturedOptions?.requireEmployeeScope, true);
+  assert.equal(unscopedCalls, 0);
+  assert.equal(mock.calls.length, 0, "el canario no llama RPC ni insert/update");
+
+  const serializedResult = JSON.stringify(result);
+  assert.ok(!serializedResult.includes(selectedEmployee.externalWorkeraId));
+  assert.ok(!serializedResult.includes("19.999.999-9"));
+  assert.ok(!serializedResult.includes("PII-NOMBRE-CANARIO"));
+  assert.ok(!serializedResult.includes("PII-APELLIDO-CANARIO"));
+});
+
+test("canario ARCOTEX dry-run: WORKERA_SYNC_ENABLED=true lo bloquea antes de BD y proveedor", async () => {
+  let providerCalls = 0;
+  let scopeCalls = 0;
+  const mock = createMockSupabase({});
+  const result = await withWorkeraSyncEnabled("true", () =>
+    syncWorkeraAttendance(
+      {
+        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        startDate: "2026-08-18",
+        endDate: "2026-08-18",
+        dryRun: true,
+      },
+      {
+        workeraClient: {
+          getAllAttendanceEvents: async () => {
+            providerCalls += 1;
+            return { events: [], pagesFetched: 0, totalResult: 0 };
+          },
+        } as unknown as HttpWorkeraClient,
+        supabaseAdmin: mock as never,
+        resolveAuthorizedEmployeeScope: async () => {
+          scopeCalls += 1;
+          return fakeArcotexAuthorizedScope();
+        },
+      }
+    )
+  );
+
+  assert.equal(result.status, "FAILED");
+  assert.equal(result.errorCategory, "CONFIGURATION");
+  assert.equal(providerCalls, 0);
+  assert.equal(scopeCalls, 0);
+  assert.equal(mock.calls.length, 0);
+});
+
+test("canario ARCOTEX dry-run: falla cerrado si falta el padrón autorizado", async () => {
+  let providerCalls = 0;
+  const mock = createMockSupabase({});
+  const result = await withWorkeraSyncEnabled("false", () =>
+    syncWorkeraAttendance(
+      {
+        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        startDate: "2026-08-18",
+        endDate: "2026-08-18",
+        dryRun: true,
+      },
+      {
+        workeraClient: {
+          getAllAttendanceEvents: async () => {
+            providerCalls += 1;
+            return { events: [], pagesFetched: 0, totalResult: 0 };
+          },
+        } as unknown as HttpWorkeraClient,
+        supabaseAdmin: mock as never,
+        resolveAuthorizedEmployeeScope: async () => undefined,
+      }
+    )
+  );
+
+  assert.equal(result.status, "FAILED");
+  assert.equal(result.errorCategory, "CONFIGURATION");
+  assert.equal(providerCalls, 0);
+  assert.equal(mock.calls.length, 0);
+});
+
+test("canario ARCOTEX dry-run: falla cerrado si las 45 fichas no coinciden con la huella esperada", async () => {
+  const authorizedScope = fakeArcotexAuthorizedScope();
+  const tamperedScope: ArcotexAuthorizedEmployeeScope = {
+    ...authorizedScope,
+    employees: authorizedScope.employees.map((employee, index) =>
+      index === 0 ? { ...employee, externalWorkeraId: "FICHA-NO-APROBADA" } : employee
+    ),
+  };
+  let providerCalls = 0;
+  const result = await withWorkeraSyncEnabled(undefined, () =>
+    syncWorkeraAttendance(
+      {
+        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        startDate: "2026-08-18",
+        endDate: "2026-08-18",
+        dryRun: true,
+      },
+      {
+        workeraClient: {
+          getAllAttendanceEvents: async () => {
+            providerCalls += 1;
+            return { events: [], pagesFetched: 0, totalResult: 0 };
+          },
+        } as unknown as HttpWorkeraClient,
+        supabaseAdmin: createMockSupabase({}) as never,
+        resolveAuthorizedEmployeeScope: async () => tamperedScope,
+        canaryRosterExpectation: canaryExpectation(authorizedScope),
+      }
+    )
+  );
+
+  assert.equal(result.status, "FAILED");
+  assert.equal(result.errorCategory, "CONFIGURATION");
+  assert.equal(providerCalls, 0);
+  assert.ok(!JSON.stringify(result).includes("FICHA-NO-APROBADA"));
+});
+
+test("canario ARCOTEX dry-run: proveedor que ignora el filtro queda bloqueado sin persistir ni filtrar en silencio", async () => {
+  const authorizedScope = fakeArcotexAuthorizedScope();
+  const extraCode = "FICHA-FUERA-DEL-PADRON";
+  const mock = createMockSupabase({});
+  const result = await withWorkeraSyncEnabled(undefined, () =>
+    syncWorkeraAttendance(
+      {
+        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        startDate: "2026-08-18",
+        endDate: "2026-08-18",
+        dryRun: true,
+      },
+      {
+        workeraClient: {
+          getAllAttendanceEvents: async () => ({
+            events: [fakeEvent({
+              employeeExternalId: extraCode,
+              employee: { ...fakeEvent().employee, code: extraCode },
+            })],
+            pagesFetched: 1,
+            totalResult: 1,
+          }),
+        } as unknown as HttpWorkeraClient,
+        supabaseAdmin: mock as never,
+        resolveAuthorizedEmployeeScope: async () => authorizedScope,
+        canaryRosterExpectation: canaryExpectation(authorizedScope),
+      }
+    )
+  );
+
+  assert.equal(result.status, "FAILED");
+  assert.equal(result.errorCategory, "WORKERA_PAYLOAD");
+  assert.equal(result.eventsFetched, 1);
+  assert.equal(mock.calls.length, 0);
+  assert.ok(!JSON.stringify(result).includes(extraCode));
+});
+
+test("canario ARCOTEX dry-run: sanitiza errores del proveedor antes de exponer métricas", async () => {
+  const authorizedScope = fakeArcotexAuthorizedScope();
+  const sensitiveProviderError = "19.999.999-9 PII-NOMBRE API_KEY-SECRETA FICHA-123";
+  const result = await withWorkeraSyncEnabled(undefined, () =>
+    syncWorkeraAttendance(
+      {
+        companyId: ARCOTEX_WORKFORCE_COMPANY_ID,
+        startDate: "2026-08-18",
+        endDate: "2026-08-18",
+        dryRun: true,
+      },
+      {
+        workeraClient: {
+          getAllAttendanceEvents: async () => {
+            throw new Error(sensitiveProviderError);
+          },
+        } as unknown as HttpWorkeraClient,
+        supabaseAdmin: createMockSupabase({}) as never,
+        resolveAuthorizedEmployeeScope: async () => authorizedScope,
+        canaryRosterExpectation: canaryExpectation(authorizedScope),
+      }
+    )
+  );
+
+  assert.equal(result.status, "FAILED");
+  assert.equal(result.errorMessage, "El canario dry-run no pudo completar la lectura segura de Workera.");
+  assert.ok(!JSON.stringify(result).includes(sensitiveProviderError));
 });
 
 test("empleado nuevo: bootstrap crea fila en employees con campos mínimos, nunca sobrescribe uno existente", async () => {
