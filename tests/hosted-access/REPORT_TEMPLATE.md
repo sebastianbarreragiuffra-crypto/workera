@@ -6,7 +6,11 @@
 - SHA candidato:
 - SHA desplegado verificado:
 - Fuente independiente del SHA (referencia sanitizada del proveedor):
+- Huella SHA-256 de la autorización sanitizada:
+- Huella SHA-256 de la evidencia sanitizada del proveedor:
 - Ventana autorizada:
+- Acceso personal AAL2 del operador confirmado: `SÍ` / `NO`
+- AAL2 acreditado por las cuatro sesiones sintéticas: `SÍ` / `NO`
 - Resultado: `APROBADO` / `FALLÓ` / `NO EJECUTADO`
 - Totales: aprobados __ / fallidos __ / omitidos __
 

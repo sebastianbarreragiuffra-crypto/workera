@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
-import { test, expect, type Page, type TestInfo } from "@playwright/test";
+import { test, type Page, type TestInfo } from "@playwright/test";
+import { validateHostedPreflight } from "./preflight";
 
 type RoleKey = "RRHH" | "PRODUCTION" | "INSTALLATION" | "NO_ACCESS";
 type Area = "PRODUCTION" | "INSTALLATION" | "ADMINISTRATION";
@@ -8,6 +9,11 @@ type Area = "PRODUCTION" | "INSTALLATION" | "ADMINISTRATION";
 const outputDir = process.env.HOSTED_RESULTS_DIR ?? "test-results/hosted-access-sanitized";
 const resultsPath = `${outputDir}/results.jsonl`;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const hostedPreflight = validateHostedPreflight(process.env);
+
+function assertSanitized(condition: boolean, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
 
 function required(name: string): string {
   const value = process.env[name]?.trim();
@@ -46,20 +52,30 @@ async function login(page: Page, role: RoleKey) {
   await page.getByLabel("Email").fill(required(`HOSTED_${role}_EMAIL`));
   await page.getByLabel("Contraseña").fill(required(`HOSTED_${role}_PASSWORD`));
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
-  const secret = process.env[`HOSTED_${role}_TOTP_SECRET`]?.trim();
+  const secret = required(`HOSTED_${role}_TOTP_SECRET`);
   if (page.url().includes("/login/mfa")) {
-    if (!secret) throw new Error(`Falta HOSTED_${role}_TOTP_SECRET para una cuenta con MFA.`);
     await page.getByLabel("Código de 6 dígitos").fill(totp(secret));
     await page.getByRole("button", { name: "Verificar" }).click();
   }
   await page.waitForLoadState("networkidle");
+
+  // Esta ruta consulta claims verificados en servidor: sólo una sesión aal2
+  // abandona las pantallas MFA. Así el arnés no confunde "pudo entrar" con
+  // "demostró segundo factor".
+  await page.goto("/login/mfa?next=/");
+  await page.waitForLoadState("networkidle");
+  const path = new URL(page.url()).pathname;
+  assertSanitized(
+    path !== "/login/mfa" && path !== "/seguridad/mfa" && path !== "/login",
+    `La sesión ${role} no acreditó AAL2.`,
+  );
 }
 
 async function safeBody(page: Page) {
   const body = await page.locator("body").innerText();
   for (const name of ["HOSTED_FORBIDDEN_CANARY_AREA", "HOSTED_FORBIDDEN_CANARY_COMPANY", "HOSTED_FORBIDDEN_CANARY_ROSTER"]) {
     const canary = required(name);
-    expect(body, `no debe filtrar ${name}`).not.toContain(canary);
+    assertSanitized(!body.includes(canary), `Se detectó una fuga del canario ${name}.`);
   }
   return body;
 }
@@ -71,7 +87,17 @@ async function record(info: TestInfo) {
 
 test.beforeAll(async () => {
   await mkdir(outputDir, { recursive: true });
-  await writeFile(resultsPath, "", "utf8");
+  await writeFile(resultsPath, `${JSON.stringify({
+    type: "run",
+    candidateSha: hostedPreflight.candidateSha,
+    deployedSha: hostedPreflight.deployedSha,
+    authorizationDigest: hostedPreflight.authorizationDigest,
+    deploymentEvidenceDigest: hostedPreflight.deploymentEvidenceDigest,
+    windowStartUtc: hostedPreflight.windowStartUtc,
+    windowEndUtc: hostedPreflight.windowEndUtc,
+    executionApprovalValidated: true,
+    operatorAal2Validated: true,
+  })}\n`, "utf8");
 });
 test.afterEach(async ({}, info) => record(info));
 
@@ -92,22 +118,31 @@ for (const role of roles) {
     test.beforeEach(async ({ page }) => login(page, role.key));
 
     test("navegación y lecturas quedan limitadas al rol", async ({ page }) => {
-      await expect(page.getByText(role.label).first()).toBeVisible();
+      assertSanitized(await page.getByText(role.label).first().isVisible(), `El rol ${role.key} no quedó visible.`);
       for (const area of role.areas) {
         await page.goto(`/revision-diaria?area=${area}&filtro=todos`);
-        await expect(page.getByText(areaLabel[area], { exact: false }).first()).toBeVisible();
+        assertSanitized(
+          await page.getByText(areaLabel[area], { exact: false }).first().isVisible(),
+          `El área permitida ${area} no quedó visible para ${role.key}.`,
+        );
         await safeBody(page);
       }
       for (const area of role.denied) {
         await page.goto(`/revision-diaria?area=${area}&filtro=todos`);
-        await expect(page.getByText("No tienes acceso a esta área.")).toBeVisible();
+        assertSanitized(
+          await page.getByText("No tienes acceso a esta área.").isVisible(),
+          `El área denegada ${area} no falló cerrada para ${role.key}.`,
+        );
         await safeBody(page);
       }
     });
 
     test("IDOR de otra área, empresa y fuera del padrón no revela PII", async ({ page }) => {
       await page.goto(`/empleados/${syntheticId(`HOSTED_${role.key}_ALLOWED_EMPLOYEE_ID`)}`);
-      await expect(page.getByRole("link", { name: "Revisar hoy" })).toBeVisible();
+      assertSanitized(
+        await page.getByRole("link", { name: "Revisar hoy" }).isVisible(),
+        `El fixture permitido no quedó disponible para ${role.key}.`,
+      );
       await safeBody(page);
 
       const ids = [
@@ -118,7 +153,10 @@ for (const role of roles) {
       for (const id of ids) {
         await page.goto(`/empleados/${id}`);
         const body = await safeBody(page);
-        expect(body).toMatch(/No tienes acceso|No encontramos|No pudimos|Acceso pendiente/i);
+        assertSanitized(
+          /No tienes acceso|No encontramos|No pudimos|Acceso pendiente/i.test(body),
+          `Una lectura IDOR no falló cerrada para ${role.key}.`,
+        );
       }
     });
 
@@ -127,8 +165,18 @@ for (const role of roles) {
       for (const path of privileged) {
         await page.goto(path);
         const body = await safeBody(page);
-        if (role.key === "RRHH") expect(page.url()).not.toMatch(/\/acceso-pendiente|\/login/);
-        else expect(body + page.url()).toMatch(/No tienes acceso|Acceso pendiente|\/acceso-pendiente|\/dashboard|\/login/i);
+        const currentPath = new URL(page.url()).pathname;
+        if (role.key === "RRHH") {
+          assertSanitized(
+            currentPath !== "/acceso-pendiente" && currentPath !== "/login",
+            "RRHH no pudo acceder a una operación privilegiada esperada.",
+          );
+        } else {
+          assertSanitized(
+            /No tienes acceso|Acceso pendiente/i.test(body) || ["/acceso-pendiente", "/dashboard", "/login"].includes(currentPath),
+            `Una operación privilegiada no falló cerrada para ${role.key}.`,
+          );
+        }
       }
     });
   });
@@ -140,7 +188,11 @@ test.describe("usuario autenticado sin acceso", () => {
     for (const path of ["/dashboard", "/revision-diaria", "/licencias", `/empleados/${syntheticId("HOSTED_RRHH_ALLOWED_EMPLOYEE_ID")}`]) {
       await page.goto(path);
       await safeBody(page);
-      expect(page.url()).toMatch(/\/acceso-pendiente|\/empresas|\/login/);
+      const currentPath = new URL(page.url()).pathname;
+      assertSanitized(
+        currentPath.startsWith("/acceso-pendiente") || currentPath.startsWith("/empresas") || currentPath.startsWith("/login"),
+        "El usuario sin acceso obtuvo navegación corporativa.",
+      );
     }
   });
 });

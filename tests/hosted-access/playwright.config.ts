@@ -10,7 +10,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   timeout: 45_000,
-  reporter: [["list"]],
+  reporter: [["./sanitized-reporter.ts"]],
   use: {
     baseURL: baseUrl,
     channel: process.env.PLAYWRIGHT_CHANNEL ?? (process.platform === "win32" ? "chrome" : undefined),
