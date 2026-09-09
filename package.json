@@ -55,5 +55,9 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.12",
     "typescript": "^5"
+  },
+  "overrides": {
+    "js-yaml": "4.3.2",
+    "sharp": "0.35.4"
   }
 }
