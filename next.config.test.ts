@@ -71,6 +71,14 @@ test("el harness ARCOTEX solo reemplaza fronteras en next dev", () => {
   assert.equal(config.distDir, ".next-arcotex-shadow-e2e");
   assert.match(String(aliases["@/lib/supabase/middleware"]), /arcotex-shadow-middleware\.ts$/);
   assert.match(String(aliases["@/lib/supabase/server"]), /arcotex-shadow-supabase\.ts$/);
+  assert.match(
+    String(aliases["../employees/arcotex-authorized-employee-scope"]),
+    /arcotex-shadow-authorized-employee-scope\.ts$/,
+  );
+  assert.match(
+    String(aliases["../shared/arcotex-authorized-employee-scope"]),
+    /arcotex-shadow-authorized-employee-scope\.ts$/,
+  );
   assert.match(String(aliases["../sync/scheduler"]), /arcotex-shadow-sync-health\.ts$/);
 });
 

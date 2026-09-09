@@ -16,6 +16,7 @@ import {
   ARCOTEX_SHADOW_SCENARIO_HEADER,
   type ArcotexShadowScenario,
 } from "./arcotex-shadow-constants";
+import { ARCOTEX_SHADOW_AUTHORIZED_EMPLOYEES } from "./arcotex-shadow-authorized-employee-scope";
 
 type FixtureRow = Record<string, unknown>;
 type FixtureError = { message: string };
@@ -25,10 +26,10 @@ const USER_ID = "e2e00000-0000-4000-8000-000000000001";
 const GROUP_PRODUCTION = "e2e10000-0000-4000-8000-000000000001";
 const GROUP_INSTALLATION = "e2e10000-0000-4000-8000-000000000002";
 const GROUP_ADMINISTRATION = "e2e10000-0000-4000-8000-000000000003";
-const EMPLOYEE_PENDING = "e2e20000-0000-4000-8000-000000000001";
-const EMPLOYEE_CLEAR = "e2e20000-0000-4000-8000-000000000002";
-const EMPLOYEE_INSTALLATION = "e2e20000-0000-4000-8000-000000000003";
-const EMPLOYEE_ADMINISTRATION = "e2e20000-0000-4000-8000-000000000004";
+const EMPLOYEE_PENDING = ARCOTEX_SHADOW_AUTHORIZED_EMPLOYEES[0].id;
+const EMPLOYEE_CLEAR = ARCOTEX_SHADOW_AUTHORIZED_EMPLOYEES[1].id;
+const EMPLOYEE_INSTALLATION = ARCOTEX_SHADOW_AUTHORIZED_EMPLOYEES[2].id;
+const EMPLOYEE_ADMINISTRATION = ARCOTEX_SHADOW_AUTHORIZED_EMPLOYEES[3].id;
 const WORK_SCHEDULE_ID = "e2e30000-0000-4000-8000-000000000001";
 
 function fixtureTables(): Record<string, FixtureRow[]> {
@@ -74,7 +75,7 @@ function fixtureTables(): Record<string, FixtureRow[]> {
     ...employee,
     active: true,
     company_id: ARCOTEX_WORKFORCE_COMPANY_ID,
-    external_workera_id: `SYNTHETIC-${index + 1}`,
+    external_workera_id: ARCOTEX_SHADOW_AUTHORIZED_EMPLOYEES[index].externalWorkeraId,
     first_name: "Caso",
     last_name: "Sintético",
     rut: null,

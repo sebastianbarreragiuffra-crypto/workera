@@ -16,6 +16,10 @@ function arcotexShadowAliases(runtime: NextConfigRuntime): Record<string, string
   return {
     "@/lib/supabase/middleware": "./tests/e2e/support/arcotex-shadow-middleware.ts",
     "@/lib/supabase/server": "./tests/e2e/support/arcotex-shadow-supabase.ts",
+    "../employees/arcotex-authorized-employee-scope":
+      "./tests/e2e/support/arcotex-shadow-authorized-employee-scope.ts",
+    "../shared/arcotex-authorized-employee-scope":
+      "./tests/e2e/support/arcotex-shadow-authorized-employee-scope.ts",
     "../sync/scheduler": "./tests/e2e/support/arcotex-shadow-sync-health.ts",
   };
 }
