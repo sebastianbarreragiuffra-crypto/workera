@@ -1,0 +1,37 @@
+---
+description: Mantener ARCOTEX operativo como norte y evitar expansión o sobrearquitectura prematura
+alwaysApply: true
+---
+
+# Norte de producto ARCOTEX
+
+## Objetivo invariable
+
+- El producto prioritario es el centro operacional de ARCOTEX para menos de 55 personas.
+- Asistencia, Colaciones, Rendiciones y futuras integraciones son módulos dentro de la misma aplicación.
+- Conservar el código multiempresa existente, pero no ampliarlo ni hacerlo requisito del piloto sin aprobación explícita del usuario.
+- Optimizar primero por operación correcta, simple y demostrable; no por escala hipotética, microservicios, IA o generalización futura.
+
+## Patrón obligatorio
+
+- Usar un monolito modular: una aplicación desplegable y un núcleo compartido.
+- El núcleo compartido es dueño de identidad, trabajadores, permisos, auditoría, archivos, jobs, notificaciones y configuración.
+- Cada módulo es dueño únicamente de sus reglas y datos específicos y consume el núcleo mediante contratos explícitos.
+- Toda integración externa usa un adaptador intercambiable; ningún proveedor define el modelo de negocio central.
+- No crear un “motor universal” con reglas mezcladas: compartir infraestructura y conservar separada la lógica de cada dominio.
+
+## Secuencia antes de codificar
+
+1. Escribir el flujo completo: actor, disparador, entradas reales, decisiones, salida, errores y fuente de verdad.
+2. Buscar qué código existente se puede reutilizar antes de crear tablas, servicios, pantallas o ramas nuevas.
+3. Definir una prueba de aceptación observable por una persona de ARCOTEX.
+4. Implementar una sola porción vertical, desde datos hasta interfaz, sin abrir otro módulo.
+5. Probar con datos ARCOTEX autorizados y en el entorno real aplicable antes de declarar terminado.
+
+## Límites de trabajo
+
+- Límite WIP: un módulo funcional en desarrollo. No abrir tareas paralelas que escriban código del producto.
+- Código, tests y documentación local no equivalen a operación real; “terminado” exige evidencia extremo a extremo.
+- Un cambio de base de datos, lenguaje, hosting, multiempresa, servicio separado o núcleo compartido requiere aprobación explícita con costo, migración, riesgos y rollback.
+- Si una solicitud contradice este norte o expande el alcance, detenerse y explicarlo antes de implementar.
+- No reconstruir desde cero sin un inventario verificable de conservar, refactorizar y reemplazar.
